@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: chillgroup
+      POSTGRES_USER: chillgroup
+      POSTGRES_PASSWORD: chillgroup
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chillgroup"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  livekit:
+    image: livekit/livekit-server:latest
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+    expose:
+      - "7880"
+      - "7881"
+      - "7882"
+    environment:
+      LIVEKIT_KEYS: chillgroup-key=chillgroup-secret
+      LIVEKIT_CONFIG: ""
+    command: >
+      --port 7880
+      --bind 0.0.0.0
+      --room {
+        "enabled": true,
+        "names": ["chill-*"]
+      }
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:7880/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  pgdata:

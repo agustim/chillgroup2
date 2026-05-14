@@ -1,0 +1,1077 @@
+# ChillGroup v2 — Especificació del Frontend
+
+## Stack del Frontend
+
+| Tecnologia | Versió | Propòsit |
+|------------|--------|----------|
+| **Framework** | React 19 + TypeScript | UI |
+| **Build tool** | Vite 5 | Compilació ràpida, HMR |
+| **Comunicació temps real** | Socket.IO client 4.x | Missatges, presència, events |
+| **Àudio/Vídeo** | livekit-client 2.x | WebRTC SFU amb E2EE |
+| **Criptografia client** | Web Crypto API + @noble/post-quantum | AES-GCM, Kyber-1024 KEM |
+| **Estils** | CSS pur amb CSS Variables | Sense dependències UI |
+| **Ícones** | Emoji + Unicode symbols | Sense llibreries externes |
+| **Build** | Node 20+ | Vite build |
+
+## Estructura de Directoris
+
+```
+frontend/
+├── package.json
+├── tsconfig.json
+├── vite.config.ts
+├── index.html
+├── public/
+│   ├── favicon.svg
+│   └── icons/
+│       └── .gitkeep
+├── src/
+│   ├── main.tsx                    # Entry point
+│   ├── App.tsx                     # Component arrel
+│   ├── vite-env.d.ts               # Vite type declarations
+│   │
+│   ├── styles/
+│   │   ├── variables.css           # CSS variables (tema dark/light)
+│   │   ├── reset.css               # Normalize/reset
+│   │   ├── layout.css              # Grid, flex, spacing
+│   │   ├── sidebar.css             # Sidebar, canals, usuaris
+│   │   ├── messages.css            # Missatges, input
+│   │   ├── voice.css               # Voice area, video tiles
+│   │   ├── modals.css              # Modals, forms
+│   │   └── theme-light.css         # Override per tema clar
+│   │
+│   ├── contexts/
+│   │   ├── AuthContext.tsx         # Autenticació + claus criptogràfiques
+│   │   └── ChillGroupContext.tsx   # Estat global de l'app (serveis, canals, missatges)
+│   │
+│   ├── hooks/
+│   │   ├── useAuth.ts              # Login, registre, claus dispositiu
+│   │   ├── useChillGroup.ts        # Estat principal (canals, missatges, connexió)
+│   │   ├── useMessages.ts          # Historial, enviar, editar, eliminar
+│   │   ├── useChannels.ts          # CRUD canals, canviar entre canals
+│   │   ├── useServers.ts           # CRUD servidors, membres
+│   │   ├── useVoice.ts             # Connexió LiveKit, mic, càmera, pantalla
+│   │   ├── useSocketIO.ts          # Socket.IO connect, events, reconnect
+│   │   ├── usePresence.ts          # Usuaris connectats, veus actives
+│   │   ├── useChannelKey.ts        # Obtenir/fer caché de claus de canal (E2EE)
+│   │   └── useLocalStorage.ts      # Wrapper localStorage/IndexedDB
+│   │
+│   ├── lib/
+│   │   ├── api.ts                  # Client HTTP (fetch wrapper)
+│   │   ├── crypto.ts               # AES-GCM encrypt/decrypt
+│   │   ├── crypto-e2ee.ts          # Kyber-1024 KEM encrypt/decapsulate
+│   │   ├── socket.ts               # Socket.IO connect, events
+│   │   ├── livekit.ts              # LiveKit room connect, token
+│   │   └── storage.ts              # IndexedDB wrapper (claus, canals)
+│   │
+│   ├── components/
+│   │   ├── LoginScreen.tsx         # Pantalla login/registre
+│   │   ├── AppLayout.tsx           # Layout principal (sidebar + main)
+│   │   │
+│   │   ├── sidebar/
+│   │   │   ├── ServerBar.tsx       # Barra vertical servidors (esquerra extrema)
+│   │   │   ├── ServerPanel.tsx     # Dropdown servidors
+│   │   │   ├── ChannelList.tsx     # Llista canals (text + veu)
+│   │   │   ├── ChannelItem.tsx     # Un canal (text o veu)
+│   │   │   ├── VoiceChannelUsers.tsx # Llista usuaris en un canal de veu
+│   │   │   ├── UsersPanel.tsx      # Panell usuaris globals
+│   │   │   └── ChannelSettings.tsx # Configuració canal
+│   │   │
+│   │   ├── main/
+│   │   │   ├── MainContent.tsx     # Bloc principal (missatges O veu)
+│   │   │   ├── ChannelHeader.tsx   # Capçalera canal (nom, tipus, encriptació)
+│   │   │   ├── MessageList.tsx     # Llista missatges historics
+│   │   │   ├── MessageBubble.tsx   # Un missatge individual
+│   │   │   ├── MessageInput.tsx    # Input missatges de text
+│   │   │   ├── VoiceArea.tsx       # Àrea veu (LiveKit + participants)
+│   │   │   └── VoiceParticipants.tsx # Grid usuaris veu + controls
+│   │   │
+│   │   ├── modals/
+│   │   │   ├── NewChannelModal.tsx # Form creació canal
+│   │   │   ├── InviteModal.tsx     # Convidar usuari
+│   │   │   ├── ServerModal.tsx     # Crear/Editar servidor
+│   │   │   ├── EncryptionModal.tsx # Explicar encriptació canal
+│   │   │   └── UserProfileModal.tsx # Perfil usuari
+│   │   │
+│   │   └── shared/
+│   │       ├── Button.tsx          # Botons reutilitzables
+│   │       ├── Spinner.tsx         # Loading indicator
+│   │       ├── Badge.tsx           # Badges (rol, estat)
+│   │       ├── Tooltip.tsx         # Tooltip
+│   │       ├── EncryptionIcon.tsx  # Icona nivell encriptació
+│   │       └── ConnectionStatus.tsx # Estat connexió
+│   │
+│   └── types/
+│       ├── index.ts                # Types TypeScript globals
+│       └── permissions.ts          # Rols i permisos
+```
+
+## Layout Principal
+
+### Distribució
+
+```
+┌────────┬────────────┬─────────────────────────────────┐
+│ Server │ Channel  │ Channel Header                    │
+│  Bar   │  List    │  # general  [🔑E2EE] [⚙️] [👥]  │
+│        ├────────────┼─────────────────────────────────┤
+│ [🏠]   │ # general  │ ──────────────────────────────  │
+│ [🎮]   │ # misc     │   Missatge 1                    │
+│ [+]    │ 🔊 veu1    │   Missatge 2 (encriptat)        │
+│        │ 🔊 veu2    │   Missatge 3                    │
+│        ├────────────┤   ...                             │
+│        │ ───────    │ ──────────────────────────────  │
+│        │ Usuaris:   │ [🎤] [📷] [🖥️] [🚪 Deixa]      │
+│        │ • agusti   │                                  │
+│        │ • marcus   │                                  │
+│        ├────────────┤                                  │
+│        │ [Què       │ Message Input: [___________][📤]│
+│        │  pensen?] │                                  │
+│        └────────────┴─────────────────────────────────┘
+└────────┴────────────┴─────────────────────────────────┘
+```
+
+| Bloc | Amplada | Funció |
+|------|---------|--------|
+| **Server Bar** | 72px | Barra vertical amb icones de servidors |
+| **Channel List** | 240px | Canals de text i veu + panell d'usuaris |
+| **Main Content** | flex:1 | Missatges (text) O sala de veu (àudio/vídeo) |
+
+### Comportaments Clau
+
+#### Canals de Text
+- **Click = mostrar missatges**, no entra/surt
+- El canal seleccionat es destaca a la llista
+- Els missatges històrics es carreguen al bloc principal
+- No hi ha "entrar" ni "sortir" — sempre pots veure els missatges
+
+#### Canals de Veu
+- **Click = connectar/desconnectar** a la sala de veu
+- Només pots estar en **UN sol canal de veu** alhora
+- Si ja estàs en un canal de veu i en selecciones un altre, **surt automàticament** del primer
+- El canal actiu mostra una indicació visual (fons verd, icona animada)
+- Els usuaris dins del canal es mostren a la llista de canals
+
+## Sistema de Temes (Dark/Light)
+
+### CSS Variables — Tema Dark (Per defecte)
+
+```css
+/* styles/variables.css */
+:root {
+  /* Colors de fons */
+  --bg-app: #1a1b1e;          /* Aplicació principal */
+  --bg-sidebar: #2b2d31;      /* Sidebar canals */
+  --bg-serverbar: #1e1f22;    /* Barra servidors */
+  --bg-header: #2b2d31;       /* Capçaleres */
+  --bg-input: #383a40;        /* Inputs */
+  --bg-hover: #35373c;        /* Hover */
+  --bg-active: #404249;       /* Actiu/seleccionat */
+  --bg-message-hover: #2f3136; /* Hover missatge */
+  --bg-modal: rgba(0,0,0,0.7); /* Overlay modal */
+  --bg-tile: #1e1f22;         /* Video tiles */
+  --bg-badge: #404249;        /* Badges */
+
+  /* Colors de text */
+  --text-primary: #dbdee1;     /* Text principal */
+  --text-secondary: #949ba4;   /* Text secundari */
+  --text-muted: #6d7177;      /* Text atenuat */
+  --text-link: #00a8fc;       /* Links */
+  --text-on-accent: #ffffff;  /* Text sobre accent */
+
+  /* Colors d'accent */
+  --accent: #00a8fc;          /* Accent primari (blau) */
+  --accent-hover: #0097e6;    /* Accent hover */
+  --accent-active: #0084cc;   /* Accent actiu */
+
+  /* Colors d'estat */
+  --success: #23a559;         /* Verd (connectat, OK) */
+  --warning: #f0b232;         /* Taronja (warning) */
+  --error: #f23f43;           /* Vermell (error) */
+  --offline: #80848c;         /* Gris (offline) */
+  --dnd: #f23f43;             /* No molestar */
+  --idle: #f0b232;            /* Idle */
+  --online: #23a559;          /* Online */
+
+  /* Colors de criptografia */
+  --crypto-none: #949ba4;     /* Sense encriptació (gris) */
+  --crypto-symmetric: #00a8fc; /* Simètrica (blau) */
+  --crypto-asymmetric: #23a559; /* Asimètrica (verd) */
+
+  /* Colors de veu */
+  --voice-speaking: #f0b232;  /* Parlant */
+  --voice-muted: #f23f43;     /* Mic mut */
+  --voice-border: #404249;    /* Bordes */
+
+  /* Bordes */
+  --border: #3f3f44;
+  --border-light: #505055;
+
+  /* Tipografia */
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-base: 14px;
+  --font-size-md: 15px;
+  --font-size-lg: 16px;
+  --font-size-xl: 20px;
+  --font-size-xxl: 24px;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* Espaiat */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+  --spacing-xxl: 32px;
+
+  /* Radis */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+
+  /* Transicions */
+  --transition-fast: 150ms ease;
+  --transition-normal: 200ms ease;
+  --transition-slow: 300ms ease;
+
+  /* Ombres */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+  --shadow-lg: 0 8px 30px rgba(0,0,0,0.5);
+}
+```
+
+### CSS Variables — Tema Light (Override)
+
+```css
+/* styles/theme-light.css */
+[data-theme="light"] {
+  --bg-app: #f0f2f5;
+  --bg-sidebar: #ffffff;
+  --bg-serverbar: #f8f9fa;
+  --bg-header: #ffffff;
+  --bg-input: #e9ecef;
+  --bg-hover: #e8eaed;
+  --bg-active: #dde0e6;
+  --bg-message-hover: #e8eaed;
+  --bg-modal: rgba(0,0,0,0.4);
+  --bg-tile: #ffffff;
+  --bg-badge: #e9ecef;
+
+  --text-primary: #1a1a1a;
+  --text-secondary: #65676b;
+  --text-muted: #8a8d91;
+  --text-link: #0066cc;
+  --text-on-accent: #ffffff;
+
+  --accent: #0066cc;
+  --accent-hover: #0055bb;
+  --accent-active: #004499;
+
+  --success: #1a8d48;
+  --warning: #d97706;
+  --error: #dc2626;
+  --offline: #9ca3af;
+  --dnd: #dc2626;
+  --idle: #d97706;
+  --online: #1a8d48;
+
+  --crypto-none: #65676b;
+  --crypto-symmetric: #0066cc;
+  --crypto-asymmetric: #1a8d48;
+
+  --voice-speaking: #d97706;
+  --voice-muted: #dc2626;
+  --voice-border: #d1d5db;
+
+  --border: #e0e0e0;
+  --border-light: #d1d5db;
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+  --shadow-lg: 0 8px 30px rgba(0,0,0,0.15);
+}
+```
+
+### Selector de Tema
+
+```tsx
+// components/shared/ThemeToggle.tsx
+const themes = ['dark', 'light'] as const
+type Theme = typeof themes[number]
+
+export const ThemeToggle: React.FC = () => {
+  const [theme, setTheme] = useState<Theme>(() => {
+    return (localStorage.getItem('chillgroup-theme') as Theme) || 'dark'
+  })
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('chillgroup-theme', theme)
+  }, [theme])
+
+  const next = () => {
+    const i = themes.indexOf(theme)
+    setTheme(themes[(i + 1) % themes.length])
+  }
+
+  return (
+    <button onClick={next} title="Canvia el tema" aria-label="Canvia el tema">
+      {theme === 'dark' ? '☀️' : '🌙'}
+    </button>
+  )
+}
+```
+
+## Fonts i Tipografia
+
+### Font Principal — Inter
+
+Inter és la font per defecte, carregada via Google Fonts o font-display swap:
+
+```html
+<!-- index.html -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+```
+
+Fallback stack:
+```css
+--font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+```
+
+### Fonts de Codi (per missatges encriptats)
+
+Els missatges encriptats es mostren amb monospace per facilitar la còpia:
+```css
+font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Courier New', monospace;
+```
+
+Carregada opcional:
+```html
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+```
+
+### Jerarquia Tipogràfica
+
+| Rols | Font-size | Weight | Ús |
+|------|-----------|--------|-----|
+| Header canal | 16px | 600 | Nom del canal |
+| Text missatge | 14px | 400 | Contingut del missatge |
+| Autor missatge | 14px | 600 | Nom de l'usuari |
+| Timestamp | 11px | 400 | Hora del missatge |
+| Nom canal llista | 14px | 400 | Item de canal |
+| Canal actiu | 14px | 500 | Canal seleccionat |
+| Usuari llista | 13px | 400 | Usuari individual |
+| Text secundari | 12px | 400 | Labels, badges |
+| Secció header | 11px | 500 | "CANALS", "USUARIS" |
+
+## Ícones i Grafics
+
+### Estratègia: Emojis + Unicode (Sense Dependències)
+
+El projecte utilitza emojis i caràcters Unicode com a ícones. Això elimina la necessitat de llibreries d'ícones externes i redueix la mida del bundle.
+
+| Símbol | Ús | Component |
+|--------|-----|-----------|
+| `#` | Canal de text | `ChannelItem.tsx` |
+| `🔊` | Canal de veu (inactiu) | `ChannelItem.tsx` |
+| `🔴` | Canal de veu (actiu, parlant) | `ChannelItem.tsx` |
+| `🎤` | Micròfon control | `VoiceControls.tsx` |
+| `📷` | Càmera control | `VoiceControls.tsx` |
+| `🖥️` | Screen share control | `VoiceControls.tsx` |
+| `🚪` | Sortir de veu | `VoiceControls.tsx` |
+| `⚙️` | Configuració | `ChannelHeader.tsx` |
+| `👥` | Usuaris / Convidar | `ChannelHeader.tsx` |
+| `🔑` | Encriptació activada | `ChannelHeader.tsx` |
+| `🔒` | Encriptació E2EE | `ChannelHeader.tsx` |
+| `🔓` | Sense encriptació | `ChannelHeader.tsx` |
+| `✏️` | Editar missatge | `MessageBubble.tsx` |
+| `🗑️` | Eliminar missatge | `MessageBubble.tsx` |
+| `↩️` | Respondre | `MessageBubble.tsx` |
+| `📎` | Adjunt | `MessageInput.tsx` |
+| `📤` | Enviar | `MessageInput.tsx` |
+| `⚠️` | Warning | Banner E2EE |
+| `🏠` | Servidor principal | `ServerBar.tsx` |
+| `+` | Afegir servidor | `ServerBar.tsx` |
+| `●` | Estat usuari (online) | `UsersPanel.tsx` |
+| `◐` | Estat usuari (idle) | `UsersPanel.tsx` |
+| `○` | Estat usuari (offline) | `UsersPanel.tsx` |
+| `▶️` | Parlant (speaking) | `VoiceParticipants.tsx` |
+| `🔇` | Mut | `VoiceParticipants.tsx` |
+| `↔️` | Canviar tema | `ThemeToggle.tsx` |
+| `👤` | Perfil | `UserProfileModal.tsx` |
+| `⚡` | Admin | `Badge.tsx` |
+
+### Icona de Nivell de Criptografia
+
+```tsx
+// components/shared/EncryptionIcon.tsx
+
+interface EncryptionIconProps {
+  type: 'none' | 'symmetric' | 'asymmetric'
+  size?: 'sm' | 'md' | 'lg'
+}
+
+export const EncryptionIcon: React.FC<EncryptionIconProps> = ({ type, size = 'md' }) => {
+  const icons = {
+    none: { emoji: '🔓', label: 'Sense encriptació', color: '--crypto-none' },
+    symmetric: { emoji: '🔑', label: 'Clau compartida', color: '--crypto-symmetric' },
+    asymmetric: { emoji: '🔒', label: 'E2EE — Zero Knowledge', color: '--crypto-asymmetric' },
+  }
+
+  const icon = icons[type]
+
+  return (
+    <span
+      title={icon.label}
+      style={{
+        fontSize: size === 'sm' ? '14px' : size === 'md' ? '16px' : '20px',
+        filter: 'grayscale(0.3)'
+      }}
+    >
+      {icon.emoji}
+    </span>
+  )
+}
+```
+
+## Storage Local (localStorage + IndexedDB)
+
+### localStorage (Dades No Sensibles)
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                    localStorage                          │
+├──────────────────────┬───────────────────────────────────┤
+│ Clau                 │ Valor                             │
+├──────────────────────┼───────────────────────────────────┤
+│ chillgroup-theme     │ 'dark' | 'light'                  │
+│ chillgroup-username  │ 'agusti' (només per UI display)   │
+│ chillgroup-server    │ 'uuid-ultim-servidor'             │
+│ chillgroup-deviceId  │ UUID generat localment            │
+└──────────────────────┴───────────────────────────────────┘
+```
+
+**Regles:**
+- `chillgroup-username` és **només per UI** — mai per autenticació
+- `chillgroup-deviceId` és un UUID generat localment (un per navegador)
+- `chillgroup-theme` es canvia amb el selector de tema
+- **JWT NO es guarda a localStorage** — es guarda a `Cookie: HttpOnly` o `sessionStorage`
+
+### IndexedDB (Dades Sensibles — Claus Criptogràfiques)
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                     IndexedDB                            │
+│              Store: chillgroup-store                     │
+├──────────────────────┬───────────────────────────────────┤
+│ Object Store         │ Key Path                          │
+├──────────────────────┼───────────────────────────────────┤
+│ keypairs             │ deviceId (UUID)                   │
+│                      │ - kyberSecretKey: Uint8Array      │
+│                      │ - createdAt: number (timestamp)   │
+├──────────────────────┼───────────────────────────────────┤
+│ channelKeys          │ channelId (UUID)                  │
+│                      │ - aesKey: CryptoKey               │
+│                      │ - acquiredAt: number              │
+├──────────────────────┼───────────────────────────────────┤
+│ channelKeysBytes     │ channelId (UUID)                  │
+│                      │ - keyBytes: Uint8Array (32 bytes) │
+│                      │ - type: 'symmetric' | 'asymmetric'│
+│                      │ - expiresAt: number | null        │
+├──────────────────────┼───────────────────────────────────┤
+│ devicePublicKeys     │ deviceId (UUID)                   │
+│                      │ - publicKey: Uint8Array (1568b)   │
+│                      │ - algorithm: 'Kyber-1024'         │
+├──────────────────────┼───────────────────────────────────┤
+│ livekitSessionKeys   │ sessionId (UUID)                  │
+│                      │ - sessionKey: CryptoKey           │
+│                      │ - channelChannelId                │
+│                      │ - createdAt: number               │
+└──────────────────────┴───────────────────────────────────┘
+```
+
+### Detall dels Object Stores
+
+#### `keypairs` — Claus Criptogràfiques del Dispositiu
+
+```typescript
+interface KeyPairRecord {
+  deviceId: string          // UUID del dispositiu
+  kyberSecretKey: Uint8Array // Kyber-1024 secret key (3168 bytes)
+  createdAt: number          // Timestamp de creació
+}
+```
+
+**Regles:**
+- Generat la primera vegada que l'usuari fa login
+- **MAI s'envia al servidor**
+- Es guarda a IndexedDB del navegador
+- Si esborra el navegador, es perd → cal regenerar
+- Si fa login en un altre dispositiu, té el seu propi keypair
+
+#### `channelKeysBytes` — Claus de Canal (Caché)
+
+```typescript
+interface CachedChannelKey {
+  channelId: string           // UUID del canal
+  keyBytes: Uint8Array        // Clau AES-256 (32 bytes)
+  type: 'symmetric' | 'asymmetric'
+  acquiredAt: number          // Quan es va obtenir
+  expiresAt: number | null    // NULL = no expira
+}
+```
+
+**Regles:**
+- Cache de rendiment — la font de veritat és el servidor
+- Per a canals **simètrics**: es demana al servidor i es desa aquí
+- Per a canals **asimètrics**: es desencripta amb Kyber i es desa aquí
+- S'expira si el canal té TTL (coincideix amb TTL del canal)
+- Si no es troba a IndexedDB → es demana al servidor
+
+#### `channelKeys` — Claus de Canal Web Crypto
+
+```typescript
+interface ChannelKeyRecord {
+  channelId: string
+  aesKey: CryptoKey          // CryptoKey importat des de bytes
+  acquiredAt: number
+}
+```
+
+**Regles:**
+- Versió Web Crypto API de `channelKeysBytes`
+- Permet fer `crypto.subtle.encrypt/decrypt` directament
+- Es genera a partir de `channelKeysBytes` quan cal encriptar/desxifrar
+
+#### `devicePublicKeys` — Claus Públiques del Dispositiu
+
+```typescript
+interface DevicePublicKeyRecord {
+  deviceId: string
+  publicKey: Uint8Array      // Kyber-1024 public key (1568 bytes)
+  algorithm: 'Kyber-1024'
+}
+```
+
+**Regles:**
+- Copia local de la keypair (la pública)
+- Sincronitzada amb el servidor via `PUT /api/user/me/devices/:deviceId/publicKey`
+
+#### `livekitSessionKeys` — Claus de Sessió LiveKit (E2EE de Veu)
+
+```typescript
+interface LiveKitSessionKeyRecord {
+  sessionId: string           // UUID
+  sessionKey: CryptoKey       // AES-256 CryptoKey per LiveKit E2EE
+  channelChannelId: string    // Canal de veu associat
+  createdAt: number
+}
+```
+
+**Regles:**
+- Generada per cada session de veu
+- Si el canal és E2EE, la session key es distribueix via canal de text
+- Es guarda a IndexedDB per reutilitzar en reconexions
+
+## Hook: `useChillGroup` — Estat Global
+
+```typescript
+// hooks/useChillGroup.ts
+
+export interface ChannelState {
+  id: string
+  name: string
+  type: 'text' | 'voice'
+  encryptionType: 'none' | 'symmetric' | 'asymmetric'
+  messageTTL?: number
+  members: number
+}
+
+export interface ChannelKeyCache {
+  channelId: string
+  key: string  // Base64 AES-256
+}
+
+export interface UseChillGroupReturn {
+  // Estat de canals
+  channels: ChannelState[]
+  currentTextChannel: string | null   // ID del canal de text seleccionat
+  currentVoiceChannel: string | null  // ID del canal de veu actiu (només 1)
+
+  // Missatges
+  messages: Message[]
+  isLoadingMessages: boolean
+  hasMoreMessages: boolean
+
+  // Connexió
+  connectionStatus: 'connected' | 'disconnected' | 'connecting' | 'error'
+  connectionMessage: string
+
+  // Veu
+  micEnabled: boolean
+  cameraEnabled: boolean
+  screenShareEnabled: boolean
+  currentRoom: LiveKitRoom | null
+
+  // Servidors
+  servers: ServerState[]
+  currentServer: ServerState | null
+
+  // Accions
+  joinChannel: (channelId: string, type: 'text' | 'voice') => Promise<void>
+  sendMessage: (channelId: string, text: string) => Promise<void>
+  toggleMic: () => Promise<void>
+  toggleCamera: () => Promise<void>
+  toggleScreenShare: () => Promise<void>
+  leaveVoice: () => Promise<void>
+  switchServer: (serverId: string) => Promise<void>
+}
+```
+
+### Lògica de `joinChannel`
+
+```typescript
+async function joinChannel(channelId: string, type: 'text' | 'voice') {
+  // Si és canal de veu, sortir del canal de veu actual si existeix
+  if (type === 'voice' && currentVoiceChannel && currentVoiceChannel !== channelId) {
+    await leaveVoice() // Surt automàticament del canal anterior
+  }
+
+  if (type === 'text') {
+    // Només canviar el canal de text seleccionat (mostra missatges)
+    setCurrentTextChannel(channelId)
+    // Carregar missatges històrics
+    await loadMessages(channelId)
+    // Si el canal és E2EE, obtenir la clau
+    if (channelNeedsEncryption(channelId)) {
+      await ensureChannelKey(channelId)
+    }
+  } else {
+    // Canal de veu: connectar a LiveKit
+    setCurrentVoiceChannel(channelId)
+    await connectToLiveKit(channelId)
+  }
+}
+```
+
+## Components Clau
+
+### `ChannelItem` — Un Element de la Llista de Canals
+
+```tsx
+// components/sidebar/ChannelItem.tsx
+
+interface ChannelItemProps {
+  channel: ChannelState
+  isActive: boolean        // És el canal actual de text?
+  isVoiceActive: boolean   // És el canal de veu actiu?
+  voiceParticipants?: string[]  // Usuaris en aquest canal de veu
+  onJoin: (channelId: string, type: 'text' | 'voice') => void
+}
+
+export const ChannelItem: React.FC<ChannelItemProps> = ({
+  channel,
+  isActive,
+  isVoiceActive,
+  voiceParticipants = [],
+  onJoin,
+}) => {
+  const isTextActive = isActive && channel.type === 'text'
+  const isVoiceActiveChannel = isVoiceActive && channel.type === 'voice'
+  const isSelected = isTextActive || isVoiceActiveChannel
+
+  if (channel.type === 'text') {
+    return (
+      <div
+        className={`channel-item text-channel ${isSelected ? 'active' : ''}`}
+        onClick={() => onJoin(channel.id, 'text')}
+      >
+        <span className="channel-icon">#</span>
+        <span className="channel-name">{channel.name}</span>
+        <EncryptionIcon type={channel.encryptionType} size="sm" />
+      </div>
+    )
+  }
+
+  // Canal de veu
+  return (
+    <div
+      className={`channel-item voice-channel ${isSelected ? 'active' : ''}`}
+      onClick={() => onJoin(channel.id, 'voice')}
+    >
+      <span className="channel-icon">{isVoiceActiveChannel ? '🔴' : '🔊'}</span>
+      <span className="channel-name">{channel.name}</span>
+      <EncryptionIcon type={channel.encryptionType} size="sm" />
+      {/* Usuaris dins d'aquest canal de veu */}
+      {isVoiceActiveChannel && voiceParticipants.length > 0 && (
+        <div className="channel-users">
+          {voiceParticipants.map(user => (
+            <div key={user.id} className="channel-user">
+              <span className="user-status">●</span>
+              <span className="user-identity">{user.username}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+```
+
+### `ChannelHeader` — Capçalera del Canal
+
+```tsx
+// components/main/ChannelHeader.tsx
+
+interface ChannelHeaderProps {
+  channelName: string
+  channelType: 'text' | 'voice'
+  encryptionType: 'none' | 'symmetric' | 'asymmetric'
+  messageTTL?: number
+  onInvite: () => void
+  onSettings: () => void
+}
+
+export const ChannelHeader: React.FC<ChannelHeaderProps> = ({
+  channelName,
+  channelType,
+  encryptionType,
+  messageTTL,
+  onInvite,
+  onSettings,
+}) => {
+  return (
+    <div className="channel-header">
+      <div className="channel-header-left">
+        <span className="channel-hash">
+          {channelType === 'text' ? '#' : '🔊'}
+        </span>
+        <span className="channel-title">{channelName}</span>
+        <EncryptionIcon type={encryptionType} size="md" />
+        {messageTTL && (
+          <span className="channel-ttl" title={`Missatges expiren en ${messageTTL}s`}>
+            ⏱️
+          </span>
+        )}
+      </div>
+      <div className="channel-header-actions">
+        <button className="invite-btn" onClick={onInvite} title="Convidar usuari">
+          👥 Convidar
+        </button>
+        <button className="settings-btn" onClick={onSettings} title="Configuració">
+          ⚙️
+        </button>
+      </div>
+    </div>
+  )
+}
+```
+
+### `VoiceArea` — Àrea de Veu
+
+```tsx
+// components/main/VoiceArea.tsx
+
+interface VoiceAreaProps {
+  channelName: string
+  encryptionType: 'none' | 'symmetric' | 'asymmetric'
+  micEnabled: boolean
+  cameraEnabled: boolean
+  screenShareEnabled: boolean
+  connectionStatus: string
+  onToggleMic: () => void
+  onToggleCamera: () => void
+  onToggleScreenShare: () => void
+  onLeave: () => void
+  participants: VoiceParticipant[]
+}
+
+interface VoiceParticipant {
+  identity: string
+  isMicrophoneEnabled: boolean
+  isSpeaking: boolean
+  hasVideo: boolean
+}
+
+export const VoiceArea: React.FC<VoiceAreaProps> = ({
+  channelName,
+  encryptionType,
+  micEnabled,
+  cameraEnabled,
+  screenShareEnabled,
+  connectionStatus,
+  onToggleMic,
+  onToggleCamera,
+  onToggleScreenShare,
+  onLeave,
+  participants,
+}) => {
+  return (
+    <div className="voice-area">
+      {/* Header del canal de veu */}
+      <div className="voice-channel-header">
+        <span>🔊 {channelName}</span>
+        <span className="voice-participant-count">{participants.length} participants</span>
+      </div>
+
+      {/* Grid de participants */}
+      <div className="video-grid">
+        {participants.map(p => (
+          <div
+            key={p.identity}
+            className={`video-tile ${p.isSpeaking ? 'speaking' : ''}`}
+          >
+            <div className="video-tile-label">{p.identity}</div>
+            {/* LiveKit track es renderitza aquí via hook */}
+            {p.hasVideo && <VideoElement participant={p} />}
+            {p.isMicrophoneEnabled ? (
+              <span className="status">🎤</span>
+            ) : (
+              <span className="status muted">🔇</span>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Controls */}
+      <div className="voice-controls">
+        <button
+          className={`voice-btn-mic ${micEnabled ? '' : 'muted'}`}
+          onClick={onToggleMic}
+        >
+          {micEnabled ? '🎤 Activat' : '🎤 Mut'}
+        </button>
+        <button
+          className={`voice-btn-camera ${cameraEnabled ? 'active' : ''}`}
+          onClick={onToggleCamera}
+        >
+          {cameraEnabled ? '📷 Activada' : '📷 Càmera'}
+        </button>
+        <button
+          className={`voice-btn-screen ${screenShareEnabled ? 'active' : ''}`}
+          onClick={onToggleScreenShare}
+        >
+          {screenShareEnabled ? '🖥️ Compartint' : '🖥️ Pantalla'}
+        </button>
+        <button className="voice-btn-leave" onClick={onLeave}>
+          🚪 Deixa
+        </button>
+      </div>
+    </div>
+  )
+}
+```
+
+### `MessageList` — Llista de Missatges
+
+```tsx
+// components/main/MessageList.tsx
+
+interface MessageListProps {
+  messages: Message[]
+  onEdit: (id: string, text: string) => void
+  onDelete: (id: string) => void
+  onReply: (message: Message) => void
+  channelKey?: string | null  // Base64, null si no és E2EE
+  encryptionType: 'none' | 'symmetric' | 'asymmetric'
+}
+
+export const MessageList: React.FC<MessageListProps> = ({
+  messages,
+  onEdit,
+  onDelete,
+  onReply,
+  channelKey,
+  encryptionType,
+}) => {
+  // Si no tenim clau i el canal és E2EE, mostra missatges encriptats
+  const canDecrypt = channelKey !== null && channelKey !== undefined
+
+  return (
+    <div className="messages-area">
+      {messages.map((msg) => {
+        let displayText = msg.encryptedPayload
+        let isEncrypted = false
+
+        if (encryptionType === 'none' || canDecrypt) {
+          if (canDecrypt) {
+            displayText = decryptMessageSync(channelKey!, msg.encryptedPayload, msg.iv)
+          }
+        } else {
+          isEncrypted = true
+        }
+
+        return (
+          <MessageBubble
+            key={msg.id}
+            author={msg.senderUsername}
+            timestamp={msg.timestamp}
+            text={displayText}
+            isEncrypted={isEncrypted}
+            isEdited={msg.editedAt !== null}
+            onEdit={() => onEdit(msg.id, msg.text)}
+            onDelete={() => onDelete(msg.id)}
+            onReply={() => onReply(msg)}
+          />
+        )
+      })}
+    </div>
+  )
+}
+```
+
+## Flux de Missatges Complet
+
+```
+1. USUARI ESCRIBEIX
+   └─> MessageInput.tsx captura text
+   └─> onSend(channelId, text)
+
+2. OBTENCIO DE CLAU (si E2EE)
+   └─> useChannelKey.ts: getChannelKey(channelId)
+   └─> IndexedDB? → retorna directament
+   └─> No → API GET /channels/:id/keys → desencripta → guarda a IndexedDB
+
+3. ENCRYPTACIO (si canal necessita)
+   └─> crypto.ts: encryptMessage(channelKey, text)
+   └─> Genera IV aleatori (12 bytes)
+   └─> AES-GCM-256 → encryptedPayload (Base64) + iv (Base64)
+
+4. ENVIO AL SERVIDOR
+   └─> POST /channels/:id/messages
+   └─> { encryptedPayload, iv, timestamp }
+   └─> Servidor guarda a DB
+
+5. BROADCAST
+   └─> Server → Socket.IO → "message" event
+   └─> Tots els clients del canal reben el missatge
+
+6. RECEPCIO
+   └─> useSocketIO hook rep "message"
+   └─> useMessages hook afegeix a messages[]
+   └─> MessageList es renderitza amb missatge nou
+   └─> Si E2EE → desencripta amb channelKey de IndexedDB
+```
+
+## Flux de Connexió a Veu
+
+```
+1. USUARI CLICA CANAL DE VEU
+   └─> joinChannel(channelId, 'voice')
+
+2. SI JA ESTA EN UN CANAL DE VEU
+   └─> leaveVoice() → Desconnecta del canal anterior
+   └─> Netega livekit room
+
+3. DEMANA TOKEN A SERVIDOR
+   └─> POST /livekit/token
+   └─> { channel_id, user_id }
+   └─> Servidor verifica permisos
+   └─> Retorn: { token, room, e2ee_enabled }
+
+4. CONNECTA A LIVEKIT
+   └─> livekit-client: new Room()
+   └─> room.connect(token)
+   └─> room.on(RoomEvent.TrackSubscribed) → mostra video/audio
+
+5. E2EE DE VEU (si canal ho requereix)
+   └─> room.setE2EE(true, { key: sessionKey, keyStore })
+   └─> Session key obtinguda via canal de text (E2EE)
+   └─> Àudio/vídeo encriptat automàticament
+
+6. USUARIS MOSTRATS
+   └─> VoiceParticipants mostra grid de participants
+   └─> Llista també apareix a la sidebar sota el canal
+   └─> Indicadors: parlant, mut, video
+```
+
+## Responsivitat
+
+| Breakpoint | Comportament |
+|------------|-------------|
+| **> 1200px** | Layout complet: ServerBar + ChannelList + MainContent |
+| **900–1200px** | ChannelList es compacta (noms curts), MainContent reduït |
+| **< 900px** | ServerBar esdevé icones + tooltip, ChannelList pot amagar-se darrere hamburger |
+| **< 600px** | Mobile: només MainContent, sidebar com a drawer deslizable |
+
+### Mobile: Drawer per Sidebar
+
+```tsx
+// components/AppLayout.tsx
+const [sidebarOpen, setSidebarOpen] = useState(false)
+
+return (
+  <div className="app">
+    {/* Server bar (sempre visible en desktop, drawer en mobile) */}
+    <ServerBar mobile={!isDesktop} />
+
+    {/* Main Content */}
+    <main className="main-content">
+      <ChannelHeader onToggleSidebar={() => setSidebarOpen(true)} />
+      {/* ... */}
+    </main>
+
+    {/* Mobile sidebar overlay */}
+    {sidebarOpen && (
+      <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)}>
+        <div className="sidebar mobile-drawer" onClick={e => e.stopPropagation()}>
+          <ChannelList />
+        </div>
+      </div>
+    )}
+  </div>
+)
+```
+
+## Rendiment
+
+### Paginació de Missatges
+
+```typescript
+// Càrrega incremental — 50 missatges per pàgina
+const loadMessages = async (channelId: string, before?: string) => {
+  const params = new URLSearchParams({ limit: '50' })
+  if (before) params.set('before', before)
+
+  const response = await api.getMessages(channelId, params)
+  const newMessages = decryptMessagesIfNeeded(response.messages)
+
+  setMessages(prev => before
+    ? [...newMessages, ...prev]  // load more at top
+    : [...prev, ...newMessages]  // new at bottom
+  )
+
+  setHasMoreMessages(newMessages.length === 50)
+}
+```
+
+### Virtualització de Missatges (Futur)
+
+Si un canal té milers de missatges, es pot implementar virtualització amb `react-virtuoso` o `@tanstack/virtual`:
+
+```tsx
+import { Virtuoso } from 'react-virtuoso'
+
+<Virtuoso
+  data={messages}
+  itemContent={(index) => <MessageBubble message={messages[index]} />}
+  estimateSize={() => 80}
+  overscan={200}
+/>
+```
+
+### Caché de Claus
+
+- **Memòria (React state)**: la clau es manté en state mentre el canal és visible
+- **IndexedDB**: caché de persistència entre recarregues
+- **No caché**: canals asimètrics on la clau es desencripta sota demanda
+- ** TTL**: si el canal té TTL de missatges, la clau s'expira simultàniament
