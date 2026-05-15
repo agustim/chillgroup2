@@ -1,20 +1,20 @@
 //! Middleware d'autenticació JWT.
 
+#![allow(dead_code)]
+
 use axum::{
-    http::{Request, HeaderValue},
+    http::Request,
     middleware::Next,
     response::Response,
     body::Body,
-    Extension,
 };
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
-use sqlx::Pool;
-use sqlx::Postgres;
 use uuid::Uuid;
 use crate::config::Config;
 use crate::error::AppError;
+use tracing::{info, warn};
 
 // ── Claims JWT ──────────────────────────────────────────────────
 
@@ -31,9 +31,11 @@ pub struct AuthClaims {
 
 // ── Estat de l'aplicació compartit ──────────────────────────────
 
+use crate::db::DatabasePool;
+
 #[derive(Clone)]
 pub struct AppState {
-    pub db: Pool<Postgres>,
+    pub db: DatabasePool,
     pub config: Config,
 }
 
@@ -56,6 +58,7 @@ pub fn generate_claims(
     let now = Utc::now();
     let expiration = (now + Duration::days(config.jwt_expiration_days as i64))
         .timestamp();
+    info!("Claims generats per user_id={}, username={}", user_id, username);
     AuthClaims {
         user_id,
         username: username.to_string(),
@@ -69,48 +72,50 @@ pub fn generate_claims(
 
 // ── Extracció i validació de claims ─────────────────────────────
 
-/// Middleware que extreu els claims del JWT del header Authorization
-/// i inyecta els claims a l'extensions de la request.
 pub async fn extract_claims(
     mut req: Request<Body>,
     next: Next,
 ) -> Result<Response, AppError> {
-    // Obtenir Authorization header
     let auth_header = req
         .headers()
         .get("authorization")
         .and_then(|h| h.to_str().ok())
         .ok_or(AppError::TokenMissing)?;
 
-    // Parsejar "Bearer <token>"
     let parts: Vec<&str> = auth_header.split_whitespace().collect();
     if parts.len() != 2 || parts[0] != "Bearer" {
+        warn!("Token missing o format incorrecte");
         return Err(AppError::TokenMissing);
     }
 
     let token_str = parts[1];
-
-    // Per obtenir el secret, necessitem AppState
-    // Com que no tenim State aquí, farem una suposició:
-    // El secret es pot passar com a env var o des d'AppState
-    // Utilitzarem Extension<AppState> si està disponible
 
     let claims = if let Some(app_state) = req.extensions().get::<AppState>() {
         let secret = app_state.config.jwt_secret.as_bytes();
         let mut validation = Validation::new(jsonwebtoken::Algorithm::HS256);
         validation.leeway = 5;
 
+        info!("Verificant token JWT amb AppState");
         decode::<AuthClaims>(
             token_str,
             &DecodingKey::from_secret(secret),
             &validation,
         ).map_err(|e| match e.kind() {
-            jsonwebtoken::errors::ErrorKind::ExpiredSignature => AppError::TokenExpired,
-            jsonwebtoken::errors::ErrorKind::InvalidSignature => AppError::TokenInvalid,
-            _ => AppError::TokenInvalid,
+            jsonwebtoken::errors::ErrorKind::ExpiredSignature => {
+                warn!("Token JWT expirat");
+                AppError::TokenExpired
+            },
+            jsonwebtoken::errors::ErrorKind::InvalidSignature => {
+                warn!("Token JWT invàlid");
+                AppError::TokenInvalid
+            },
+            _ => {
+                warn!("Error verificant token JWT: {:?}", e);
+                AppError::TokenInvalid
+            },
         })?.claims
     } else {
-        // Fallback: utilitzar JWT_SECRET com a env var
+        warn!("No s'ha trobat AppState, utilitzant JWT_SECRET de variable d'entorn");
         let secret = std::env::var("JWT_SECRET").map_err(|_| AppError::TokenMissing)?;
         let secret_bytes = secret.as_bytes();
         let mut validation = Validation::new(jsonwebtoken::Algorithm::HS256);
@@ -127,8 +132,134 @@ pub async fn extract_claims(
         })?.claims
     };
 
-    // Insertar claims a l'extensions de la request
+    info!("Token JWT vàlid per user_id={}, username={}", claims.user_id, claims.username);
     req.extensions_mut().insert(claims);
 
     Ok(next.run(req).await)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+
+    fn test_config() -> Config {
+        env::set_var("JWT_SECRET", "test-secret-key-for-unit-tests-only");
+        Config {
+            server_host: "127.0.0.1".to_string(),
+            server_port: 8080,
+            database_url: "sqlite::memory:".to_string(),
+            ttl_cleanup_interval_minutes: 5,
+            livekit_host: "http://localhost:7880".to_string(),
+            livekit_api_key: "test-key".to_string(),
+            livekit_api_secret: "test-secret".to_string(),
+            jwt_secret: "test-secret-key-for-unit-tests-only".to_string(),
+            jwt_expiration_days: 7,
+        }
+    }
+
+    #[test]
+    fn test_generate_claims_creates_valid_claims() {
+        let config = test_config();
+        let user_id = Uuid::new_v4();
+        let device_id = Uuid::new_v4();
+        let username = "testuser".to_string();
+
+        let claims = generate_claims(user_id, &username, device_id, false, &config);
+
+        assert_eq!(claims.user_id, user_id);
+        assert_eq!(claims.username, username);
+        assert_eq!(claims.device_id, device_id);
+        assert!(!claims.is_admin);
+        assert!(claims.exp > claims.iat);
+    }
+
+    #[test]
+    fn test_generate_claims_admin() {
+        let config = test_config();
+        let user_id = Uuid::new_v4();
+        let device_id = Uuid::new_v4();
+
+        let claims = generate_claims(user_id, "admin", device_id, true, &config);
+
+        assert!(claims.is_admin);
+    }
+
+    #[test]
+    fn test_generate_and_decode_token() {
+        let config = test_config();
+        let user_id = Uuid::new_v4();
+        let device_id = Uuid::new_v4();
+
+        let claims = generate_claims(user_id, "testuser", device_id, false, &config);
+        let token = generate_token(&claims, &config).expect("Ha de generar token");
+
+        assert!(!token.is_empty());
+        assert!(token.starts_with("eyJ")); // JWT base64 header
+    }
+
+    #[test]
+    fn test_token_contains_user_id() {
+        let config = test_config();
+        let user_id = Uuid::new_v4();
+        let device_id = Uuid::new_v4();
+
+        let claims = generate_claims(user_id, "testuser", device_id, false, &config);
+        let token = generate_token(&claims, &config).expect("Ha de generar token");
+
+        // Decodificar el token per verificar que conté el user_id
+        let decoded = decode::<AuthClaims>(
+            &token,
+            &DecodingKey::from_secret(config.jwt_secret.as_bytes()),
+            &Validation::new(jsonwebtoken::Algorithm::HS256),
+        ).expect("Ha de decodificar");
+
+        assert_eq!(decoded.claims.user_id, user_id);
+        assert_eq!(decoded.claims.username, "testuser");
+    }
+
+    #[test]
+    fn test_token_has_valid_structure() {
+        let config = test_config();
+        let claims = generate_claims(Uuid::new_v4(), "user", Uuid::new_v4(), false, &config);
+        let token = generate_token(&claims, &config).expect("Ha de generar token");
+
+        let parts: Vec<&str> = token.split('.').collect();
+        assert_eq!(parts.len(), 3); // header.payload.signature
+    }
+
+    #[test]
+    fn test_claims_serialization() {
+        let config = test_config();
+        let claims = generate_claims(Uuid::new_v4(), "user", Uuid::new_v4(), false, &config);
+
+        let json = serde_json::to_string(&claims).expect("Ha de serialitzar");
+        assert!(json.contains("user_id"));
+        assert!(json.contains("username"));
+        assert!(json.contains("user"));
+    }
+
+    #[test]
+    fn test_claims_deserialization() {
+        let config = test_config();
+        let original = generate_claims(Uuid::new_v4(), "user", Uuid::new_v4(), false, &config);
+
+        let json = serde_json::to_string(&original).expect("Ha de serialitzar");
+        let deserialized: AuthClaims = serde_json::from_str(&json).expect("Ha de deserialitzar");
+
+        assert_eq!(deserialized.user_id, original.user_id);
+        assert_eq!(deserialized.username, original.username);
+    }
+
+    #[test]
+    fn test_different_users_different_tokens() {
+        let config = test_config();
+        let claims1 = generate_claims(Uuid::new_v4(), "user1", Uuid::new_v4(), false, &config);
+        let claims2 = generate_claims(Uuid::new_v4(), "user2", Uuid::new_v4(), false, &config);
+
+        let token1 = generate_token(&claims1, &config).expect("Ha de generar token");
+        let token2 = generate_token(&claims2, &config).expect("Ha de generar token");
+
+        assert_ne!(token1, token2);
+    }
 }

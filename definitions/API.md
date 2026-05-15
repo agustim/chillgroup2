@@ -853,6 +853,182 @@ Eliminar un missatge (soft delete).
 
 ---
 
+### GET `/api/messages/:messageId`
+
+Recuperar un missatge concret pel seu ID.
+
+**Headers:** `Authorization: Bearer <JWT>`
+**Path Params:** `{ "messageId": "string" }`
+
+**Response 200 OK:**
+```json
+{
+  "success": true,
+  "data": {
+    "messageId": "550e8400-e29b-41d4-a716-446655440040",
+    "channelId": "550e8400-e29b-41d4-a716-446655440020",
+    "senderUserId": "550e8400-e29b-41d4-a716-446655440000",
+    "senderUsername": "agusti",
+    "senderDeviceId": "550e8400-e29b-41d4-a716-446655440001",
+    "encryptedPayload": "base64-encrypted-text",
+    "iv": "base64-iv",
+    "timestamp": "2026-05-13T10:30:00Z",
+    "expiresAt": null,
+    "editedAt": null,
+    "deletedAt": null
+  }
+}
+```
+
+**Response 404 Not Found:**
+```json
+{
+  "success": false,
+  "error": {
+    "code": 404,
+    "message": "Missatge no trobat"
+  }
+}
+```
+
+---
+
+### GET `/api/channels/:channelId/messages/check-new`
+
+Consultar si hi ha missatges nous des de l'última visita de l'usuari al canal.
+Aquest endpoint és útil per saber si cal descarregar nous missatges quan l'usuari
+torna a entrar a un canal.
+
+**Headers:** `Authorization: Bearer <JWT>`
+**Path Params:** `{ "channelId": "string" }`
+**Query Params:**
+- `last_seen=2026-05-13T10:00:00Z` — Timestamp de l'última visita (obligatori)
+
+**Response 200 OK:**
+```json
+{
+  "success": true,
+  "data": {
+    "channelId": "550e8400-e29b-41d4-a716-446655440020",
+    "hasNew": true,
+    "newCount": 5,
+    "firstNewMessageId": "550e8400-e29b-41d4-a716-446655440045",
+    "lastSeen": "2026-05-13T10:00:00Z"
+  }
+}
+```
+
+**Response amb zero missatges nous:**
+```json
+{
+  "success": true,
+  "data": {
+    "channelId": "550e8400-e29b-41d4-a716-446655440020",
+    "hasNew": false,
+    "newCount": 0,
+    "firstNewMessageId": null,
+    "lastSeen": "2026-05-13T10:00:00Z"
+  }
+}
+```
+
+---
+
+## Missatges Directes (DM)
+
+### POST `/api/direct-messages`
+
+Enviar un missatge directe (privat) a un altre usuari.
+
+**Headers:** `Authorization: Bearer <JWT>`
+**Request Body:**
+```json
+{
+  "encryptedPayload": "base64-encrypted-text",
+  "iv": "base64-12-byte-nonce",
+  "isDirect": true,
+  "recipientUserId": "550e8400-e29b-41d4-a716-446655440002",
+  "expiresAt": null
+}
+```
+
+**Response 201 Created:**
+```json
+{
+  "success": true,
+  "data": {
+    "messageId": "550e8400-e29b-41d4-a716-446655440040",
+    "senderUserId": "550e8400-e29b-41d4-a716-446655440000",
+    "recipientUserId": "550e8400-e29b-41d4-a716-446655440002",
+    "timestamp": "2026-05-13T10:30:00Z"
+  }
+}
+```
+
+---
+
+### GET `/api/direct-messages/list`
+
+Llistar missatges directes entre l'usuari autenticat i un altre usuari.
+
+**Headers:** `Authorization: Bearer <JWT>`
+**Query Params:**
+- `withUser=uuid` — ID de l'altre usuari (obligatori)
+- `limit=50` — Nombre de missatges (màx 100)
+- `after=uuid` — Cursor per missatges més nous
+- `before=uuid` — Cursor per missatges més antics
+
+**Response 200 OK:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "messageId": "550e8400-e29b-41d4-a716-446655440040",
+      "senderUserId": "550e8400-e29b-41d4-a716-446655440000",
+      "recipientUserId": "550e8400-e29b-41d4-a716-446655440002",
+      "encryptedPayload": "base64-encrypted-text",
+      "iv": "base64-iv",
+      "timestamp": "2026-05-13T10:30:00Z",
+      "isDirect": true,
+      "deletedAt": null
+    }
+  ],
+  "pagination": {
+    "hasMore": false,
+    "nextCursor": null,
+    "prevCursor": null
+  }
+}
+```
+
+---
+
+### GET `/api/conversations`
+
+Llistar les converses directes de l'usuari amb resum de cada conversa.
+
+**Headers:** `Authorization: Bearer <JWT>`
+
+**Response 200 OK:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "otherUserId": "550e8400-e29b-41d4-a716-446655440002",
+      "otherUserUsername": "marcus",
+      "otherUserAvatar": "https://example.com/avatar.jpg",
+      "lastMessageAt": "2026-05-13T10:30:00Z",
+      "unreadCount": 3,
+      "lastMessagePreview": "Hola!"
+    }
+  ]
+}
+```
+
+---
+
 ## LiveKit
 
 ### POST `/api/livekit/token`
@@ -945,7 +1121,11 @@ Generar un token d'accés a LiveKit per a un canal de veu.
 | DELETE | `/api/channels/:id` | Sí | Eliminar canal |
 | GET | `/api/channels/:id/messages` | Sí | Llistar missatges |
 | POST | `/api/channels/:id/messages` | Sí | Enviar missatge |
-| PUT | `/api/messages/:id` | Sí | Editar missatge |
+| GET | `/api/messages/:id` | Sí | Recuperar missatge concret |
 | DELETE | `/api/messages/:id` | Sí | Eliminar missatge |
+| GET | `/api/channels/:id/messages/check-new` | Sí | Check missatges nous |
+| POST | `/api/direct-messages` | Sí | Enviar DM |
+| GET | `/api/direct-messages/list` | Sí | Llistar DMs |
+| GET | `/api/conversations` | Sí | Llistar converses |
 | POST | `/api/livekit/token` | Sí | Token LiveKit |
 | GET | `/health` | No | Health check |

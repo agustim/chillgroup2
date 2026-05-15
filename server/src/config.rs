@@ -1,10 +1,9 @@
 //! Configuració de l'aplicació carregada des de variables d'entorn.
 
-use sqlx::postgres::PgPoolOptions;
-use sqlx::{Pool, Postgres, Error as SqlxError};
 use std::env;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Config {
     pub server_host: String,
     pub server_port: u16,
@@ -47,12 +46,9 @@ impl Config {
                 .unwrap_or(7),
         })
     }
-}
 
-/// Connexió a la base de dades PostgreSQL.
-pub async fn connect_db(config: &Config) -> Result<Pool<Postgres>, SqlxError> {
-    let pool = PgPoolOptions::new()
-        .max_connections(20)
-        .connect_lazy(&config.database_url)?;
-    Ok(pool)
+    /// Comprovar si és SQLite.
+    pub fn is_sqlite(&self) -> bool {
+        self.database_url.starts_with("sqlite")
+    }
 }

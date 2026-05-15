@@ -11,6 +11,7 @@ use serde::Serialize;
 // ── Errors criptogràfics ────────────────────────────────────────
 
 #[derive(Debug, thiserror::Error)]
+#[allow(dead_code)]
 pub enum CryptoError {
     #[error("Format base64 invàlid")]
     Base64(#[from] base64::DecodeError),
@@ -26,6 +27,9 @@ pub enum CryptoError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
+    // Usuari (950-959)
+    #[error("Usuari no trobat")]
+    UserNotFound,
     // Autenticació (1000-1099)
     #[error("Credencials incorrectes")]
     UnauthorizedCredentials,
@@ -116,6 +120,7 @@ pub enum AppError {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[allow(dead_code)]
 pub struct ErrorResponse {
     pub code: i16,
     pub message: String,
@@ -153,6 +158,9 @@ impl IntoResponse for AppError {
             ),
             AppError::ServerNotFound => (
                 StatusCode::NOT_FOUND, 2001, "Servidor no trobat".to_string(), None,
+            ),
+            AppError::UserNotFound => (
+                StatusCode::NOT_FOUND, 9501, "Usuari no trobat a la base de dades".to_string(), None,
             ),
             AppError::ServerNotOwnerOrAdmin => (
                 StatusCode::FORBIDDEN, 2002, "No ets owner/admin d'aquest servidor".to_string(), None,

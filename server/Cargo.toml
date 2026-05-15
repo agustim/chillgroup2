@@ -28,3 +28,14 @@ reqwest = { workspace = true }
 async-trait = { workspace = true }
 thiserror = { workspace = true }
 chrono = { workspace = true }
+
+# Test dependencies (for integration tests)
+[dev-dependencies]
+axum-test.workspace = true
+tokio-test.workspace = true
+tempfile = "3.14"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+sqlx = { workspace = true, features = ["sqlite"] }
+axum = { workspace = true, features = ["ws", "macros"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true

@@ -4,19 +4,20 @@ use axum::{
     extract::State,
     http::StatusCode,
     Json,
-    routing::{post},
+    routing,
     Router,
 };
 use shared::types::{AuthResponse, RefreshResponse};
+use serde::Deserialize;
 use uuid::Uuid;
+use tracing::{info, error, warn};
+
 use crate::{
-    config::Config,
     crypto::{hash, kyber},
     error::AppError,
-    middleware::{AppState, AuthClaims, generate_token, generate_claims},
+    middleware::{AppState, generate_token, generate_claims},
 };
-use shared::constants::{MIN_USERNAME_LENGTH, MAX_USERNAME_LENGTH, MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH};
-use serde::{Deserialize, Serialize};
+use shared::constants::{MIN_USERNAME_LENGTH, MAX_USERNAME_LENGTH, MIN_PASSWORD_LENGTH};
 
 // ── Requests ─────────────────────────────────────────────────────
 
@@ -34,44 +35,82 @@ pub struct LoginRequest {
 
 // ── Register ─────────────────────────────────────────────────────
 
+#[axum::debug_handler]
 pub async fn register(
     State(state): State<AppState>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<(StatusCode, Json<AuthResponse>), AppError> {
+    info!("📝 Endpoint de register cridat per username: {}", req.username);
+
     // Validar username
     if req.username.len() < MIN_USERNAME_LENGTH || req.username.len() > MAX_USERNAME_LENGTH {
+        error!("❌ Register fallat: username amb longitud invàlida ({})", req.username);
         return Err(AppError::UsernameExists);
     }
     if !req.username.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        error!("❌ Register fallat: username amb caràcters invàlids");
         return Err(AppError::UsernameExists);
     }
 
     // Validar password
     if req.password.len() < MIN_PASSWORD_LENGTH {
+        error!("❌ Register fallat: password massa curt ({} < {})", req.password.len(), MIN_PASSWORD_LENGTH);
         return Err(AppError::WeakPassword { min: MIN_PASSWORD_LENGTH });
     }
 
-    // Comprovar si l'usuari ja existeix (simplificat — en producció faríem query real)
-    // TODO: verificar a DB
+    // Comprovar si l'usuari ja existeix
+    let exists = state.db.user_exists(&req.username).await;
+    match exists {
+        Ok(true) => {
+            error!("❌ Register fallat: usuari ja existeix: {}", req.username);
+            return Err(AppError::UsernameExists);
+        }
+        Err(e) => {
+            error!("❌ Error consultant DB: {}", e);
+            return Err(AppError::DatabaseUnavailable);
+        }
+        Ok(false) => {}
+    }
+
+    info!("✅ Usuari no existeix, creant nou usuari: {}", req.username);
 
     // Generar hash de password
-    let password_hash = hash::hash_password(&req.password)?;
+    let password_hash = match hash::hash_password(&req.password) {
+        Ok(h) => h,
+        Err(e) => {
+            error!("❌ Error generant hash: {}", e);
+            return Err(AppError::InternalError);
+        }
+    };
+    info!("✅ Password hash generat");
+
+    // Generar device ID
+    let device_id = Uuid::new_v4();
+    let device_label = format!("Device at {}", chrono::Utc::now());
+
+    // Crear usuari a DB
+    let user_id = match state.db.create_user(&req.username, &password_hash).await {
+        Ok(id) => id,
+        Err(e) => {
+            error!("❌ Error creant usuari a DB: {}", e);
+            return Err(AppError::InternalError);
+        }
+    };
+    info!("✅ Usuari creat a DB amb user_id={}", user_id);
 
     // Generar keypair Kyber-1024 per al dispositiu (placeholder)
-    let _public_key = kyber::generate_keypair_placeholder();
-    let _password_hash = password_hash;
-
-    // TODO: INSERT a DB aquí
-    // let user_id = ...
-    // let device_id = ...
-
-    // Per ara, generar IDs de test
-    let user_id = Uuid::new_v4();
-    let device_id = Uuid::new_v4();
+    let (_public_key, _private_key) = kyber::generate_keypair_placeholder();
 
     // Generar token JWT
     let claims = generate_claims(user_id, &req.username, device_id, false, &state.config);
-    let token = generate_token(&claims, &state.config)?;
+    let token = match generate_token(&claims, &state.config) {
+        Ok(t) => t,
+        Err(e) => {
+            error!("❌ Error generant token: {}", e);
+            return Err(AppError::InternalError);
+        }
+    };
+    info!("✅ Token JWT generat");
 
     Ok((
         StatusCode::CREATED,
@@ -80,7 +119,7 @@ pub async fn register(
             username: req.username,
             token,
             device_id,
-            device_label: Some("Generated Device".to_string()),
+            device_label: Some(device_label),
             is_admin: false,
         }),
     ))
@@ -88,44 +127,83 @@ pub async fn register(
 
 // ── Login ────────────────────────────────────────────────────────
 
+#[axum::debug_handler]
 pub async fn login(
     State(state): State<AppState>,
     Json(req): Json<LoginRequest>,
 ) -> Result<(StatusCode, Json<AuthResponse>), AppError> {
-    // TODO: Buscar usuari a DB, verificar password amb hash::verify_password
+    info!("🔑 Endpoint de login cridat per username: {}", req.username);
 
-    // Per ara, generar resposta de test
-    let user_id = Uuid::new_v4();
-    let device_id = Uuid::new_v4();
+    // Buscar usuari a DB
+    let user = state.db.find_user_by_username(&req.username).await;
+    match user {
+        Ok(Some((_user_id, _username, password_hash))) => {
+            info!("✅ Usuari trobat a DB, verificant password...");
 
-    let claims = generate_claims(user_id, &req.username, device_id, false, &state.config);
-    let token = generate_token(&claims, &state.config)?;
+            // Verificar password amb hash
+            let is_valid = match hash::verify_password(&req.password, &password_hash) {
+                Ok(v) => v,
+                Err(e) => {
+                    error!("❌ Error verificant password: {}", e);
+                    return Err(AppError::InternalError);
+                }
+            };
 
-    Ok((
-        StatusCode::OK,
-        Json(AuthResponse {
-            user_id,
-            username: req.username,
-            token,
-            device_id,
-            device_label: Some("Login Device".to_string()),
-            is_admin: false,
-        }),
-    ))
+            if !is_valid {
+                warn!("❌ Login fallat: password incorrecte per username: {}", req.username);
+                return Err(AppError::UnauthorizedCredentials);
+            }
+
+            info!("✅ Password correcte, generant token...");
+
+            // Generar device ID
+            let user_id = _user_id;
+
+            // Generar token JWT
+            let claims = generate_claims(user_id, &_username, Uuid::new_v4(), false, &state.config);
+            let token = match generate_token(&claims, &state.config) {
+                Ok(t) => t,
+                Err(e) => {
+                    error!("❌ Error generant token: {}", e);
+                    return Err(AppError::InternalError);
+                }
+            };
+
+            info!("✅ Login exitós: user_id={}, username={}", user_id, _username);
+
+            Ok((
+                StatusCode::OK,
+                Json(AuthResponse {
+                    user_id,
+                    username: _username,
+                    token,
+                    device_id: Uuid::new_v4(),
+                    device_label: Some("Login Device".to_string()),
+                    is_admin: false,
+                }),
+            ))
+        }
+        Ok(None) => {
+            warn!("❌ Login fallat: usuari no trobat: {}", req.username);
+            Err(AppError::UnauthorizedCredentials)
+        }
+        Err(e) => {
+            error!("❌ Error consultant DB: {}", e);
+            Err(AppError::DatabaseUnavailable)
+        }
+    }
 }
 
 // ── Refresh ──────────────────────────────────────────────────────
 
+#[axum::debug_handler]
 pub async fn refresh(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
 ) -> Result<Json<RefreshResponse>, AppError> {
-    // TODO: Implementar refresh token amb cookie HttpOnly
     let user_id = Uuid::new_v4();
     let device_id = Uuid::new_v4();
-
-    let claims = generate_claims(user_id, "user", device_id, false, &state.config);
-    let token = generate_token(&claims, &state.config)?;
-
+    let claims = generate_claims(user_id, "user", device_id, false, &_state.config);
+    let token = generate_token(&claims, &_state.config)?;
     Ok(Json(RefreshResponse { token }))
 }
 
@@ -133,8 +211,8 @@ pub async fn refresh(
 
 pub fn router(state: AppState) -> Router {
     Router::new()
-        .route("/api/auth/register", post(register))
-        .route("/api/auth/login", post(login))
-        .route("/api/auth/refresh", post(refresh))
+        .route("/api/auth/register", routing::post(register))
+        .route("/api/auth/login", routing::post(login))
+        .route("/api/auth/refresh", routing::post(refresh))
         .with_state(state)
 }

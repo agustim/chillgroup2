@@ -1,12 +1,8 @@
-//! Mòdul criptogràfic (placeholder).
-//!
-//! Aquest mòdul conté funcions placeholders per a la criptografia.
-//! En producció, s'implementarà amb les crates adequades.
+//! Mòdul criptogràfic.
 
+#[allow(dead_code)]
 pub mod kyber;
+#[allow(dead_code)]
 pub mod aes_gcm;
+#[allow(dead_code)]
 pub mod hash;
-
-pub use kyber::*;
-pub use aes_gcm::*;
-pub use hash::*;

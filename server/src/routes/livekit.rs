@@ -1,5 +1,7 @@
 //! Endpoints de LiveKit per a generació de tokens.
 
+#![allow(dead_code)]
+
 use axum::{
     extract::State,
     Json,
@@ -11,6 +13,7 @@ use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, Header, EncodingKey};
 use crate::middleware::AppState;
 use crate::error::AppError;
+use tracing::info;
 
 #[derive(Debug, Deserialize)]
 pub struct LiveKitTokenRequest {
@@ -24,14 +27,12 @@ pub struct LiveKitTokenResponse {
 }
 
 /// Generar un token de LiveKit per a una sala.
-///
-/// Utilitza JWT directament amb les opcions de LiveKit Access Token.
-/// Format JWT: https://docs.livekit.io/home/client/connect/generate-token/
 pub async fn generate_token(
     State(state): State<AppState>,
     Json(req): Json<LiveKitTokenRequest>,
 ) -> Result<Json<LiveKitTokenResponse>, AppError> {
-    // Generar JWT amb claims de LiveKit
+    info!("Endpoint generate_token cridat: room={}, participant={}", req.room, req.participant);
+
     #[derive(Serialize)]
     struct LiveKitClaims {
         iss: String,
@@ -69,8 +70,12 @@ pub async fn generate_token(
         &claims,
         &EncodingKey::from_secret(state.config.livekit_api_secret.as_bytes()),
     )
-    .map_err(|_| AppError::LiveKitTokenError)?;
+    .map_err(|e| {
+        info!("Error generant token LiveKit: {}", e);
+        AppError::LiveKitTokenError
+    })?;
 
+    info!("Token LiveKit generat amb èxit per a room={}", req.room);
     Ok(Json(LiveKitTokenResponse { token }))
 }
 

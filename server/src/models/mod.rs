@@ -1,15 +1,25 @@
-//! Models de dades utilitzats pel servidor.
+//! Definició de models de dades.
 
+#[allow(dead_code)]
 pub mod user;
+#[allow(dead_code)]
 pub mod device;
+#[allow(dead_code)]
 pub mod server;
+#[allow(dead_code)]
 pub mod channel;
+#[allow(dead_code)]
 pub mod message;
+#[allow(dead_code)]
 pub mod key;
 
-pub use user::User;
-pub use device::Device;
-pub use server::{Server, ServerMember};
-pub use channel::{Channel, ChannelType, EncryptionType};
+#[allow(dead_code)]
+pub use channel::Channel;
+#[allow(dead_code)]
+pub use channel::ChannelType;
+#[allow(dead_code)]
+pub use channel::EncryptionType;
+#[allow(dead_code)]
 pub use message::Message;
+#[allow(dead_code)]
 pub use key::ChannelKey;

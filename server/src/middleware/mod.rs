@@ -1,5 +1,7 @@
 //! Middleware d'autenticació i estat compartit.
 
+#[allow(dead_code)]
 pub mod auth;
 
-pub use auth::{AppState, AuthClaims, extract_claims, generate_token, generate_claims};
+#[allow(dead_code)]
+pub use auth::{AppState, AuthClaims, generate_token, generate_claims};

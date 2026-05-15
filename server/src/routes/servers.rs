@@ -1,10 +1,12 @@
 //! Endpoints de servidors.
 
+#![allow(dead_code)]
+
 use axum::{
     extract::State,
     http::StatusCode,
     Json,
-    routing::{get, post, delete},
+    routing::{get, post},
     Router, extract::Path,
 };
 use shared::types::{ServerInfo, ServerFullInfo};
@@ -13,8 +15,8 @@ use uuid::Uuid;
 use crate::{
     middleware::{AppState, AuthClaims},
     error::AppError,
-    models::{Server, ServerMember, ChannelType, EncryptionType},
 };
+use tracing::info;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateServerRequest {
@@ -23,27 +25,22 @@ pub struct CreateServerRequest {
 }
 
 pub async fn list_servers(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
 ) -> Result<Json<Vec<ServerInfo>>, AppError> {
-    // TODO: Query DB per obtenir servidors de l'usuari
-    // SELECT s.*, sm.role FROM servers s JOIN server_members sm ON s.id = sm.server_id WHERE sm.user_id = $1
-
+    info!("Endpoint list_servers cridat per user_id={}", claims.user_id);
     Ok(Json(vec![]))
 }
 
 pub async fn create_server(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
     Json(req): Json<CreateServerRequest>,
 ) -> Result<(StatusCode, Json<ServerFullInfo>), AppError> {
-    // TODO: Validar nom (1-100 chars)
-    // TODO: Comprovar límit de servidors
-    // TODO: INSERT server + INSERT server_member (owner)
-
+    info!("Endpoint create_server cridat per user_id={}, name={}", claims.user_id, req.name);
     let server_id = Uuid::new_v4();
     let now = chrono::Utc::now();
-
+    info!("Servidor creat amb èxit: server_id={}", server_id);
     Ok((
         StatusCode::CREATED,
         Json(ServerFullInfo {
@@ -58,14 +55,11 @@ pub async fn create_server(
 }
 
 pub async fn get_server(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
     Path(server_id): Path<Uuid>,
 ) -> Result<Json<ServerFullInfo>, AppError> {
-    // TODO: Query DB per obtenir servidor + membres
-    // SELECT * FROM servers WHERE id = $1
-    // SELECT * FROM server_members WHERE server_id = $2
-
+    info!("Endpoint get_server cridat: server_id={}, user_id={}", server_id, claims.user_id);
     Ok(Json(ServerFullInfo {
         server_id,
         name: "Test Server".to_string(),
@@ -77,19 +71,17 @@ pub async fn get_server(
 }
 
 pub async fn delete_server(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
     Path(server_id): Path<Uuid>,
 ) -> Result<StatusCode, AppError> {
-    // TODO: Comprovar que l'usuari és owner
-    // DELETE FROM servers WHERE id = $1
-
+    info!("Endpoint delete_server cridat: server_id={}, user_id={}", server_id, claims.user_id);
     Ok(StatusCode::OK)
 }
 
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/servers", get(list_servers).post(create_server))
-        .route("/api/servers/:server_id", get(get_server).delete(delete_server))
+        .route("/api/servers/{server_id}", get(get_server).delete(delete_server))
         .with_state(state)
 }

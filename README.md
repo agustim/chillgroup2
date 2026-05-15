@@ -1,0 +1,206 @@
+# ChillGroup v2
+
+Missatgeria segura amb encriptació End-to-End (E2EE).
+
+## 📋 Tecnologia
+
+- **Backend**: Rust + Axum + SQLx
+- **Frontend**: React + TypeScript + Vite
+- **Base de dades**: PostgreSQL o SQLite
+- **Vei**: LiveKit
+- **Tests**: Vitest + Playwright (frontend), cargo test (backend)
+
+## 🏗️ Estructura del projecte
+
+```
+QuantumTeam/
+├── frontend/         # Client React (Vite + TypeScript)
+│   ├── src/
+│   │   ├── components/   # Components UI
+│   │   ├── contexts/     # React Context (Auth)
+│   │   ├── lib/          # API, crypto, storage
+│   │   ├── styles/       # CSS variables
+│   │   └── types/        # Types TypeScript
+│   ├── tests/e2e/        # Tests E2E (Playwright)
+│   └── package.json
+├── server/           # Servidor Rust (Axum)
+│   ├── src/
+│   │   ├── routes/       # Rutes API (auth, servers, channels...)
+│   │   ├── crypto/       # AES-GCM-256, Kyber-1024, hashing
+│   │   ├── middleware/   # Autenticació JWT
+│   │   ├── models/       # Models DB
+│   │   └── main.rs
+│   ├── migrations/       # SQL migrations (PostgreSQL)
+│   └── Cargo.toml
+├── shared/           # Codi compartit backend/frontend
+│   └── src/types.rs
+└── definitions/      # Documentació de disseny
+```
+
+## 🚀 Com arrancar
+
+### 1. Prerequisits
+
+- **Rust**: `rustup install stable`
+- **Node.js 20+**: `nvm install 20`
+- **PostgreSQL 16+** (opcional): `sudo apt install postgresql`
+- **SQLite** (per defecte): `sudo apt install sqlite3`
+
+### 2. Configurar variables d'entorn
+
+Crear fitxer `.env` a l'arrel del projecte:
+
+```env
+# Servidor
+SERVER_HOST=0.0.0.0
+SERVER_PORT=8080
+
+# Base de dades (PostgreSQL o SQLite)
+DATABASE_URL=sqlite://chillgroup.db
+# o DATABASE_URL=postgres://user:pass@localhost:5432/chillgroup
+
+# LiveKit (per a veu)
+LIVEKIT_HOST=http://localhost:7880
+LIVEKIT_API_KEY=devkey
+LIVEKIT_API_SECRET=secret
+
+# JWT
+JWT_SECRET=el-teu-secret-aqui-canvia-m aixxo
+JWT_EXPIRATION_DAYS=7
+```
+
+### 3. Arrancar el backend
+
+```bash
+cd server
+cargo run
+```
+
+El servidor escoltarà a `http://localhost:8080`.
+
+### 4. Arrancar el frontend
+
+```bash
+cd frontend
+pnpm install
+pnpm dev
+```
+
+El frontend estarà a `http://localhost:5173`.
+
+## 📊 Base de dades
+
+### Suport
+
+| Base de dades | Estat | Notes |
+|---------------|-------|-------|
+| **PostgreSQL 16+** | ✅ Complet | Requereix migrations |
+| **SQLite** | ✅ Automàtic | Taules creades automàticament |
+
+### Configuració PostgreSQL
+
+```env
+DATABASE_URL=postgres://chillgroup:pass@localhost:5432/chillgroup
+```
+
+Aplicar migrations:
+```bash
+cd server
+cargo install sqlx-cli
+sqlx database create
+sqlx migrate run
+```
+
+### Configuració SQLite (per defecte)
+
+```env
+DATABASE_URL=sqlite://chillgroup.db
+```
+
+Les taules es creen automàticament en iniciar el servidor.
+
+## 🧪 Tests
+
+### Frontend
+
+```bash
+cd frontend
+
+# Tests unitaris (95 tests passant)
+pnpm test:run
+
+# Tests E2E (5 tests passant)
+pnpm test:e2e
+
+# Build
+pnpm build
+```
+
+### Backend
+
+```bash
+cd server
+
+# Tests
+cargo test
+
+# Build
+cargo build
+```
+
+## 📡 API endpoints
+
+### Autenticació
+
+| Mètodo | Endpoint | Descripció |
+|--------|----------|------------|
+| POST | `/api/auth/register` | Registrar nou usuari |
+| POST | `/api/auth/login` | Iniciar sessió |
+| POST | `/api/auth/refresh` | Renovar token JWT |
+
+### Servidors
+
+| Mètodo | Endpoint | Descripció |
+|--------|----------|------------|
+| GET | `/api/servers` | Llista servidors |
+| POST | `/api/servers` | Crear servidor |
+| GET | `/api/servers/{id}` | Info servidor |
+| DELETE | `/api/servers/{id}` | Eliminar servidor |
+
+### Missatges
+
+| Mètodo | Endpoint | Descripció |
+|--------|----------|------------|
+| GET | `/api/channels/{id}/messages` | Llista missatges |
+| POST | `/api/channels/{id}/messages` | Enviar missatge |
+| PUT | `/api/messages/{id}` | Editar missatge |
+| DELETE | `/api/messages/{id}` | Eliminar missatge |
+
+## 🔒 Seguretat
+
+- **Password hashing**: Argon2
+- **Missatges encriptats**: AES-GCM-256
+- **Intercanvi de claus**: Kyber-1024 (NIST Level 5)
+- **Autenticació**: JWT amb HS256
+- **E2EE**: Només els participants poden desxifrar missatges
+
+## 📝 Desenvolupament
+
+### Afegir una nova taula (SQLite)
+
+Afegir query a `server/src/db.rs::create_tables_sqlite()`:
+
+```rust
+r#"
+CREATE TABLE IF NOT EXISTS nova_taula (
+    id TEXT PRIMARY KEY,
+    nom TEXT NOT NULL
+)
+"#,
+```
+
+### Afegir una nova ruta API
+
+1. Crear fitxer a `server/src/routes/nova_ruta.rs`
+2. Afegir a `server/src/routes/mod.rs`
+3. Registrar a `server/src/main.rs`
