@@ -1,26 +1,31 @@
 //! Hashing de passwords amb Argon2.
 //!
-//! Placeholder - en producció s'implementarà amb una crate compatible.
+//! Implementació real amb `argon2` per generar i verificar hashes segurs.
 
 use crate::error::CryptoError;
-use base64::engine::general_purpose::STANDARD;
-use base64::Engine;
+use argon2::{password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString}, Argon2};
+use rand::rngs::OsRng;
 
 /// Generar un hash de password amb Argon2.
 pub fn hash_password(password: &str) -> Result<String, CryptoError> {
     if password.is_empty() {
         return Err(CryptoError::CryptoError);
     }
-    let b64 = STANDARD.encode(password.as_bytes());
-    Ok(format!("$argon2id$v=19$m=19456,t=2,p=2${b64}"))
+
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    let password_hash = argon2
+        .hash_password(password.as_bytes(), &salt)
+        .map_err(|_| CryptoError::CryptoError)?;
+
+    Ok(password_hash.to_string())
 }
 
 /// Verificar un password contra un hash.
 pub fn verify_password(password: &str, hash_str: &str) -> Result<bool, CryptoError> {
-    // Placeholder: sempre retorna true per ara
-    // En producció, implementarà verificació real amb Argon2
-    let _ = hash_str;
-    Ok(true)
+    let parsed_hash = PasswordHash::new(hash_str).map_err(|_| CryptoError::CryptoError)?;
+    let argon2 = Argon2::default();
+    Ok(argon2.verify_password(password.as_bytes(), &parsed_hash).is_ok())
 }
 
 #[cfg(test)]
@@ -40,9 +45,7 @@ mod tests {
         let password = "TestPassword123!";
         let hash1 = hash_password(password).expect("Ha de generar hash");
         let hash2 = hash_password(password).expect("Ha de generar hash");
-        // Placeholder actual: genera el mateix hash (sense salt aleatori)
-        // En producció amb Argon2 real, seria diferent
-        assert_eq!(hash1, hash2);
+        assert_ne!(hash1, hash2);
     }
 
     #[test]
@@ -53,12 +56,11 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_password_placeholder_always_true() {
+    fn test_verify_password_incorrect() {
         let correct_password = "TestPassword123!";
         let wrong_password = "WrongPassword456!";
         let hash = hash_password(correct_password).expect("Ha de generar hash");
-        // Placeholder: sempre retorna true
-        assert!(verify_password(wrong_password, &hash).expect("Ha de verificar"));
+        assert!(!verify_password(wrong_password, &hash).expect("Ha de verificar"));
     }
 
     #[test]
