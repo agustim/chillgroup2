@@ -4,4 +4,4 @@
 pub mod auth;
 
 #[allow(dead_code)]
-pub use auth::{AppState, AuthClaims, generate_token, generate_claims};
+pub use auth::{AppState, AuthClaims, generate_token, generate_claims, extract_claims};

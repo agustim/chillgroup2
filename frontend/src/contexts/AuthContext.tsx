@@ -55,16 +55,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchUser = useCallback(async (tok: string) => {
     try {
-      const oldToken = sessionStorage.getItem('chillgroup-token')
-      sessionStorage.setItem('chillgroup-token', tok)
       const result = await authMe()
       if (result.success && result.data) {
         setUser(result.data)
       } else {
         setUser(null)
-      }
-      if (oldToken) {
-        sessionStorage.setItem('chillgroup-token', oldToken)
       }
     } catch {
       setUser(null)
@@ -129,41 +124,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [saveToken, fetchUser, clearAuth])
 
-  // Load token on mount and verify with timeout
+  // Load token on mount and verify (only if no user is already authenticated)
   React.useEffect(() => {
     loadToken()
     
-    // If there's a stored token, try to fetch user with timeout
+    // Only verify stored token if no user is already set
+    // This prevents race conditions after login
+    if (user) {
+      setIsLoading(false)
+      return
+    }
+    
     const stored = sessionStorage.getItem('chillgroup-token')
     if (stored) {
       let cancelled = false
       setIsLoading(true)
       
-      const timeoutId = setTimeout(() => {
-        // Timeout after 3 seconds - assume not authenticated
-        if (!cancelled) {
-          setIsLoading(false)
-        }
-      }, 3000)
-      
-      fetchUser(stored).then(() => {
-        if (!cancelled) {
-          clearTimeout(timeoutId)
-          setIsLoading(false)
-        }
-      }).catch(() => {
-        if (!cancelled) {
-          clearTimeout(timeoutId)
-          setIsLoading(false)
-        }
-      })
+      fetchUser(stored)
+        .then(() => {
+          if (!cancelled) {
+            setIsLoading(false)
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setIsLoading(false)
+          }
+        })
       
       return () => {
         cancelled = true
-        clearTimeout(timeoutId)
       }
+    } else {
+      setIsLoading(false)
     }
-  }, [loadToken, fetchUser])
+  }, [loadToken, fetchUser, user])
 
   return (
     <AuthContext.Provider

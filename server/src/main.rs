@@ -15,6 +15,7 @@ mod error;
 use axum::{
     Router,
     routing::{get, put, post},
+    middleware::from_fn,
 };
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
@@ -58,7 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .merge(routes::auth::router(state.clone()))
         .layer(CorsLayer::permissive());
 
-    // Routes amb auth - totes les rutes juntes
+    // Routes amb auth - totes les rutes juntes amb middleware d'autenticació
     let protected_app = Router::new()
         .route("/api/servers", get(routes::servers::list_servers).post(routes::servers::create_server))
         .route("/api/servers/{server_id}", get(routes::servers::get_server))
@@ -69,6 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/channels/{channel_id}/messages", get(routes::messages::list_messages).post(routes::messages::send_message))
         .route("/api/messages/{message_id}", put(routes::messages::edit_message))
         .route("/api/livekit/token", get(routes::livekit::generate_token))
+        .layer(from_fn(middleware::extract_claims))
         .with_state(state.clone());
 
     // Rutes d'usuari (amb auth)
@@ -76,7 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let protected_app = protected_app.merge(user_app);
 
     // Combinar rutes públiques i protegides
-    let app = public_app.merge(protected_app);
+    let app = public_app.merge(protected_app).layer(CorsLayer::permissive());
 
     // Iniciar servidor
     let addr = format!("{}:{}", state.config.server_host, state.config.server_port);

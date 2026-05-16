@@ -2,7 +2,7 @@
 //!
 //! Wrapper sobre fetch per a crides a l'API REST.
 
-const API_BASE = 'http://localhost:8080'
+const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
 /**
  * Interfície per a errors de l'API.
@@ -73,8 +73,22 @@ async function apiRequest<T>(
     data = { success: false, error: { code: response.status, message: 'Network error' } }
   }
 
-  if (response.ok && data.success) {
-    return { success: true, data: data.data || data } as ApiResponse<T>
+  if (response.ok) {
+    if (data?.success === true) {
+      return { success: true, data: data.data ?? data } as ApiResponse<T>
+    }
+
+    if (data?.success === false) {
+      return {
+        success: false,
+        error: {
+          code: data?.error?.code || response.status,
+          message: data?.error?.message || `HTTP ${response.status}`,
+        },
+      } as ApiError
+    }
+
+    return { success: true, data: data as T } as ApiResponse<T>
   }
 
   return {
