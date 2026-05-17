@@ -6,12 +6,11 @@ use axum::{
     extract::State,
     Json,
     Router,
-    middleware::from_fn,
 };
 use tracing::info;
 
 use crate::{
-    middleware::{AppState, AuthClaims, extract_claims},
+    middleware::{AppState, AuthClaims},
     error::AppError,
 };
 
@@ -57,6 +56,5 @@ pub async fn get_user_me(
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/user/me", axum::routing::get(get_user_me))
-        .layer(from_fn(extract_claims))
         .with_state(state)
 }
