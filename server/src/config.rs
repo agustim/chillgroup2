@@ -19,7 +19,25 @@ pub struct Config {
 impl Config {
     /// Carregar configuració des de variables d'entorn i .env.
     pub fn from_env() -> Result<Self, String> {
-        dotenvy::dotenv().ok();
+        // Carregar .env des de l'arrel del projecte (directoripare de server/)
+        let project_root = std::env::current_dir()
+            .ok()
+            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        
+        // Provar: project_root/.env, project_root/../.env, .env
+        let env_paths = [
+            project_root.join(".env"),
+            project_root.join("../.env").canonicalize().unwrap_or_else(|_| project_root.join(".env")),
+            std::path::PathBuf::from(".env"),
+        ];
+        
+        for env_path in &env_paths {
+            if env_path.exists() {
+                dotenvy::from_path(env_path).ok();
+                break;
+            }
+        }
 
         fn get_var(key: &str) -> Result<String, String> {
             env::var(key).map_err(|_| format!("La variable d'entorn {} és obligatòria", key))
