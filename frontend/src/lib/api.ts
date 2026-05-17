@@ -183,47 +183,47 @@ export interface ChannelInfo {
 
 function mapServer(server: any): Server {
   return {
-    serverId: server.server_id,
+    serverId: server.server_id ?? server.serverId,
     name: server.name,
-    iconUrl: server.icon_url ?? null,
-    ownerId: server.owner_id,
-    memberCount: server.member_count,
-    myRole: server.my_role,
-    createdAt: server.created_at,
+    iconUrl: server.icon_url ?? server.iconUrl ?? null,
+    ownerId: server.owner_id ?? server.ownerId,
+    memberCount: server.member_count ?? server.memberCount,
+    myRole: server.my_role ?? server.myRole,
+    createdAt: server.created_at ?? server.createdAt,
   }
 }
 
 function mapServerMember(member: any) {
   return {
-    userId: member.user_id,
+    userId: member.user_id ?? member.userId,
     username: member.username,
     role: member.role,
-    joinedAt: member.joined_at,
+    joinedAt: member.joined_at ?? member.joinedAt,
   }
 }
 
 function mapServerFullInfo(server: any): ServerFullInfo {
   return {
-    serverId: server.server_id,
+    serverId: server.server_id ?? server.serverId,
     name: server.name,
-    iconUrl: server.icon_url ?? null,
-    ownerId: server.owner_id,
-    memberCount: server.member_count ?? (server.members?.length ?? 0),
-    myRole: server.my_role ?? 'member',
+    iconUrl: server.icon_url ?? server.iconUrl ?? null,
+    ownerId: server.owner_id ?? server.ownerId,
+    memberCount: server.member_count ?? server.memberCount ?? (server.members?.length ?? 0),
+    myRole: server.my_role ?? server.myRole ?? 'member',
     members: (server.members ?? []).map(mapServerMember),
-    createdAt: server.created_at,
+    createdAt: server.created_at ?? server.createdAt,
   }
 }
 
 function mapChannel(channel: any): ChannelInfo {
   return {
-    channelId: channel.channel_id,
+    channelId: channel.channel_id ?? channel.channelId,
     name: channel.name,
-    type: channel.channel_type,
-    encryptionType: channel.encryption_type,
-    messageTTL: channel.message_ttl,
-    isPrivate: channel.is_private,
-    createdAt: channel.created_at,
+    type: channel.channel_type ?? channel.type,
+    encryptionType: channel.encryption_type ?? channel.encryptionType,
+    messageTTL: channel.message_ttl ?? channel.messageTTL,
+    isPrivate: channel.is_private ?? channel.isPrivate,
+    createdAt: channel.created_at ?? channel.createdAt,
   }
 }
 
