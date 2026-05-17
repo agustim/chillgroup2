@@ -3,6 +3,7 @@
 use sqlx::{Pool, Sqlite, Postgres, Row};
 use uuid::Uuid;
 use crate::config::Config;
+use shared::types::{ServerInfo, ServerFullInfo, ServerMember as SharedServerMember, ServerRole};
 use tracing::{info, error};
 
 /// Connexió a la base de dades amb comprovació de connectivitat.
@@ -304,5 +305,254 @@ impl DatabasePool {
     #[allow(dead_code)]
     pub async fn check_connection(&self) -> Result<(), String> {
         self.execute_query("SELECT 1").await
+    }
+
+    pub async fn list_servers_for_user(&self, user_id: Uuid) -> Result<Vec<ServerInfo>, sqlx::Error> {
+        let query = "SELECT s.id, s.name, s.icon_url, s.owner_id, COUNT(sm2.user_id) as member_count, sm.role as my_role, s.created_at
+            FROM servers s
+            JOIN server_members sm ON sm.server_id = s.id AND sm.user_id = $1
+            JOIN server_members sm2 ON sm2.server_id = s.id
+            GROUP BY s.id, s.name, s.icon_url, s.owner_id, sm.role, s.created_at
+            ORDER BY s.created_at DESC";
+
+        let mut servers = Vec::new();
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let rows = sqlx::query(query).bind(user_id).fetch_all(pool).await?;
+                for row in rows {
+                    let my_role = row.get::<String, _>(5);
+                    servers.push(ServerInfo {
+                        server_id: row.get(0),
+                        name: row.get(1),
+                        icon_url: row.get(2),
+                        owner_id: row.get(3),
+                        member_count: row.get::<i64, _>(4) as u32,
+                        my_role: parse_server_role(&my_role),
+                        created_at: row.get::<String, _>(6),
+                    });
+                }
+            }
+            DatabasePool::Sqlite(pool) => {
+                let query = query.replace("$1", "?");
+                let rows = sqlx::query(&query).bind(user_id).fetch_all(pool).await?;
+                for row in rows {
+                    let my_role = row.get::<String, _>(5);
+                    servers.push(ServerInfo {
+                        server_id: row.get(0),
+                        name: row.get(1),
+                        icon_url: row.get(2),
+                        owner_id: row.get(3),
+                        member_count: row.get::<i64, _>(4) as u32,
+                        my_role: parse_server_role(&my_role),
+                        created_at: row.get::<String, _>(6),
+                    });
+                }
+            }
+        }
+        Ok(servers)
+    }
+
+    pub async fn server_name_exists(&self, name: &str) -> Result<bool, sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query("SELECT EXISTS(SELECT 1 FROM servers WHERE name = $1)")
+                    .bind(name)
+                    .fetch_one(pool)
+                    .await?;
+                Ok(row.get::<bool, _>(0))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query("SELECT EXISTS(SELECT 1 FROM servers WHERE name = ?)")
+                    .bind(name)
+                    .fetch_one(pool)
+                    .await?;
+                Ok(row.get::<bool, _>(0))
+            }
+        }
+    }
+
+    pub async fn create_server_with_owner(&self, server_id: Uuid, name: &str, icon_url: Option<&String>, owner_id: Uuid) -> Result<(), sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query("INSERT INTO servers (id, name, icon_url, owner_id) VALUES ($1, $2, $3, $4)")
+                    .bind(server_id)
+                    .bind(name)
+                    .bind(icon_url)
+                    .bind(owner_id)
+                    .execute(pool)
+                    .await?;
+                sqlx::query("INSERT INTO server_members (id, server_id, user_id, role) VALUES ($1, $2, $3, $4)")
+                    .bind(Uuid::new_v4())
+                    .bind(server_id)
+                    .bind(owner_id)
+                    .bind("owner")
+                    .execute(pool)
+                    .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query("INSERT INTO servers (id, name, icon_url, owner_id) VALUES (?, ?, ?, ?)")
+                    .bind(server_id)
+                    .bind(name)
+                    .bind(icon_url)
+                    .bind(owner_id)
+                    .execute(pool)
+                    .await?;
+                sqlx::query("INSERT INTO server_members (id, server_id, user_id, role) VALUES (?, ?, ?, ?)")
+                    .bind(Uuid::new_v4())
+                    .bind(server_id)
+                    .bind(owner_id)
+                    .bind("owner")
+                    .execute(pool)
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn get_server_full_info(&self, server_id: Uuid) -> Result<Option<ServerFullInfo>, sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let server_row = sqlx::query("SELECT id, name, icon_url, owner_id, created_at FROM servers WHERE id = $1")
+                    .bind(server_id)
+                    .fetch_optional(pool)
+                    .await?;
+
+                let server_row = match server_row {
+                    Some(row) => row,
+                    None => return Ok(None),
+                };
+
+                let members = {
+                    let rows = sqlx::query("SELECT u.id, u.username, sm.role, sm.joined_at FROM server_members sm JOIN users u ON u.id = sm.user_id WHERE sm.server_id = $1 ORDER BY sm.joined_at ASC")
+                        .bind(server_id)
+                        .fetch_all(pool)
+                        .await?;
+                    rows.into_iter().map(|row| SharedServerMember {
+                        user_id: row.get(0),
+                        username: row.get(1),
+                        role: parse_server_role(&row.get::<String, _>(2)),
+                        joined_at: row.get::<String, _>(3),
+                    }).collect()
+                };
+
+                Ok(Some(ServerFullInfo {
+                    server_id: server_row.get(0),
+                    name: server_row.get(1),
+                    icon_url: server_row.get(2),
+                    owner_id: server_row.get(3),
+                    members,
+                    created_at: server_row.get::<String, _>(4),
+                }))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let server_row = sqlx::query("SELECT id, name, icon_url, owner_id, created_at FROM servers WHERE id = ?")
+                    .bind(server_id)
+                    .fetch_optional(pool)
+                    .await?;
+
+                let server_row = match server_row {
+                    Some(row) => row,
+                    None => return Ok(None),
+                };
+
+                let members = {
+                    let rows = sqlx::query("SELECT u.id, u.username, sm.role, sm.joined_at FROM server_members sm JOIN users u ON u.id = sm.user_id WHERE sm.server_id = ? ORDER BY sm.joined_at ASC")
+                        .bind(server_id)
+                        .fetch_all(pool)
+                        .await?;
+                    rows.into_iter().map(|row| SharedServerMember {
+                        user_id: row.get(0),
+                        username: row.get(1),
+                        role: parse_server_role(&row.get::<String, _>(2)),
+                        joined_at: row.get::<String, _>(3),
+                    }).collect()
+                };
+
+                Ok(Some(ServerFullInfo {
+                    server_id: server_row.get(0),
+                    name: server_row.get(1),
+                    icon_url: server_row.get(2),
+                    owner_id: server_row.get(3),
+                    members,
+                    created_at: server_row.get::<String, _>(4),
+                }))
+            }
+        }
+    }
+
+    pub async fn is_server_member(&self, server_id: Uuid, user_id: Uuid) -> Result<Option<String>, sqlx::Error> {
+        let role = match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query("SELECT role FROM server_members WHERE server_id = $1 AND user_id = $2")
+                    .bind(server_id)
+                    .bind(user_id)
+                    .fetch_optional(pool)
+                    .await?;
+                row.map(|r| r.get(0))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query("SELECT role FROM server_members WHERE server_id = ? AND user_id = ?")
+                    .bind(server_id)
+                    .bind(user_id)
+                    .fetch_optional(pool)
+                    .await?;
+                row.map(|r| r.get(0))
+            }
+        };
+        Ok(role)
+    }
+
+    pub async fn add_server_member(&self, server_id: Uuid, user_id: Uuid, role: &str) -> Result<(), sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query("INSERT INTO server_members (id, server_id, user_id, role) VALUES ($1, $2, $3, $4)")
+                    .bind(Uuid::new_v4())
+                    .bind(server_id)
+                    .bind(user_id)
+                    .bind(role)
+                    .execute(pool)
+                    .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query("INSERT INTO server_members (id, server_id, user_id, role) VALUES (?, ?, ?, ?)")
+                    .bind(Uuid::new_v4())
+                    .bind(server_id)
+                    .bind(user_id)
+                    .bind(role)
+                    .execute(pool)
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn update_server_member_role(&self, server_id: Uuid, user_id: Uuid, role: &str) -> Result<(), sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query("UPDATE server_members SET role = $1 WHERE server_id = $2 AND user_id = $3")
+                    .bind(role)
+                    .bind(server_id)
+                    .bind(user_id)
+                    .execute(pool)
+                    .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query("UPDATE server_members SET role = ? WHERE server_id = ? AND user_id = ?")
+                    .bind(role)
+                    .bind(server_id)
+                    .bind(user_id)
+                    .execute(pool)
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+}
+
+fn parse_server_role(role: &str) -> ServerRole {
+    match role {
+        "owner" => ServerRole::Owner,
+        "admin" => ServerRole::Admin,
+        _ => ServerRole::Member,
     }
 }

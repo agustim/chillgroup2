@@ -4,9 +4,10 @@ import { messagesList } from '../../lib/api'
 
 interface MessageListProps {
   channelId: string
+  refreshKey?: number
 }
 
-export function MessageList({ channelId }: MessageListProps) {
+export function MessageList({ channelId, refreshKey }: MessageListProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -31,7 +32,7 @@ export function MessageList({ channelId }: MessageListProps) {
 
   useEffect(() => {
     loadMessages()
-  }, [channelId])
+  }, [channelId, refreshKey])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })

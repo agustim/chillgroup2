@@ -605,6 +605,12 @@ body {
   min-width: 40px;
 }
 
+.message-send-error {
+  color: var(--error);
+  padding: 0 16px 8px;
+  font-size: 13px;
+}
+
 /* ── Voice Area ────────────────────────────────── */
 .voice-area {
   flex: 1;

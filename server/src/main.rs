@@ -23,7 +23,6 @@ use tracing::info;
 
 use config::Config;
 use middleware::AppState;
-use db::DatabasePool;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -64,8 +63,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/api/servers", get(routes::servers::list_servers).post(routes::servers::create_server))
         .route("/api/servers/{server_id}", get(routes::servers::get_server))
         .route("/api/servers/{server_id}/channels", get(routes::channels::list_channels).post(routes::channels::create_channel))
+        .route("/api/servers/{server_id}/members", get(routes::servers::list_server_members).post(routes::servers::invite_server_member))
+        .route("/api/servers/{server_id}/members/{user_id}/role", put(routes::servers::update_member_role))
         .route("/api/channels/{channel_id}/keys", get(routes::channels::get_channel_keys))
-        .route("/api/channels/{channel_id}/invite", get(routes::channels::invite_to_channel))
+        .route("/api/channels/{channel_id}/invite", post(routes::channels::invite_to_channel))
         .route("/api/channels/{channel_id}", put(routes::channels::update_channel))
         .route("/api/channels/{channel_id}/messages", get(routes::messages::list_messages).post(routes::messages::send_message))
         .route("/api/messages/{message_id}", put(routes::messages::edit_message))

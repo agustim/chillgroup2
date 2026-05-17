@@ -2,6 +2,8 @@
 //!
 //! Wrapper sobre fetch per a crides a l'API REST.
 
+import type { Server, ServerFullInfo, ServerMember, ServerRole } from '../types'
+
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
 /**
@@ -179,6 +181,58 @@ export interface ChannelInfo {
   createdAt: string
 }
 
+function mapServer(server: any): Server {
+  return {
+    serverId: server.server_id,
+    name: server.name,
+    iconUrl: server.icon_url ?? null,
+    ownerId: server.owner_id,
+    memberCount: server.member_count,
+    myRole: server.my_role,
+    createdAt: server.created_at,
+  }
+}
+
+function mapServerMember(member: any) {
+  return {
+    userId: member.user_id,
+    username: member.username,
+    role: member.role,
+    joinedAt: member.joined_at,
+  }
+}
+
+function mapServerFullInfo(server: any): ServerFullInfo {
+  return {
+    serverId: server.server_id,
+    name: server.name,
+    iconUrl: server.icon_url ?? null,
+    ownerId: server.owner_id,
+    memberCount: server.member_count ?? (server.members?.length ?? 0),
+    myRole: server.my_role ?? 'member',
+    members: (server.members ?? []).map(mapServerMember),
+    createdAt: server.created_at,
+  }
+}
+
+function mapChannel(channel: any): ChannelInfo {
+  return {
+    channelId: channel.channel_id,
+    name: channel.name,
+    type: channel.channel_type,
+    encryptionType: channel.encryption_type,
+    messageTTL: channel.message_ttl,
+    isPrivate: channel.is_private,
+    createdAt: channel.created_at,
+  }
+}
+
+function mapInviteResponse(response: any) {
+  return {
+    invitedUser: response.invited_user,
+  }
+}
+
 // ── API Functions ─────────────────────────────────────────────
 
 export async function authRegister(username: string, password: string) {
@@ -210,20 +264,40 @@ export async function authMe() {
   return apiRequest<UserInfo>('GET', '/api/user/me')
 }
 
-export async function serversList() {
-  return apiRequest<ServerInfo[]>('GET', '/api/servers')
+export async function serversList(): Promise<ApiResult<Server[]>> {
+  const result = await apiRequest<any[]>('GET', '/api/servers')
+  if (!result.success) return result
+  return { success: true, data: result.data.map(mapServer) }
 }
 
-export async function serversCreate(name: string, iconUrl?: string | null) {
-  return apiRequest<ServerInfo>('POST', '/api/servers', { name, iconUrl })
+export async function serversCreate(name: string, iconUrl?: string | null): Promise<ApiResult<ServerFullInfo>> {
+  const result = await apiRequest<any>('POST', '/api/servers', { name, iconUrl })
+  if (!result.success) return result
+  return { success: true, data: mapServerFullInfo(result.data) }
 }
 
-export async function serversGet(serverId: string) {
-  return apiRequest<ServerInfo>('GET', `/api/servers/${serverId}`)
+export async function serversGet(serverId: string): Promise<ApiResult<ServerFullInfo>> {
+  const result = await apiRequest<any>('GET', `/api/servers/${serverId}`)
+  if (!result.success) return result
+  return { success: true, data: mapServerFullInfo(result.data) }
 }
 
 export async function serversDelete(serverId: string) {
   return apiRequest<{ deleted: boolean }>('DELETE', `/api/servers/${serverId}`)
+}
+
+export async function serverMembersList(serverId: string) {
+  return apiRequest<ServerMember[]>('GET', `/api/servers/${serverId}/members`)
+}
+
+export async function serverInviteMember(serverId: string, username: string): Promise<ApiResult<{ invitedUser: string }>> {
+  const result = await apiRequest<any>('POST', `/api/servers/${serverId}/members`, { username })
+  if (!result.success) return result
+  return { success: true, data: mapInviteResponse(result.data) }
+}
+
+export async function serverUpdateMemberRole(serverId: string, userId: string, role: ServerRole) {
+  return apiRequest<ServerMember>('PUT', `/api/servers/${serverId}/members/${userId}/role`, { role })
 }
 
 export async function messagesList(channelId: string, limit = 50, before?: string) {
@@ -282,8 +356,10 @@ export async function dmSend(recipientUserId: string, encryptedPayload: string, 
   })
 }
 
-export async function channelsList(serverId: string) {
-  return apiRequest<ChannelInfo[]>('GET', `/api/servers/${serverId}/channels`)
+export async function channelsList(serverId: string): Promise<ApiResult<ChannelInfo[]>> {
+  const result = await apiRequest<any[]>('GET', `/api/servers/${serverId}/channels`)
+  if (!result.success) return result
+  return { success: true, data: result.data.map(mapChannel) }
 }
 
 export async function channelsCreate(
@@ -291,13 +367,36 @@ export async function channelsCreate(
   name: string,
   type: 'text' | 'voice',
   encryptionType = 'none'
-) {
-  return apiRequest<ChannelInfo>('POST', `/api/servers/${serverId}/channels`, {
+): Promise<ApiResult<ChannelInfo>> {
+  const result = await apiRequest<any>('POST', `/api/servers/${serverId}/channels`, {
     name,
     type,
     encryptionType,
     isPrivate: false,
   })
+  if (!result.success) return result
+  return { success: true, data: mapChannel(result.data) }
+}
+
+export async function channelsUpdate(
+  channelId: string,
+  name?: string,
+  messageTTL?: number | null
+): Promise<ApiResult<ChannelInfo>> {
+  const result = await apiRequest<any>('PUT', `/api/channels/${channelId}`, {
+    name,
+    messageTTL,
+  })
+  if (!result.success) return result
+  return { success: true, data: mapChannel(result.data) }
+}
+
+export async function channelInvite(channelId: string, username: string): Promise<ApiResult<{ invitedUser: string }>> {
+  const result = await apiRequest<any>('POST', `/api/channels/${channelId}/invite`, {
+    username,
+  })
+  if (!result.success) return result
+  return { success: true, data: mapInviteResponse(result.data) }
 }
 
 export async function channelsGetKeys(channelId: string) {

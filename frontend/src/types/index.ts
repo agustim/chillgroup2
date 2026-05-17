@@ -32,6 +32,10 @@ export interface Server {
   createdAt: string
 }
 
+export interface ServerFullInfo extends Server {
+  members: ServerMember[]
+}
+
 export type ServerRole = 'owner' | 'admin' | 'member'
 
 export interface ServerMember {

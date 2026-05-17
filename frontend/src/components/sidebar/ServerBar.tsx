@@ -5,9 +5,10 @@ interface ServerBarProps {
   servers: Server[]
   selectedServer: string | null
   onSelectServer: (serverId: string) => void
+  onCreateServer: () => void
 }
 
-export function ServerBar({ servers, selectedServer, onSelectServer }: ServerBarProps) {
+export function ServerBar({ servers, selectedServer, onSelectServer, onCreateServer }: ServerBarProps) {
   return (
     <div className="server-bar">
       {servers.map((server) => (
@@ -24,7 +25,7 @@ export function ServerBar({ servers, selectedServer, onSelectServer }: ServerBar
           )}
         </button>
       ))}
-      <button className="server-icon add-server" title="Afegir servidor">
+      <button className="server-icon add-server" title="Afegir servidor" onClick={onCreateServer}>
         +
       </button>
     </div>

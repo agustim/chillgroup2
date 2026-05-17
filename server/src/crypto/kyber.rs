@@ -2,8 +2,6 @@
 //!
 //! En producció s'implementarà amb x25519-dilithium o liboqs.
 
-use crate::error::CryptoError;
-
 /// Generar un parell de claus Kyber-1024 (placeholder).
 ///
 /// Retorna (public_key, private_key) com a Vec<u8>.

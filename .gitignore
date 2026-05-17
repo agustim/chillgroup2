@@ -3,7 +3,7 @@
 QWEN.md
 .qwen
 target/
-server/chillgroup.db
+chillgroup.db
 node_modules/
 dist/
 build/

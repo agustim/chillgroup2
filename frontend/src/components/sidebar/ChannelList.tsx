@@ -8,6 +8,9 @@ interface ChannelListProps {
   onSelectChannel: (channel: Channel) => void
   username: string
   onLogout?: () => void
+  onManageDevices?: () => void
+  onCreateChannel?: () => void
+  canCreateChannel?: boolean
 }
 
 export function ChannelList({
@@ -16,6 +19,9 @@ export function ChannelList({
   onSelectChannel,
   username,
   onLogout,
+  onManageDevices,
+  onCreateChannel,
+  canCreateChannel = false,
 }: ChannelListProps) {
   const textChannels = channels.filter((c) => c.type === 'text')
   const voiceChannels = channels.filter((c) => c.type === 'voice')
@@ -26,16 +32,30 @@ export function ChannelList({
       <div className="channel-list-user">
         <div className="user-avatar">{username.charAt(0).toUpperCase()}</div>
         <span className="user-name">{username}</span>
-        {onLogout && (
-          <button className="logout-btn" onClick={onLogout} title="Tancar sessió">
-            🚪
-          </button>
-        )}
+        <div className="user-actions">
+          {onLogout && (
+            <button className="logout-btn" onClick={onLogout} title="Tancar sessió">
+              🚪
+            </button>
+          )}
+          {onManageDevices && (
+            <button className="device-btn" onClick={onManageDevices} title="Gestió de dispositius">
+              🖥️
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Text Channels */}
       <div className="channel-category">
-        <span className="category-name"># CANALS DE TEXT</span>
+        <div className="category-header">
+          <span className="category-name"># CANALS DE TEXT</span>
+          {canCreateChannel && onCreateChannel && (
+            <button className="create-channel-btn" onClick={onCreateChannel} title="Crear canal de text">
+              +
+            </button>
+          )}
+        </div>
         {textChannels.map((channel) => (
           <button
             key={channel.channelId}

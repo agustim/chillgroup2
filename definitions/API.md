@@ -174,20 +174,7 @@ Obtenir informació de l'usuari actual (autenticat).
     "userId": "550e8400-e29b-41d4-a716-446655440000",
     "username": "agusti",
     "isAdmin": false,
-    "devices": [
-      {
-        "deviceId": "550e8400-e29b-41d4-a716-446655440001",
-        "label": "Chrome on macOS",
-        "publicKey": "base64-encoded-kyber-public-key",
-        "lastSeen": "2026-05-13T10:30:00Z",
-        "revoked": false
-      }
-    ],
-    "quotas": {
-      "maxServers": 10,
-      "maxChannelsPerServer": 50,
-      "maxMessagesPerMinute": 30
-    }
+    "deviceId": "550e8400-e29b-41d4-a716-446655440001"
   }
 }
 ```
@@ -196,9 +183,34 @@ Obtenir informació de l'usuari actual (autenticat).
 
 ## Dispositius
 
+### GET `/api/user/me/devices`
+
+Llistar tots els dispositius associats a l'usuari autenticat.
+
+**Headers:** `Authorization: Bearer <JWT>`
+
+**Response 200 OK:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "deviceId": "550e8400-e29b-41d4-a716-446655440001",
+      "label": "Chrome on Linux",
+      "publicKey": "base64-encoded-kyber-public-key",
+      "createdAt": "2026-05-01T08:00:00Z",
+      "lastSeen": "2026-05-13T10:30:00Z",
+      "revoked": false
+    }
+  ]
+}
+```
+
+---
+
 ### PUT `/api/user/me/devices/:deviceId/publicKey`
 
-Actualitzar la clau pública Kyber-1024 d'un dispositiu.
+Actualitzar la clau pública Kyber del dispositiu autenticat.
 
 **Headers:** `Authorization: Bearer <JWT>`
 **Path Params:** `{ "deviceId": "string" }`
@@ -223,34 +235,9 @@ Actualitzar la clau pública Kyber-1024 d'un dispositiu.
 
 ---
 
-### GET `/api/user/me/devices`
-
-Llistar tots els dispositius de l'usuari autenticat.
-
-**Headers:** `Authorization: Bearer <JWT>`
-
-**Response 200 OK:**
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "deviceId": "550e8400-e29b-41d4-a716-446655440001",
-      "label": "Chrome on macOS",
-      "publicKey": "base64-encoded-kyber-public-key",
-      "createdAt": "2026-05-01T08:00:00Z",
-      "lastSeen": "2026-05-13T10:30:00Z",
-      "revoked": false
-    }
-  ]
-}
-```
-
----
-
 ### DELETE `/api/user/me/devices/:deviceId`
 
-Revocar un dispositiu. Elimina el device de la DB.
+Revocar un dispositiu de l'usuari.
 
 **Headers:** `Authorization: Bearer <JWT>`
 **Path Params:** `{ "deviceId": "string" }`
@@ -270,7 +257,7 @@ Revocar un dispositiu. Elimina el device de la DB.
 
 ### GET `/api/user/:username/devices`
 
-Obtenir les claus públiques dels dispositius d'un usuari. Per a invitacions a canals E2EE.
+Obtenir les claus públiques dels dispositius d'un altre usuari. Útil per a convidar a canals E2EE.
 
 **Headers:** `Authorization: Bearer <JWT>`
 **Path Params:** `{ "username": "string" }`
@@ -281,29 +268,12 @@ Obtenir les claus públiques dels dispositius d'un usuari. Per a invitacions a c
   "success": true,
   "data": [
     {
-      "deviceId": "550e8400-e29b-41d4-a716-446655440001",
+      "deviceId": "550e8400-e29b-41d4-a716-446655440002",
       "username": "marcus",
       "publicKey": "base64-encoded-kyber-public-key",
       "revoked": false
-    },
-    {
-      "deviceId": "550e8400-e29b-41d4-a716-446655440002",
-      "username": "marcus",
-      "publicKey": "base64-encoded-kyber-public-key-2",
-      "revoked": false
     }
   ]
-}
-```
-
-**Response 404 Not Found:**
-```json
-{
-  "success": false,
-  "error": {
-    "code": 404,
-    "message": "Usuari no trobat"
-  }
 }
 ```
 
@@ -462,15 +432,14 @@ Llistar membres d'un servidor.
 
 ### POST `/api/servers/:serverId/members`
 
-Afegir un membre al servidor (per username).
+Afegir un membre al servidor per username.
 
 **Headers:** `Authorization: Bearer <JWT>`
 **Path Params:** `{ "serverId": "string" }`
 **Request Body:**
 ```json
 {
-  "username": "marcus",           // string
-  "role": "member"                // string: "owner" | "admin" | "member"
+  "username": "marcus"
 }
 ```
 
@@ -479,10 +448,7 @@ Afegir un membre al servidor (per username).
 {
   "success": true,
   "data": {
-    "userId": "550e8400-e29b-41d4-a716-446655440002",
-    "username": "marcus",
-    "role": "member",
-    "joinedAt": "2026-05-13T10:30:00Z"
+    "invitedUser": "marcus"
   }
 }
 ```
@@ -1101,10 +1067,10 @@ Generar un token d'accés a LiveKit per a un canal de veu.
 | POST | `/api/auth/login` | No | Login |
 | POST | `/api/auth/refresh` | No (cookie) | Renovar token |
 | GET | `/api/user/me` | Sí | Info usuari actual |
-| PUT | `/api/user/me/devices/:id/publicKey` | Sí | Actualitzar publicKey |
 | GET | `/api/user/me/devices` | Sí | Llistar dispositius |
+| PUT | `/api/user/me/devices/:id/publicKey` | Sí | Actualitzar public key |
 | DELETE | `/api/user/me/devices/:id` | Sí | Revocar dispositiu |
-| GET | `/api/user/:username/devices` | Sí | Devices d'altre usuari |
+| GET | `/api/user/:username/devices` | Sí | Claus públiques dispositius |
 | GET | `/api/servers` | Sí | Llistar servidors |
 | POST | `/api/servers` | Sí | Crear servidor |
 | GET | `/api/servers/:id` | Sí | Info servidor |
@@ -1121,11 +1087,12 @@ Generar un token d'accés a LiveKit per a un canal de veu.
 | DELETE | `/api/channels/:id` | Sí | Eliminar canal |
 | GET | `/api/channels/:id/messages` | Sí | Llistar missatges |
 | POST | `/api/channels/:id/messages` | Sí | Enviar missatge |
+| PUT | `/api/messages/:id` | Sí | Editar missatge |
 | GET | `/api/messages/:id` | Sí | Recuperar missatge concret |
 | DELETE | `/api/messages/:id` | Sí | Eliminar missatge |
 | GET | `/api/channels/:id/messages/check-new` | Sí | Check missatges nous |
 | POST | `/api/direct-messages` | Sí | Enviar DM |
 | GET | `/api/direct-messages/list` | Sí | Llistar DMs |
 | GET | `/api/conversations` | Sí | Llistar converses |
-| POST | `/api/livekit/token` | Sí | Token LiveKit |
+| POST | `/api/livekit/token` | Sí | Generar token LiveKit |
 | GET | `/health` | No | Health check |
