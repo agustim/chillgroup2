@@ -805,14 +805,13 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
+  opacity: 0.6;
   transition: all var(--transition-fast);
   z-index: 10;
 }
 
-.server-icon.active + .server-config-btn,
-.server-icon:hover + .server-config-btn,
-.server-config-btn:hover {
+.server-config-btn:hover,
+.server-config-btn.active {
   opacity: 1;
   background: var(--bg-hover);
   color: var(--text-primary);

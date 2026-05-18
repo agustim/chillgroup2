@@ -1,5 +1,27 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, createContext, useContext, MutableRefObject, useCallback } from 'react'
 import { Server } from '../../types'
+
+type MenuContextType = {
+  openMenuServerId: string | null
+  setOpenMenuServerId: (id: string | null) => void
+  menuButtonRef: MutableRefObject<HTMLButtonElement | null>
+  setMenuButtonRef: (ref: HTMLButtonElement | null) => void
+  menuPosition: { x: number; y: number } | null
+  setMenuPosition: (pos: { x: number; y: number } | null) => void
+}
+
+const ServerMenuContext = createContext<MenuContextType>({
+  openMenuServerId: null,
+  setOpenMenuServerId: () => {},
+  menuButtonRef: { current: null },
+  setMenuButtonRef: () => {},
+  menuPosition: null,
+  setMenuPosition: () => {},
+})
+
+export function useServerMenuContext() {
+  return useContext(ServerMenuContext)
+}
 
 type ServerMenuAction = 'config' | 'invite' | 'createText' | 'createVoice' | 'devices' | null
 
@@ -12,40 +34,56 @@ interface ServerBarProps {
 }
 
 export function ServerBar({ servers, selectedServer, onSelectServer, onCreateServer, onServerAction }: ServerBarProps) {
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [menuServerId, setMenuServerId] = useState<string | null>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
+  const [openMenuServerId, setOpenMenuServerId] = useState<string | null>(null)
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null)
+  const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null)
+  const menuContentRef = useRef<HTMLDivElement>(null)
 
   // Tancar menú quan es clica fora
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false)
-        setMenuServerId(null)
+      if (
+        menuContentRef.current &&
+        !menuContentRef.current.contains(e.target as Node) &&
+        menuButtonRef.current &&
+        !menuButtonRef.current.contains(e.target as Node)
+      ) {
+        setOpenMenuServerId(null)
+        setMenuPosition(null)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const handleMenuToggle = (serverId: string, e: React.MouseEvent) => {
+  const handleMenuToggle = useCallback((serverId: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    if (menuServerId === serverId && menuOpen) {
-      setMenuOpen(false)
-      setMenuServerId(null)
-    } else {
-      setMenuServerId(serverId)
-      setMenuOpen(true)
+
+    if (openMenuServerId === serverId) {
+      setOpenMenuServerId(null)
+      setMenuPosition(null)
+      return
     }
-  }
+
+    // Calcular posició del botó
+    const rect = (e.target as HTMLElement).getBoundingClientRect()
+    const serverBarRect = document.querySelector('.server-bar')?.getBoundingClientRect()
+
+    if (!serverBarRect) return
+
+    // Posicionar el menú a la dreta del server-bar
+    const x = serverBarRect.right + 4
+    const y = rect.top + rect.height / 2 - 60 // centrat respecte al botó
+
+    setMenuPosition({ x, y })
+    setOpenMenuServerId(serverId)
+  }, [openMenuServerId])
 
   const handleMenuAction = (action: ServerMenuAction) => {
-    setMenuOpen(false)
-    setMenuServerId(null)
+    setOpenMenuServerId(null)
+    setMenuPosition(null)
     onServerAction?.(action)
   }
-
-  const selectedServerData = servers.find((s) => s.serverId === selectedServer)
 
   return (
     <div className="server-bar">
@@ -62,42 +100,52 @@ export function ServerBar({ servers, selectedServer, onSelectServer, onCreateSer
               <span>{server.name.charAt(0).toUpperCase()}</span>
             )}
           </button>
-          {/* Botó de configuració (visible al fer hover o si està actiu) */}
-          {selectedServer === server.serverId && (
-            <button
-              className="server-config-btn"
-              onClick={(e) => handleMenuToggle(server.serverId, e)}
-              title="Configurar servidor"
-            >
-              ⚙️
-            </button>
-          )}
-          {/* Menú desplegable */}
-          {menuOpen && menuServerId === server.serverId && (
-            <div ref={menuRef} className="server-menu">
-              <div className="server-menu-header">{server.name}</div>
-              <button className="server-menu-item" onClick={() => handleMenuAction('config')}>
-                ⚙️ Configurar servidor
-              </button>
-              <button className="server-menu-item" onClick={() => handleMenuAction('invite')}>
-                👥 Convidar al servidor
-              </button>
-              <button className="server-menu-item" onClick={() => handleMenuAction('createText')}>
-                # Crear canal de text
-              </button>
-              <button className="server-menu-item" onClick={() => handleMenuAction('createVoice')}>
-                🔊 Crear canal de veu
-              </button>
-              <button className="server-menu-item" onClick={() => handleMenuAction('devices')}>
-                🖥️ Gestió de dispositius
-              </button>
-            </div>
-          )}
+          {/* Botó de configuració (sempre visible quan hi ha servers) */}
+          <button
+            ref={openMenuServerId === server.serverId ? menuButtonRef : null}
+            className={`server-config-btn ${selectedServer === server.serverId ? 'active' : ''}`}
+            onClick={(e) => handleMenuToggle(server.serverId, e)}
+            title="Configurar servidor"
+          >
+            ⚙️
+          </button>
         </div>
       ))}
       <button className="server-icon add-server" title="Afegir servidor" onClick={onCreateServer}>
         +
       </button>
+
+      {/* Menú desplegable amb Portal */}
+      {openMenuServerId && menuPosition && (
+        <div
+          ref={menuContentRef}
+          className="server-menu"
+          style={{
+            position: 'fixed',
+            left: menuPosition.x,
+            top: menuPosition.y,
+          }}
+        >
+          <div className="server-menu-header">
+            {servers.find((s) => s.serverId === openMenuServerId)?.name || 'Server'}
+          </div>
+          <button className="server-menu-item" onClick={() => handleMenuAction('config')}>
+            ⚙️ Configurar servidor
+          </button>
+          <button className="server-menu-item" onClick={() => handleMenuAction('invite')}>
+            👥 Convidar al servidor
+          </button>
+          <button className="server-menu-item" onClick={() => handleMenuAction('createText')}>
+            # Crear canal de text
+          </button>
+          <button className="server-menu-item" onClick={() => handleMenuAction('createVoice')}>
+            🔊 Crear canal de veu
+          </button>
+          <button className="server-menu-item" onClick={() => handleMenuAction('devices')}>
+            🖥️ Gestió de dispositius
+          </button>
+        </div>
+      )}
     </div>
   )
 }
