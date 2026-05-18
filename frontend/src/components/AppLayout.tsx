@@ -4,6 +4,10 @@ import { ServerBar } from './sidebar/ServerBar'
 import { ChannelList } from './sidebar/ChannelList'
 import { MainContent } from './main/MainContent'
 import { ChannelHeader } from './main/ChannelHeader'
+import { CreateServerModal } from './modals/CreateServerModal'
+import { CreateChannelModal } from './modals/CreateChannelModal'
+import { InviteMemberModal } from './modals/InviteMemberModal'
+import { ConfigureChannelModal } from './modals/ConfigureChannelModal'
 import { Channel, Server, ServerFullInfo } from '../types'
 import {
   serverInviteMember,
@@ -33,6 +37,21 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const [voiceJoined, setVoiceJoined] = useState(false)
   const [panel, setPanel] = useState<PanelType>('none')
   const [feedback, setFeedback] = useState<string | null>(null)
+  
+  // Modal states
+  const [showCreateServer, setShowCreateServer] = useState(false)
+  const [showCreateChannel, setShowCreateChannel] = useState(false)
+  const [showInviteServer, setShowInviteServer] = useState(false)
+  const [showInviteChannel, setShowInviteChannel] = useState(false)
+  const [showConfigureChannel, setShowConfigureChannel] = useState(false)
+  
+  // Auto-dismiss feedback
+  useEffect(() => {
+    if (feedback) {
+      const timer = setTimeout(() => setFeedback(null), 3000)
+      return () => clearTimeout(timer)
+    }
+  }, [feedback])
 
   const selectedServerInfo = selectedServer ? servers.find((server) => server.serverId === selectedServer) : undefined
   const canManageServer =
@@ -85,11 +104,10 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   }
 
   const handleCreateServer = async () => {
-    const name = window.prompt('Nom del servidor')?.trim()
-    if (!name) {
-      return
-    }
-    const iconUrl = window.prompt('URL de la icona (opcional)')?.trim() || null
+    setShowCreateServer(true)
+  }
+
+  const handleCreateServerSubmit = async (name: string, iconUrl: string | null) => {
     const result = await serversCreate(name, iconUrl)
     if (result.success) {
       await fetchServers()
@@ -102,12 +120,12 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
 
   const handleCreateTextChannel = async () => {
     if (!selectedServer) return
-    const name = window.prompt('Nom del canal de text')?.trim()
-    if (!name) {
-      return
-    }
+    setShowCreateChannel(true)
+  }
 
-    const result = await channelsCreate(selectedServer, name, 'text', 'none')
+  const handleCreateChannelSubmit = async (name: string, type: 'text' | 'voice') => {
+    if (!selectedServer) return
+    const result = await channelsCreate(selectedServer, name, type, 'none')
     if (result.success) {
       await fetchChannels(selectedServer)
       setSelectedChannel(result.data)
@@ -119,12 +137,14 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
 
   const handleInviteServerMember = async () => {
     if (!selectedServer) return
-    const usernameToInvite = window.prompt('Nom d’usuari a convidar al servidor')?.trim()
-    if (!usernameToInvite) return
+    setShowInviteServer(true)
+  }
 
-    const result = await serverInviteMember(selectedServer, usernameToInvite)
+  const handleInviteServerSubmit = async (username: string) => {
+    if (!selectedServer) return
+    const result = await serverInviteMember(selectedServer, username)
     if (result.success) {
-      setFeedback(`Invitació enviada a ${usernameToInvite}`)
+      setFeedback(`Invitació enviada a ${username}`)
       await fetchServerDetails(selectedServer)
     } else {
       setFeedback(result.error.message)
@@ -133,14 +153,12 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
 
   const handleConfigureChannel = async () => {
     if (!selectedChannel || !selectedServer) return
+    setShowConfigureChannel(true)
+  }
 
-    const name = window.prompt('Nou nom del canal', selectedChannel.name)
-    if (name === null) return
-
-    const ttlString = window.prompt('Durada TTL de missatge en segons (deixa buit per cap)', selectedChannel.messageTTL?.toString() ?? '')
-    const messageTTL = ttlString ? Number(ttlString) : null
-
-    const result = await channelsUpdate(selectedChannel.channelId, name.trim() || selectedChannel.name, messageTTL)
+  const handleConfigureChannelSubmit = async (name: string, messageTTL: number | null) => {
+    if (!selectedChannel || !selectedServer) return
+    const result = await channelsUpdate(selectedChannel.channelId, name, messageTTL)
     if (result.success) {
       await fetchChannels(selectedServer)
       setSelectedChannel(result.data)
@@ -152,12 +170,15 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
 
   const handleInviteChannel = async () => {
     if (!selectedChannel) return
-    const usernameToInvite = window.prompt('Nom d’usuari a convidar al canal')?.trim()
-    if (!usernameToInvite) return
+    setShowInviteChannel(true)
+  }
 
-    const result = await channelInvite(selectedChannel.channelId, usernameToInvite)
+  const handleInviteChannelSubmit = async (username: string) => {
+    const channel = selectedChannel
+    if (!channel) return
+    const result = await channelInvite(channel.channelId, username)
     if (result.success) {
-      setFeedback(`Invitació al canal enviada a ${usernameToInvite}`)
+      setFeedback(`Invitació al canal enviada a ${username}`)
     } else {
       setFeedback(result.error.message)
     }
@@ -268,6 +289,46 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
             <p className="panel-note">Les accions de dispositiu estaran disponibles quan el backend implementi l'API corresponent.</p>
           </div>
         )}
+
+        {/* ── Modals ─────────────────────────────────── */}
+        <CreateServerModal
+          isOpen={showCreateServer}
+          onClose={() => setShowCreateServer(false)}
+          onCreate={handleCreateServerSubmit}
+        />
+
+        <CreateChannelModal
+          isOpen={showCreateChannel}
+          onClose={() => setShowCreateChannel(false)}
+          onCreate={handleCreateChannelSubmit}
+        />
+
+        {selectedServer && (
+          <InviteMemberModal
+            isOpen={showInviteServer}
+            onClose={() => setShowInviteServer(false)}
+            onInvite={handleInviteServerSubmit}
+            inviteType="server"
+            targetName={selectedServerInfo?.name ?? selectedServer}
+          />
+        )}
+
+        {selectedChannel && (
+          <InviteMemberModal
+            isOpen={showInviteChannel}
+            onClose={() => setShowInviteChannel(false)}
+            onInvite={handleInviteChannelSubmit}
+            inviteType="channel"
+            targetName={selectedChannel.name}
+          />
+        )}
+
+        <ConfigureChannelModal
+          isOpen={showConfigureChannel}
+          onClose={() => setShowConfigureChannel(false)}
+          channel={selectedChannel}
+          onSave={handleConfigureChannelSubmit}
+        />
       </div>
     </div>
   )

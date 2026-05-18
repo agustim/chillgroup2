@@ -1,4 +1,21 @@
 @import './styles/variables.css';
+@import './styles/modal.css';
+
+/* ── Feedback Banner ────────────────────────────── */
+
+.feedback-banner {
+  padding: 12px 16px;
+  margin: 8px 16px;
+  border-radius: var(--input-radius);
+  font-size: 14px;
+  animation: slideDown 0.2s ease-out;
+}
+
+.feedback-banner:not(.modal-error):not(.modal-success) {
+  background: rgba(35, 165, 89, 0.1);
+  color: var(--success);
+  border: 1px solid rgba(35, 165, 89, 0.3);
+}
 
 /* Reset */
 *, *::before, *::after {
