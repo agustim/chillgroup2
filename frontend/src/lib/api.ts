@@ -188,7 +188,7 @@ function mapServer(server: any): Server {
     iconUrl: server.icon_url ?? server.iconUrl ?? null,
     ownerId: server.owner_id ?? server.ownerId,
     memberCount: server.member_count ?? server.memberCount,
-    myRole: server.my_role ?? server.myRole,
+    myRole: server.my_role ?? server.myRole ?? 'member',
     createdAt: server.created_at ?? server.createdAt,
   }
 }
@@ -221,8 +221,8 @@ function mapChannel(channel: any): ChannelInfo {
     name: channel.name,
     type: channel.channel_type ?? channel.type,
     encryptionType: channel.encryption_type ?? channel.encryptionType,
-    messageTTL: channel.message_ttl ?? channel.messageTTL,
-    isPrivate: channel.is_private ?? channel.isPrivate,
+    messageTTL: channel.message_ttl ?? channel.messageTTL ?? null,
+    isPrivate: channel.is_private ?? channel.isPrivate ?? false,
     createdAt: channel.created_at ?? channel.createdAt,
   }
 }
