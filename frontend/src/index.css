@@ -337,6 +337,13 @@ body {
   padding: 8px;
 }
 
+.category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
 .category-name {
   display: flex;
   align-items: center;

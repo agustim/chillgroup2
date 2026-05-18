@@ -87,7 +87,18 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   }
 
   useEffect(() => {
-    fetchServers()
+    const checkServers = async () => {
+      const result = await serversList()
+      if (result.success && result.data.length === 0) {
+        setShowCreateServer(true)
+      } else if (result.success && result.data.length > 0) {
+        setServers(result.data)
+        if (!selectedServer) {
+          setSelectedServer(result.data[0].serverId)
+        }
+      }
+    }
+    checkServers()
   }, [])
 
   useEffect(() => {
