@@ -780,3 +780,185 @@ body {
   font-size: 24px;
   color: var(--text-muted);
 }
+
+/* ── Server Config Button ─────────────────────── */
+
+.server-config-btn {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--bg-serverbar);
+  border: 2px solid var(--bg-active);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: all var(--transition-fast);
+  z-index: 10;
+}
+
+.server-icon.active + .server-config-btn,
+.server-icon:hover + .server-config-btn,
+.server-config-btn:hover {
+  opacity: 1;
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* ── Server Dropdown Menu ─────────────────────── */
+
+.server-menu {
+  position: absolute;
+  top: 56px;
+  left: 56px;
+  width: 220px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--bg-active);
+  border-radius: var(--input-radius);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  padding: 8px 0;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.server-menu-header {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--bg-active);
+  margin-bottom: 4px;
+}
+
+.server-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--transition-fast);
+}
+
+.server-menu-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* ── Create Channel Buttons ───────────────────── */
+
+.create-channel-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+  margin-left: auto;
+}
+
+.create-channel-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* ── Server Actions ───────────────────────────── */
+
+.server-actions {
+  display: flex;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--bg-header);
+  border-bottom: 1px solid var(--bg-active);
+}
+
+.server-actions button {
+  background: var(--bg-input);
+  border: 1px solid var(--bg-active);
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  border-radius: var(--input-radius);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.server-actions button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* ── Panels ───────────────────────────────────── */
+
+.panel {
+  background: var(--bg-sidebar);
+  border-left: 1px solid var(--bg-active);
+  padding: 16px;
+  overflow-y: auto;
+  max-width: 300px;
+}
+
+.panel h3 {
+  color: var(--text-primary);
+  font-size: 16px;
+  margin-bottom: 12px;
+}
+
+.panel p {
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.panel-note {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 12px;
+}
+
+.server-members h4,
+.devices-panel h4 {
+  color: var(--text-primary);
+  font-size: 14px;
+  margin: 12px 0 8px 0;
+}
+
+.server-members ul,
+.devices-panel ul {
+  list-style: none;
+  padding: 0;
+}
+
+.server-members li,
+.devices-panel li {
+  padding: 6px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--bg-active);
+}
+
+.device-status {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
