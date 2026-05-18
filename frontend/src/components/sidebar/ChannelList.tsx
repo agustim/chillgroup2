@@ -9,7 +9,8 @@ interface ChannelListProps {
   username: string
   onLogout?: () => void
   onManageDevices?: () => void
-  onCreateChannel?: () => void
+  onCreateTextChannel?: () => void
+  onCreateVoiceChannel?: () => void
   canCreateChannel?: boolean
 }
 
@@ -20,7 +21,8 @@ export function ChannelList({
   username,
   onLogout,
   onManageDevices,
-  onCreateChannel,
+  onCreateTextChannel,
+  onCreateVoiceChannel,
   canCreateChannel = false,
 }: ChannelListProps) {
   const textChannels = channels.filter((c) => c.type === 'text')
@@ -50,8 +52,12 @@ export function ChannelList({
       <div className="channel-category">
         <div className="category-header">
           <span className="category-name"># CANALS DE TEXT</span>
-          {canCreateChannel && onCreateChannel && (
-            <button className="create-channel-btn" onClick={onCreateChannel} title="Crear canal de text">
+          {canCreateChannel && onCreateTextChannel && (
+            <button
+              className="create-channel-btn"
+              onClick={onCreateTextChannel}
+              title="Crear canal de text"
+            >
               +
             </button>
           )}
@@ -71,7 +77,18 @@ export function ChannelList({
 
       {/* Voice Channels */}
       <div className="channel-category">
-        <span className="category-name">🔊 CANALS DE VEUS</span>
+        <div className="category-header">
+          <span className="category-name">🔊 CANALS DE VEUS</span>
+          {canCreateChannel && onCreateVoiceChannel && (
+            <button
+              className="create-channel-btn"
+              onClick={onCreateVoiceChannel}
+              title="Crear canal de veu"
+            >
+              +
+            </button>
+          )}
+        </div>
         {voiceChannels.map((channel) => (
           <button
             key={channel.channelId}

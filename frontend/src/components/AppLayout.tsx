@@ -5,9 +5,9 @@ import { ChannelList } from './sidebar/ChannelList'
 import { MainContent } from './main/MainContent'
 import { ChannelHeader } from './main/ChannelHeader'
 import { CreateServerModal } from './modals/CreateServerModal'
-import { CreateChannelModal } from './modals/CreateChannelModal'
+import { CreateTextChannelModal } from './modals/CreateTextChannelModal'
+import { CreateVoiceChannelModal } from './modals/CreateVoiceChannelModal'
 import { InviteMemberModal } from './modals/InviteMemberModal'
-import { ConfigureChannelModal } from './modals/ConfigureChannelModal'
 import { Channel, Server, ServerFullInfo } from '../types'
 import {
   serverInviteMember,
@@ -16,7 +16,6 @@ import {
   serversList,
   channelsCreate,
   channelsList,
-  channelsUpdate,
   channelInvite,
 } from '../lib/api'
 
@@ -26,9 +25,10 @@ interface AppLayoutProps {
 }
 
 type PanelType = 'none' | 'serverConfig' | 'channelConfig' | 'devices'
+type ServerMenuAction = 'config' | 'invite' | 'createText' | 'createVoice' | 'devices' | null
 
 export function AppLayout({ username, onLogout }: AppLayoutProps) {
-  const { user } = useAuth()
+  const { user, logout } = useAuth()
   const [servers, setServers] = useState<Server[]>([])
   const [selectedServer, setSelectedServer] = useState<string | null>(null)
   const [serverDetails, setServerDetails] = useState<ServerFullInfo | null>(null)
@@ -40,7 +40,8 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   
   // Modal states
   const [showCreateServer, setShowCreateServer] = useState(false)
-  const [showCreateChannel, setShowCreateChannel] = useState(false)
+  const [showCreateTextChannel, setShowCreateTextChannel] = useState(false)
+  const [showCreateVoiceChannel, setShowCreateVoiceChannel] = useState(false)
   const [showInviteServer, setShowInviteServer] = useState(false)
   const [showInviteChannel, setShowInviteChannel] = useState(false)
   const [showConfigureChannel, setShowConfigureChannel] = useState(false)
@@ -59,7 +60,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     selectedServerInfo?.myRole === 'admin' ||
     serverDetails?.myRole === 'owner' ||
     serverDetails?.myRole === 'admin'
-  const canManageChannel = canManageServer && !!selectedChannel
 
   const fetchServers = async () => {
     const result = await serversList()
@@ -118,14 +118,23 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     }
   }
 
-  const handleCreateTextChannel = async () => {
+  // Crear canal de text
+  const handleCreateTextChannel = async (name: string, encryptionType: string, messageTTL: number | null) => {
     if (!selectedServer) return
-    setShowCreateChannel(true)
+    const result = await channelsCreate(selectedServer, name, 'text', encryptionType)
+    if (result.success) {
+      await fetchChannels(selectedServer)
+      setSelectedChannel(result.data)
+      setFeedback(`Canal "${result.data.name}" creat`)
+    } else {
+      setFeedback(result.error.message)
+    }
   }
 
-  const handleCreateChannelSubmit = async (name: string, type: 'text' | 'voice') => {
+  // Crear canal de veu
+  const handleCreateVoiceChannel = async (name: string, encryptionType: string) => {
     if (!selectedServer) return
-    const result = await channelsCreate(selectedServer, name, type, 'none')
+    const result = await channelsCreate(selectedServer, name, 'voice', encryptionType)
     if (result.success) {
       await fetchChannels(selectedServer)
       setSelectedChannel(result.data)
@@ -151,23 +160,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     }
   }
 
-  const handleConfigureChannel = async () => {
-    if (!selectedChannel || !selectedServer) return
-    setShowConfigureChannel(true)
-  }
-
-  const handleConfigureChannelSubmit = async (name: string, messageTTL: number | null) => {
-    if (!selectedChannel || !selectedServer) return
-    const result = await channelsUpdate(selectedChannel.channelId, name, messageTTL)
-    if (result.success) {
-      await fetchChannels(selectedServer)
-      setSelectedChannel(result.data)
-      setFeedback('Canal actualitzat')
-    } else {
-      setFeedback(result.error.message)
-    }
-  }
-
   const handleInviteChannel = async () => {
     if (!selectedChannel) return
     setShowInviteChannel(true)
@@ -188,6 +180,27 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     setPanel((current) => (current === 'devices' ? 'none' : 'devices'))
   }
 
+  // Gestiona les accions del menú del servidor
+  const handleServerMenuAction = (action: ServerMenuAction) => {
+    switch (action) {
+      case 'config':
+        setPanel('serverConfig')
+        break
+      case 'invite':
+        setShowInviteServer(true)
+        break
+      case 'createText':
+        setShowCreateTextChannel(true)
+        break
+      case 'createVoice':
+        setShowCreateVoiceChannel(true)
+        break
+      case 'devices':
+        setPanel('devices')
+        break
+    }
+  }
+
   return (
     <div className="app-layout">
       <ServerBar
@@ -195,6 +208,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
         selectedServer={selectedServer}
         onSelectServer={handleSelectServer}
         onCreateServer={handleCreateServer}
+        onServerAction={handleServerMenuAction}
       />
 
       <ChannelList
@@ -202,9 +216,10 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
         selectedChannel={selectedChannel}
         onSelectChannel={(channel) => setSelectedChannel(channel)}
         username={username}
-        onLogout={onLogout}
+        onLogout={logout}
         onManageDevices={handleManageDevices}
-        onCreateChannel={handleCreateTextChannel}
+        onCreateTextChannel={canManageServer ? () => setShowCreateTextChannel(true) : undefined}
+        onCreateVoiceChannel={canManageServer ? () => setShowCreateVoiceChannel(true) : undefined}
         canCreateChannel={canManageServer}
       />
 
@@ -215,7 +230,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
               <>
                 <button onClick={() => setPanel('serverConfig')}>Configurar servidor</button>
                 <button onClick={handleInviteServerMember}>Convidar al servidor</button>
-                <button onClick={handleCreateTextChannel}>Crear canal de text</button>
               </>
             )}
             <button onClick={handleManageDevices}>Gestió dispositius</button>
@@ -228,8 +242,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           <>
             <ChannelHeader
               channel={selectedChannel}
-              canManageChannel={canManageChannel}
-              onConfigureChannel={handleConfigureChannel}
               onInviteChannel={handleInviteChannel}
             />
             <MainContent
@@ -264,15 +276,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           </div>
         )}
 
-        {panel === 'channelConfig' && selectedChannel && (
-          <div className="panel channel-config-panel">
-            <h3>Configuració del canal</h3>
-            <p>{selectedChannel.name}</p>
-            <button onClick={handleConfigureChannel}>Editar canal</button>
-            <button onClick={handleInviteChannel}>Convidar usuari</button>
-          </div>
-        )}
-
         {panel === 'devices' && user && (
           <div className="panel devices-panel">
             <h3>Gestió de dispositius</h3>
@@ -297,10 +300,16 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           onCreate={handleCreateServerSubmit}
         />
 
-        <CreateChannelModal
-          isOpen={showCreateChannel}
-          onClose={() => setShowCreateChannel(false)}
-          onCreate={handleCreateChannelSubmit}
+        <CreateTextChannelModal
+          isOpen={showCreateTextChannel}
+          onClose={() => setShowCreateTextChannel(false)}
+          onCreate={handleCreateTextChannel}
+        />
+
+        <CreateVoiceChannelModal
+          isOpen={showCreateVoiceChannel}
+          onClose={() => setShowCreateVoiceChannel(false)}
+          onCreate={handleCreateVoiceChannel}
         />
 
         {selectedServer && (
@@ -322,13 +331,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
             targetName={selectedChannel.name}
           />
         )}
-
-        <ConfigureChannelModal
-          isOpen={showConfigureChannel}
-          onClose={() => setShowConfigureChannel(false)}
-          channel={selectedChannel}
-          onSave={handleConfigureChannelSubmit}
-        />
       </div>
     </div>
   )
