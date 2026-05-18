@@ -61,13 +61,13 @@ export function InviteMemberModal({
         </p>
 
         <div className="form-group">
-          <label htmlFor="invite-username">Nom d\'usuari</label>
+          <label htmlFor="invite-username">Nom d&apos;usuari</label>
           <input
             id="invite-username"
             type="text"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            placeholder="Nom d\'usuari"
+            placeholder="Nom d&apos;usuari"
             autoFocus
             autoComplete="off"
           />
