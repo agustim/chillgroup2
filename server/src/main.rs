@@ -35,8 +35,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!("🚀 Inicialitzant ChillGroup v2...");
 
     // Carregar configuració
-    let config = Config::from_env().map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))?;
-    info!("✅ Configuració carregada correctament");
+    let (config, env_path) = Config::from_env().map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))?;
+    info!("✅ Configuració carregada correctament (des de: {})", env_path.display());
 
     // Connectar base de dades amb comprovació
     let db_pool = db::connect_db(&config)

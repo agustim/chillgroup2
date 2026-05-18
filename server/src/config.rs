@@ -1,6 +1,7 @@
 //! Configuració de l'aplicació carregada des de variables d'entorn.
 
 use std::env;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -18,32 +19,26 @@ pub struct Config {
 
 impl Config {
     /// Carregar configuració des de variables d'entorn i .env.
-    pub fn from_env() -> Result<Self, String> {
-        // Carregar .env des de l'arrel del projecte (directoripare de server/)
-        let project_root = std::env::current_dir()
-            .ok()
-            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-            .unwrap_or_else(|| std::path::PathBuf::from("."));
+    /// Retorna el Config i la ruta del fitxer .env carregat.
+    pub fn from_env() -> Result<(Self, PathBuf), String> {
+        // El .env sempre és a l'arrel del projecte (pare de server/)
+        let server_dir = env!("CARGO_MANIFEST_DIR");
+        let project_root = std::path::Path::new(server_dir)
+            .parent()
+            .ok_or("No s'ha pogut obtenir el directori pare")?;
         
-        // Provar: project_root/.env, project_root/../.env, .env
-        let env_paths = [
-            project_root.join(".env"),
-            project_root.join("../.env").canonicalize().unwrap_or_else(|_| project_root.join(".env")),
-            std::path::PathBuf::from(".env"),
-        ];
-        
-        for env_path in &env_paths {
-            if env_path.exists() {
-                dotenvy::from_path(env_path).ok();
-                break;
-            }
+        let env_path = project_root.join(".env");
+        if env_path.exists() {
+            dotenvy::from_path(&env_path).map_err(|e| format!("Error carregant .env: {}", e))?;
+        } else {
+            return Err("No s'ha trobat el fitxer .env a l'arrel del projecte".into());
         }
 
         fn get_var(key: &str) -> Result<String, String> {
             env::var(key).map_err(|_| format!("La variable d'entorn {} és obligatòria", key))
         }
 
-        Ok(Self {
+        Ok((Self {
             server_host: env::var("SERVER_HOST").unwrap_or_else(|_| "0.0.0.0".into()),
             server_port: env::var("SERVER_PORT")
                 .ok()
@@ -62,7 +57,7 @@ impl Config {
                 .ok()
                 .and_then(|d| d.parse().ok())
                 .unwrap_or(7),
-        })
+        }, env_path))
     }
 
     /// Comprovar si és SQLite.
