@@ -59,10 +59,15 @@ vi.mock('./main/MainContent', () => ({
 }))
 
 vi.mock('./main/ChannelHeader', () => ({
-  ChannelHeader: ({ onConfigureChannel, onInviteChannel }: any) => (
+  ChannelHeader: ({ onConfigureChannel, onInviteChannel, channel }: any) => (
     <div data-testid="channel-header">
-      <button data-testid="btn-configure-channel" onClick={onConfigureChannel}>Configurar canal</button>
-      <button data-testid="btn-invite-channel" onClick={onInviteChannel}>Convidar al canal</button>
+      {channel && (
+        <>
+          <span>{channel.name}</span>
+          <button data-testid="btn-configure-channel" onClick={onConfigureChannel}>Configurar canal</button>
+          <button data-testid="btn-invite-channel" onClick={onInviteChannel}>Convidar al canal</button>
+        </>
+      )}
     </div>
   ),
 }))
@@ -239,7 +244,7 @@ describe('AppLayout', () => {
       })
     })
 
-    it('InviteMemberModal té el camp d'usuari', async () => {
+    it('InviteMemberModal té el camp usuari', async () => {
       renderApp()
       await waitFor(() => {
         fireEvent.click(screen.getByText(/Convidar al servidor/))
