@@ -3,6 +3,7 @@
 use sqlx::{Pool, Sqlite, Postgres, Row};
 use uuid::Uuid;
 use crate::config::Config;
+use crate::models::{Channel, ChannelType, EncryptionType};
 use shared::types::{ServerInfo, ServerFullInfo, ServerMember as SharedServerMember, ServerRole};
 use tracing::{info, error};
 
@@ -541,6 +542,115 @@ impl DatabasePool {
                     .bind(role)
                     .bind(server_id)
                     .bind(user_id)
+                    .execute(pool)
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn list_channels_for_server(&self, server_id: Uuid) -> Result<Vec<Channel>, sqlx::Error> {
+        let query = "SELECT id, server_id, name, type, encryption_type, message_ttl, is_private, created_at FROM channels WHERE server_id = $1 ORDER BY type ASC, name ASC";
+        let mut channels = Vec::new();
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let rows = sqlx::query(query)
+                    .bind(server_id)
+                    .fetch_all(pool)
+                    .await?;
+                for row in rows {
+                    let channel_type_str: String = row.get(3);
+                    let channel_type = match channel_type_str.as_str() {
+                        "voice" => ChannelType::Voice,
+                        _ => ChannelType::Text,
+                    };
+                    let encryption_str: String = row.get(4);
+                    let encryption_type = match encryption_str.as_str() {
+                        "symmetric" => EncryptionType::Symmetric,
+                        "asymmetric" => EncryptionType::Asymmetric,
+                        _ => EncryptionType::None,
+                    };
+                    let is_private: i64 = row.get(6);
+                    let created_at_str: String = row.get(7);
+                    let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
+                        .map(|dt| dt.with_timezone(&chrono::Utc))
+                        .unwrap_or_else(|_| chrono::Utc::now());
+                    channels.push(Channel {
+                        id: row.get(0),
+                        server_id: row.get(1),
+                        name: row.get(2),
+                        channel_type,
+                        encryption_type,
+                        message_ttl: row.get(5),
+                        is_private: is_private != 0,
+                        created_at,
+                    });
+                }
+            }
+            DatabasePool::Sqlite(pool) => {
+                let query = query.replace("$1", "?");
+                let rows = sqlx::query(&query)
+                    .bind(server_id)
+                    .fetch_all(pool)
+                    .await?;
+                for row in rows {
+                    let channel_type_str: String = row.get(3);
+                    let channel_type = match channel_type_str.as_str() {
+                        "voice" => ChannelType::Voice,
+                        _ => ChannelType::Text,
+                    };
+                    let encryption_str: String = row.get(4);
+                    let encryption_type = match encryption_str.as_str() {
+                        "symmetric" => EncryptionType::Symmetric,
+                        "asymmetric" => EncryptionType::Asymmetric,
+                        _ => EncryptionType::None,
+                    };
+                    let is_private: i64 = row.get(6);
+                    let created_at_str: String = row.get(7);
+                    let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
+                        .map(|dt| dt.with_timezone(&chrono::Utc))
+                        .unwrap_or_else(|_| chrono::Utc::now());
+                    channels.push(Channel {
+                        id: row.get(0),
+                        server_id: row.get(1),
+                        name: row.get(2),
+                        channel_type,
+                        encryption_type,
+                        message_ttl: row.get(5),
+                        is_private: is_private != 0,
+                        created_at,
+                    });
+                }
+            }
+        }
+        Ok(channels)
+    }
+
+    pub async fn create_channel(&self, channel_id: Uuid, server_id: Uuid, name: &str, channel_type: &str, encryption_type: &str, message_ttl: Option<i32>, is_private: bool) -> Result<(), sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query("INSERT INTO channels (id, server_id, name, type, encryption_type, message_ttl, is_private, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)")
+                    .bind(channel_id)
+                    .bind(server_id)
+                    .bind(name)
+                    .bind(channel_type)
+                    .bind(encryption_type)
+                    .bind(message_ttl)
+                    .bind(is_private as i32)
+                        .bind(chrono::Utc::now().to_rfc3339())
+                        .execute(pool)
+                        .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query("INSERT INTO channels (id, server_id, name, type, encryption_type, message_ttl, is_private, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+                    .bind(channel_id)
+                    .bind(server_id)
+                    .bind(name)
+                    .bind(channel_type)
+                    .bind(encryption_type)
+                    .bind(message_ttl)
+                    .bind(is_private as i32)
+                    .bind(chrono::Utc::now().to_rfc3339())
                     .execute(pool)
                     .await?;
             }

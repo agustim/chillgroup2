@@ -222,17 +222,22 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
         onServerAction={handleServerMenuAction}
       />
 
-      <ChannelList
-        channels={channels}
-        selectedChannel={selectedChannel}
-        onSelectChannel={(channel) => setSelectedChannel(channel)}
-        username={username}
-        onLogout={logout}
-        onManageDevices={handleManageDevices}
-        onCreateTextChannel={canManageServer ? () => setShowCreateTextChannel(true) : undefined}
-        onCreateVoiceChannel={canManageServer ? () => setShowCreateVoiceChannel(true) : undefined}
-        canCreateChannel={canManageServer}
-      />
+      {selectedServer && (
+        <ChannelList
+          channels={channels}
+          selectedChannel={selectedChannel}
+          onSelectChannel={(channel) => {
+            setSelectedChannel(channel)
+            setServerId(selectedServer)
+          }}
+          username={username}
+          onLogout={logout}
+          onManageDevices={handleManageDevices}
+          onCreateTextChannel={canManageServer ? () => setShowCreateTextChannel(true) : undefined}
+          onCreateVoiceChannel={canManageServer ? () => setShowCreateVoiceChannel(true) : undefined}
+          canCreateChannel={canManageServer}
+        />
+      )}
 
       <div className="main-content-area">
         {selectedServer && (

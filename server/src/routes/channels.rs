@@ -65,24 +65,63 @@ pub struct InviteResponse {
 }
 
 pub async fn list_channels(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
     Path(server_id): Path<Uuid>,
 ) -> Result<Json<Vec<Channel>>, AppError> {
     info!("Endpoint list_channels cridat: server_id={}, user_id={}", server_id, claims.user_id);
-    Ok(Json(vec![]))
+
+    // Verificar que l'usuari és membre del servidor
+    let role = state.db.is_server_member(server_id, claims.user_id).await
+        .map_err(|e| AppError::DatabaseError(e))?;
+    if role.is_none() {
+        return Err(AppError::Forbidden);
+    }
+
+    let channels = state.db.list_channels_for_server(server_id).await.map_err(|e| AppError::DatabaseError(e))?;
+    Ok(Json(channels))
 }
 
 pub async fn create_channel(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
     Path(server_id): Path<Uuid>,
     Json(req): Json<CreateChannelRequest>,
 ) -> Result<(StatusCode, Json<Channel>), AppError> {
     info!("Endpoint create_channel cridat: server_id={}, name={}, user_id={}", server_id, req.name, claims.user_id);
+
+    // Verificar que l'usuari és membre del servidor
+    let role = state.db.is_server_member(server_id, claims.user_id).await
+        .map_err(|e| AppError::DatabaseError(e))?;
+    if role.is_none() {
+        return Err(AppError::Forbidden);
+    }
+
     let channel_id = Uuid::new_v4();
     let now = chrono::Utc::now();
-    info!("Canal creat amb èxit: channel_id={}", channel_id);
+
+    // Guardar a la base de dades
+    let channel_type_str = match req.channel_type {
+        ChannelType::Text => "text",
+        ChannelType::Voice => "voice",
+    };
+    let encryption_str = match req.encryption_type {
+        EncryptionType::None => "none",
+        EncryptionType::Symmetric => "symmetric",
+        EncryptionType::Asymmetric => "asymmetric",
+    };
+
+    state.db.create_channel(
+        channel_id,
+        server_id,
+        &req.name,
+        channel_type_str,
+        encryption_str,
+        req.message_ttl,
+        req.is_private,
+    ).await.map_err(|e| AppError::DatabaseError(e))?;
+
+    info!("Canal creat i desat a DB: channel_id={}", channel_id);
     Ok((
         StatusCode::CREATED,
         Json(Channel {

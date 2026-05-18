@@ -2,7 +2,7 @@
 //!
 //! Wrapper sobre fetch per a crides a l'API REST.
 
-import type { Server, ServerFullInfo, ServerMember, ServerRole } from '../types'
+import type { Server, ServerFullInfo, ServerMember, ServerRole, Channel } from '../types'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
@@ -356,10 +356,22 @@ export async function dmSend(recipientUserId: string, encryptedPayload: string, 
   })
 }
 
-export async function channelsList(serverId: string): Promise<ApiResult<ChannelInfo[]>> {
+export async function channelsList(serverId: string): Promise<ApiResult<Channel[]>> {
   const result = await apiRequest<any[]>('GET', `/api/servers/${serverId}/channels`)
   if (!result.success) return result
-  return { success: true, data: result.data.map(mapChannel) }
+  return { success: true, data: result.data.map(mapChannelToTypes) }
+}
+
+function mapChannelToTypes(channel: any): Channel {
+  return {
+    channelId: channel.channel_id ?? channel.channelId,
+    name: channel.name,
+    type: channel.channel_type ?? channel.type,
+    encryptionType: channel.encryption_type ?? channel.encryptionType,
+    messageTTL: channel.message_ttl ?? channel.messageTTL ?? null,
+    isPrivate: channel.is_private ?? channel.isPrivate ?? false,
+    createdAt: channel.created_at ?? channel.createdAt,
+  }
 }
 
 export async function channelsCreate(
@@ -367,7 +379,7 @@ export async function channelsCreate(
   name: string,
   type: 'text' | 'voice',
   encryptionType = 'none'
-): Promise<ApiResult<ChannelInfo>> {
+): Promise<ApiResult<Channel>> {
   const result = await apiRequest<any>('POST', `/api/servers/${serverId}/channels`, {
     name,
     type,
@@ -375,20 +387,20 @@ export async function channelsCreate(
     isPrivate: false,
   })
   if (!result.success) return result
-  return { success: true, data: mapChannel(result.data) }
+  return { success: true, data: mapChannelToTypes(result.data) }
 }
 
 export async function channelsUpdate(
   channelId: string,
   name?: string,
   messageTTL?: number | null
-): Promise<ApiResult<ChannelInfo>> {
+): Promise<ApiResult<Channel>> {
   const result = await apiRequest<any>('PUT', `/api/channels/${channelId}`, {
     name,
     messageTTL,
   })
   if (!result.success) return result
-  return { success: true, data: mapChannel(result.data) }
+  return { success: true, data: mapChannelToTypes(result.data) }
 }
 
 export async function channelInvite(channelId: string, username: string): Promise<ApiResult<{ invitedUser: string }>> {
