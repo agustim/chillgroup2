@@ -303,10 +303,18 @@ export async function serverUpdateMemberRole(serverId: string, userId: string, r
 export async function messagesList(channelId: string, limit = 50, before?: string) {
   const params = new URLSearchParams({ limit: String(limit) })
   if (before) params.set('before', before)
-  return apiRequest<PaginatedMessages>(
+  const result = await apiRequest<PaginatedMessages>(
     'GET',
     `/api/channels/${channelId}/messages?${params}`
   )
+  if (!result.success || !result.data) return result
+  return {
+    success: true as const,
+    data: {
+      data: result.data.data.map(mapMessageToTypes),
+      pagination: result.data.pagination,
+    },
+  }
 }
 
 export async function messagesSend(
@@ -315,18 +323,28 @@ export async function messagesSend(
   iv: string,
   expiresAt?: string
 ) {
-  return apiRequest<Message>('POST', `/api/channels/${channelId}/messages`, {
-    encryptedPayload,
+  const result = await apiRequest<any>('POST', `/api/channels/${channelId}/messages`, {
+    encrypted_payload: encryptedPayload,
     iv,
-    expiresAt,
+    expires_at: expiresAt,
   })
+  if (!result.success || !result.data) return result
+  return {
+    success: true as const,
+    data: mapMessageToTypes(result.data),
+  }
 }
 
 export async function messagesEdit(messageId: string, encryptedPayload: string, iv: string) {
-  return apiRequest<Message>('PUT', `/api/messages/${messageId}`, {
-    encryptedPayload,
+  const result = await apiRequest<any>('PUT', `/api/messages/${messageId}`, {
+    encrypted_payload: encryptedPayload,
     iv,
   })
+  if (!result.success || !result.data) return result
+  return {
+    success: true as const,
+    data: mapMessageToTypes(result.data),
+  }
 }
 
 export async function messagesDelete(messageId: string) {
@@ -334,7 +352,12 @@ export async function messagesDelete(messageId: string) {
 }
 
 export async function messagesGet(messageId: string) {
-  return apiRequest<Message>('GET', `/api/messages/${messageId}`)
+  const result = await apiRequest<any>('GET', `/api/messages/${messageId}`)
+  if (!result.success || !result.data) return result
+  return {
+    success: true as const,
+    data: mapMessageToTypes(result.data),
+  }
 }
 
 export async function messagesCheckNew(channelId: string, lastSeen: string) {
@@ -349,10 +372,10 @@ export async function messagesCheckNew(channelId: string, lastSeen: string) {
 
 export async function dmSend(recipientUserId: string, encryptedPayload: string, iv: string) {
   return apiRequest<DirectMessage>('POST', '/api/direct-messages', {
-    encryptedPayload,
+    encrypted_payload: encryptedPayload,
     iv,
-    isDirect: true,
-    recipientUserId,
+    is_direct: true,
+    recipient_user_id: recipientUserId,
   })
 }
 
@@ -371,6 +394,22 @@ function mapChannelToTypes(channel: any): Channel {
     messageTTL: channel.message_ttl ?? channel.messageTTL ?? null,
     isPrivate: channel.is_private ?? channel.isPrivate ?? false,
     createdAt: channel.created_at ?? channel.createdAt,
+  }
+}
+
+function mapMessageToTypes(msg: any): Message {
+  return {
+    messageId: msg.id ?? msg.messageId,
+    channelId: msg.channel_id ?? msg.channelId,
+    senderUserId: msg.sender_user_id ?? msg.senderUserId,
+    senderUsername: msg.sender_username ?? msg.senderUsername,
+    senderDeviceId: msg.sender_device_id ?? msg.senderDeviceId,
+    encryptedPayload: msg.encrypted_payload ?? msg.encryptedPayload,
+    iv: msg.iv,
+    timestamp: msg.timestamp,
+    expiresAt: msg.expires_at ?? msg.expiresAt ?? null,
+    editedAt: msg.edited_at ?? msg.editedAt ?? null,
+    deletedAt: msg.deleted_at ?? msg.deletedAt ?? null,
   }
 }
 
