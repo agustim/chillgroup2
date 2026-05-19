@@ -132,7 +132,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   // Crear canal de text
   const handleCreateTextChannel = async (name: string, encryptionType: string, messageTTL: number | null) => {
     if (!selectedServer) return
-    const result = await channelsCreate(selectedServer, name, 'text', encryptionType)
+    const result = await channelsCreate(selectedServer, name, 'text', encryptionType, messageTTL)
     if (result.success) {
       await fetchChannels(selectedServer)
       setSelectedChannel(result.data)

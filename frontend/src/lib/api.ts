@@ -378,13 +378,15 @@ export async function channelsCreate(
   serverId: string,
   name: string,
   type: 'text' | 'voice',
-  encryptionType = 'none'
+  encryptionType = 'none',
+  messageTTL: number | null = null
 ): Promise<ApiResult<Channel>> {
   const result = await apiRequest<any>('POST', `/api/servers/${serverId}/channels`, {
     name,
-    type,
-    encryptionType,
-    isPrivate: false,
+    channel_type: type,
+    encryption_type: encryptionType,
+    message_ttl: messageTTL,
+    is_private: false,
   })
   if (!result.success) return result
   return { success: true, data: mapChannelToTypes(result.data) }
@@ -397,7 +399,7 @@ export async function channelsUpdate(
 ): Promise<ApiResult<Channel>> {
   const result = await apiRequest<any>('PUT', `/api/channels/${channelId}`, {
     name,
-    messageTTL,
+    message_ttl: messageTTL,
   })
   if (!result.success) return result
   return { success: true, data: mapChannelToTypes(result.data) }
