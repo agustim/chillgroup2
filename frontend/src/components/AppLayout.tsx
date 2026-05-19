@@ -8,6 +8,7 @@ import { CreateServerModal } from './modals/CreateServerModal'
 import { CreateTextChannelModal } from './modals/CreateTextChannelModal'
 import { CreateVoiceChannelModal } from './modals/CreateVoiceChannelModal'
 import { InviteMemberModal } from './modals/InviteMemberModal'
+import { ConfigureChannelModal } from './modals/ConfigureChannelModal'
 import { Channel, Server, ServerFullInfo } from '../types'
 import {
   serverInviteMember,
@@ -17,6 +18,8 @@ import {
   channelsCreate,
   channelsList,
   channelInvite,
+  channelsUpdate,
+  channelDelete,
 } from '../lib/api'
 
 interface AppLayoutProps {
@@ -60,6 +63,8 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     selectedServerInfo?.myRole === 'admin' ||
     serverDetails?.myRole === 'owner' ||
     serverDetails?.myRole === 'admin'
+
+  const canManageChannel = serverDetails?.myRole === 'owner' || serverDetails?.myRole === 'admin' || false
 
   const fetchServers = async () => {
     const result = await serversList()
@@ -191,6 +196,41 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     setPanel((current) => (current === 'devices' ? 'none' : 'devices'))
   }
 
+  // Obrir modal de configuració de canal
+  const handleConfigureChannel = () => {
+    setShowConfigureChannel(true)
+  }
+
+  // Desar canvis del canal
+  const handleConfigureChannelSubmit = async (name: string, messageTTL: number | null, isPrivate: boolean) => {
+    if (!selectedChannel) return
+    const result = await channelsUpdate(selectedChannel.channelId, name, messageTTL, isPrivate)
+    if (result.success) {
+      await fetchChannels(selectedServer!)
+      setSelectedChannel({
+        ...selectedChannel,
+        name,
+        messageTTL,
+        isPrivate,
+      })
+      setFeedback(`Canal "${name}" actualitzat`)
+    } else {
+      setFeedback(result.error.message)
+    }
+  }
+
+  // Esborrar canal amb confirmació visual
+  const handleDeleteChannel = async (channelId: string) => {
+    const result = await channelDelete(channelId)
+    if (result.success) {
+      await fetchChannels(selectedServer!)
+      setSelectedChannel(null)
+      setFeedback('Canal esborrat')
+    } else {
+      setFeedback(result.error.message)
+    }
+  }
+
   // Gestiona les accions del menú del servidor
   const handleServerMenuAction = (action: ServerMenuAction) => {
     switch (action) {
@@ -228,7 +268,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           selectedChannel={selectedChannel}
           onSelectChannel={(channel) => {
             setSelectedChannel(channel)
-            setServerId(selectedServer)
           }}
           username={username}
           onLogout={logout}
@@ -258,6 +297,8 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           <>
             <ChannelHeader
               channel={selectedChannel}
+              canManageChannel={canManageChannel}
+              onConfigureChannel={handleConfigureChannel}
               onInviteChannel={handleInviteChannel}
             />
             <MainContent
@@ -347,6 +388,14 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
             targetName={selectedChannel.name}
           />
         )}
+
+        <ConfigureChannelModal
+          isOpen={showConfigureChannel}
+          onClose={() => setShowConfigureChannel(false)}
+          channel={selectedChannel}
+          onUpdate={handleConfigureChannelSubmit}
+          onDelete={handleDeleteChannel}
+        />
       </div>
     </div>
   )

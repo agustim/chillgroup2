@@ -395,14 +395,22 @@ export async function channelsCreate(
 export async function channelsUpdate(
   channelId: string,
   name?: string,
-  messageTTL?: number | null
+  messageTTL?: number | null,
+  isPrivate?: boolean
 ): Promise<ApiResult<Channel>> {
-  const result = await apiRequest<any>('PUT', `/api/channels/${channelId}`, {
-    name,
-    message_ttl: messageTTL,
-  })
+  const body: Record<string, unknown> = {}
+  if (name !== undefined) body.name = name
+  if (messageTTL !== undefined) body.message_ttl = messageTTL
+  if (isPrivate !== undefined) body.is_private = isPrivate
+  const result = await apiRequest<any>('PUT', `/api/channels/${channelId}`, body)
   if (!result.success) return result
   return { success: true, data: mapChannelToTypes(result.data) }
+}
+
+export async function channelDelete(channelId: string): Promise<ApiResult<void>> {
+  const result = await apiRequest<void>('DELETE', `/api/channels/${channelId}`)
+  if (!result.success) return result
+  return { success: true, data: undefined }
 }
 
 export async function channelInvite(channelId: string, username: string): Promise<ApiResult<{ invitedUser: string }>> {

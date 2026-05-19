@@ -6,7 +6,7 @@ use axum::{
     extract::State,
     http::StatusCode,
     Json,
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
     Router, extract::Path,
 };
 use serde::{Deserialize, Serialize};
@@ -34,10 +34,16 @@ pub struct CreateChannelRequest {
 fn default_channel_type() -> ChannelType { ChannelType::Text }
 fn default_encryption() -> EncryptionType { EncryptionType::None }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct UpdateChannelRequest {
     pub name: Option<String>,
     pub message_ttl: Option<Option<i32>>,
+    #[serde(default)]
+    pub channel_type: Option<ChannelType>,
+    #[serde(default)]
+    pub encryption_type: Option<EncryptionType>,
+    #[serde(default)]
+    pub is_private: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -163,30 +169,91 @@ pub async fn invite_to_channel(
 }
 
 pub async fn update_channel(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
     Path(channel_id): Path<Uuid>,
     Json(req): Json<UpdateChannelRequest>,
 ) -> Result<Json<Channel>, AppError> {
     info!("Endpoint update_channel cridat: channel_id={}, user_id={}", channel_id, claims.user_id);
-    Ok(Json(Channel {
-        id: channel_id,
-        server_id: Uuid::nil(),
-        name: req.name.unwrap_or_else(|| "updated".to_string()),
-        channel_type: ChannelType::Text,
-        encryption_type: EncryptionType::None,
-        message_ttl: req.message_ttl.flatten(),
-        is_private: false,
-        created_at: chrono::Utc::now(),
-    }))
+
+    // First, get the existing channel to find its server_id
+    let channel = state.db.get_channel(channel_id).await.map_err(|e| AppError::DatabaseError(e))?;
+    let channel = channel.ok_or(AppError::ChannelNotFound)?;
+
+    // Verificar que l'usuari és membre del servidor
+    let role = state.db.is_server_member(channel.server_id, claims.user_id).await
+        .map_err(|e| AppError::DatabaseError(e))?;
+    if role.is_none() {
+        return Err(AppError::Forbidden);
+    }
+
+    // Build partial update
+    let name = req.name.as_deref();
+    let message_ttl = req.message_ttl.flatten();
+    let channel_type_str = match req.channel_type {
+        Some(ct) => match ct {
+            ChannelType::Text => "text",
+            ChannelType::Voice => "voice",
+        },
+        None => match channel.channel_type {
+            ChannelType::Text => "text",
+            ChannelType::Voice => "voice",
+        },
+    };
+    let encryption_str = match req.encryption_type {
+        Some(et) => match et {
+            EncryptionType::None => "none",
+            EncryptionType::Symmetric => "symmetric",
+            EncryptionType::Asymmetric => "asymmetric",
+        },
+        None => match channel.encryption_type {
+            EncryptionType::None => "none",
+            EncryptionType::Symmetric => "symmetric",
+            EncryptionType::Asymmetric => "asymmetric",
+        },
+    };
+    let is_private = req.is_private.unwrap_or(channel.is_private);
+
+    state.db.update_channel(
+        channel_id,
+        channel.server_id,
+        name,
+        channel_type_str,
+        encryption_str,
+        message_ttl,
+        is_private,
+    ).await.map_err(|e| AppError::DatabaseError(e))?;
+
+    // Read back the updated channel
+    let updated = state.db.get_channel(channel_id).await
+        .map_err(|e| AppError::DatabaseError(e))?
+        .ok_or(AppError::ChannelNotFound)?;
+
+    Ok(Json(updated))
 }
 
 pub async fn delete_channel(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
     Path(channel_id): Path<Uuid>,
 ) -> Result<StatusCode, AppError> {
     info!("Endpoint delete_channel cridat: channel_id={}, user_id={}", channel_id, claims.user_id);
+
+    // Get the channel to verify server membership
+    let channel = state.db.get_channel(channel_id).await.map_err(|e| AppError::DatabaseError(e))?;
+    let channel = channel.ok_or(AppError::ChannelNotFound)?;
+
+    // Verificar que l'usuari és membre del servidor
+    let role = state.db.is_server_member(channel.server_id, claims.user_id).await
+        .map_err(|e| AppError::DatabaseError(e))?;
+    if role.is_none() {
+        return Err(AppError::Forbidden);
+    }
+
+    // Delete the channel from DB
+    state.db.delete_channel(channel_id).await.map_err(|e| AppError::DatabaseError(e))?;
+
+    info!("Canal eliminat de la DB: channel_id={}", channel_id);
     Ok(StatusCode::OK)
 }
 
@@ -195,6 +262,6 @@ pub fn router(state: AppState) -> Router {
         .route("/api/servers/{server_id}/channels", get(list_channels).post(create_channel))
         .route("/api/channels/{channel_id}/keys", get(get_channel_keys))
         .route("/api/channels/{channel_id}/invite", post(invite_to_channel))
-        .route("/api/channels/{channel_id}", put(update_channel))
+        .route("/api/channels/{channel_id}", put(update_channel).delete(delete_channel))
         .with_state(state)
 }

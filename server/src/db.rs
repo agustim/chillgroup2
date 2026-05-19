@@ -657,6 +657,218 @@ impl DatabasePool {
         }
         Ok(())
     }
+
+    pub async fn get_channel(&self, channel_id: Uuid) -> Result<Option<Channel>, sqlx::Error> {
+        let query = "SELECT id, server_id, name, type, encryption_type, message_ttl, is_private, created_at FROM channels WHERE id = $1";
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(query)
+                    .bind(channel_id)
+                    .fetch_optional(pool)
+                    .await?;
+                row.map(|row| {
+                    let channel_type_str: String = row.get(3);
+                    let channel_type = match channel_type_str.as_str() {
+                        "voice" => ChannelType::Voice,
+                        _ => ChannelType::Text,
+                    };
+                    let encryption_str: String = row.get(4);
+                    let encryption_type = match encryption_str.as_str() {
+                        "symmetric" => EncryptionType::Symmetric,
+                        "asymmetric" => EncryptionType::Asymmetric,
+                        _ => EncryptionType::None,
+                    };
+                    let is_private: i64 = row.get(6);
+                    let created_at_str: String = row.get(7);
+                    let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
+                        .map(|dt| dt.with_timezone(&chrono::Utc))
+                        .unwrap_or_else(|_| chrono::Utc::now());
+                    Ok(Channel {
+                        id: row.get(0),
+                        server_id: row.get(1),
+                        name: row.get(2),
+                        channel_type,
+                        encryption_type,
+                        message_ttl: row.get(5),
+                        is_private: is_private != 0,
+                        created_at,
+                    })
+                }).transpose()
+            }
+            DatabasePool::Sqlite(pool) => {
+                let query = query.replace("$1", "?");
+                let row = sqlx::query(&query)
+                    .bind(channel_id)
+                    .fetch_optional(pool)
+                    .await?;
+                row.map(|row| {
+                    let channel_type_str: String = row.get(3);
+                    let channel_type = match channel_type_str.as_str() {
+                        "voice" => ChannelType::Voice,
+                        _ => ChannelType::Text,
+                    };
+                    let encryption_str: String = row.get(4);
+                    let encryption_type = match encryption_str.as_str() {
+                        "symmetric" => EncryptionType::Symmetric,
+                        "asymmetric" => EncryptionType::Asymmetric,
+                        _ => EncryptionType::None,
+                    };
+                    let is_private: i64 = row.get(6);
+                    let created_at_str: String = row.get(7);
+                    let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
+                        .map(|dt| dt.with_timezone(&chrono::Utc))
+                        .unwrap_or_else(|_| chrono::Utc::now());
+                    Ok(Channel {
+                        id: row.get(0),
+                        server_id: row.get(1),
+                        name: row.get(2),
+                        channel_type,
+                        encryption_type,
+                        message_ttl: row.get(5),
+                        is_private: is_private != 0,
+                        created_at,
+                    })
+                }).transpose()
+            }
+        }
+    }
+
+    pub async fn update_channel(
+        &self,
+        channel_id: Uuid,
+        server_id: Uuid,
+        name: Option<&str>,
+        channel_type: &str,
+        encryption_type: &str,
+        message_ttl: Option<i32>,
+        is_private: bool,
+    ) -> Result<(), sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                match (name, message_ttl) {
+                    (Some(n), Some(mt)) => {
+                        sqlx::query(
+                            "UPDATE channels SET name=$1, type=$2, encryption_type=$3, message_ttl=$4, is_private=$5 WHERE id=$6 AND server_id=$7",
+                        )
+                        .bind(n)
+                        .bind(channel_type)
+                        .bind(encryption_type)
+                        .bind(mt)
+                        .bind(is_private as i32)
+                        .bind(channel_id)
+                        .bind(server_id)
+                        .execute(pool).await?;
+                    }
+                    (Some(n), None) => {
+                        sqlx::query(
+                            "UPDATE channels SET name=$1, type=$2, encryption_type=$3, is_private=$4 WHERE id=$5 AND server_id=$6",
+                        )
+                        .bind(n)
+                        .bind(channel_type)
+                        .bind(encryption_type)
+                        .bind(is_private as i32)
+                        .bind(channel_id)
+                        .bind(server_id)
+                        .execute(pool).await?;
+                    }
+                    (None, Some(mt)) => {
+                        sqlx::query(
+                            "UPDATE channels SET type=$1, encryption_type=$2, message_ttl=$3, is_private=$4 WHERE id=$5 AND server_id=$6",
+                        )
+                        .bind(channel_type)
+                        .bind(encryption_type)
+                        .bind(mt)
+                        .bind(is_private as i32)
+                        .bind(channel_id)
+                        .bind(server_id)
+                        .execute(pool).await?;
+                    }
+                    (None, None) => {
+                        sqlx::query(
+                            "UPDATE channels SET type=$1, encryption_type=$2, is_private=$3 WHERE id=$4 AND server_id=$5",
+                        )
+                        .bind(channel_type)
+                        .bind(encryption_type)
+                        .bind(is_private as i32)
+                        .bind(channel_id)
+                        .bind(server_id)
+                        .execute(pool).await?;
+                    }
+                }
+            }
+            DatabasePool::Sqlite(pool) => {
+                match (name, message_ttl) {
+                    (Some(n), Some(mt)) => {
+                        sqlx::query(
+                            "UPDATE channels SET name=?, type=?, encryption_type=?, message_ttl=?, is_private=? WHERE id=? AND server_id=?",
+                        )
+                        .bind(n)
+                        .bind(channel_type)
+                        .bind(encryption_type)
+                        .bind(mt)
+                        .bind(is_private as i32)
+                        .bind(channel_id)
+                        .bind(server_id)
+                        .execute(pool).await?;
+                    }
+                    (Some(n), None) => {
+                        sqlx::query(
+                            "UPDATE channels SET name=?, type=?, encryption_type=?, is_private=? WHERE id=? AND server_id=?",
+                        )
+                        .bind(n)
+                        .bind(channel_type)
+                        .bind(encryption_type)
+                        .bind(is_private as i32)
+                        .bind(channel_id)
+                        .bind(server_id)
+                        .execute(pool).await?;
+                    }
+                    (None, Some(mt)) => {
+                        sqlx::query(
+                            "UPDATE channels SET type=?, encryption_type=?, message_ttl=?, is_private=? WHERE id=? AND server_id=?",
+                        )
+                        .bind(channel_type)
+                        .bind(encryption_type)
+                        .bind(mt)
+                        .bind(is_private as i32)
+                        .bind(channel_id)
+                        .bind(server_id)
+                        .execute(pool).await?;
+                    }
+                    (None, None) => {
+                        sqlx::query(
+                            "UPDATE channels SET type=?, encryption_type=?, is_private=? WHERE id=? AND server_id=?",
+                        )
+                        .bind(channel_type)
+                        .bind(encryption_type)
+                        .bind(is_private as i32)
+                        .bind(channel_id)
+                        .bind(server_id)
+                        .execute(pool).await?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn delete_channel(&self, channel_id: Uuid) -> Result<(), sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query("DELETE FROM channels WHERE id = $1")
+                    .bind(channel_id)
+                    .execute(pool)
+                    .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query("DELETE FROM channels WHERE id = ?")
+                    .bind(channel_id)
+                    .execute(pool)
+                    .await?;
+            }
+        }
+        Ok(())
+    }
 }
 
 fn parse_server_role(role: &str) -> ServerRole {

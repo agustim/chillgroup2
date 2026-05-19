@@ -12,7 +12,8 @@ describe('ConfigureChannelModal', () => {
   })
 
   let onClose = vi.fn()
-  let onSaveFn = vi.fn().mockResolvedValue(undefined)
+  let onUpdateFn = vi.fn().mockResolvedValue(undefined)
+  let onDeleteFn = vi.fn().mockResolvedValue(undefined)
 
   const testChannel: Channel = {
     channelId: 'ch-1',
@@ -26,7 +27,8 @@ describe('ConfigureChannelModal', () => {
 
   beforeEach(() => {
     onClose = vi.fn()
-    onSaveFn = vi.fn().mockResolvedValue(undefined)
+    onUpdateFn = vi.fn().mockResolvedValue(undefined)
+    onDeleteFn = vi.fn().mockResolvedValue(undefined)
   })
 
   function renderWithChannel(channel: Channel | null = testChannel) {
@@ -35,7 +37,8 @@ describe('ConfigureChannelModal', () => {
         isOpen={true}
         onClose={onClose}
         channel={channel}
-        onSave={onSaveFn}
+        onUpdate={onUpdateFn}
+        onDelete={onDeleteFn}
       />
     )
   }
@@ -66,7 +69,8 @@ describe('ConfigureChannelModal', () => {
         isOpen={true}
         onClose={onClose}
         channel={{ ...testChannel, name: 'novo', messageTTL: null }}
-        onSave={onSaveFn}
+        onUpdate={onUpdateFn}
+        onDelete={onDeleteFn}
       />
     )
     const nameInput2 = screen.getByLabelText(/Nom del canal/i) as HTMLInputElement
@@ -82,15 +86,13 @@ describe('ConfigureChannelModal', () => {
   })
 
   it('bloqueja el submit amb nom buit', () => {
-    // Validation only happens on submit, not on input change
     renderWithChannel()
     const nameInput = screen.getByLabelText(/Nom del canal/i) as HTMLInputElement
     fireEvent.change(nameInput, { target: { value: '  ' } })
-    // Button is enabled (validation only happens on submit)
     expect(screen.getByRole('button', { name: /Desar canvis/ })).not.toBeDisabled()
   })
 
-  it('accepta un nom valid amb TTL numeric', async () => {
+  it('accepta un nom valid amb TTL numeric i isPrivate', async () => {
     renderWithChannel()
     const nameInput = screen.getByLabelText(/Nom del canal/i) as HTMLInputElement
     fireEvent.change(nameInput, { target: { value: 'novo-canal' } })
@@ -98,11 +100,11 @@ describe('ConfigureChannelModal', () => {
     fireEvent.change(ttlInput, { target: { value: '1800' } })
     fireEvent.click(screen.getByRole('button', { name: /Desar canvis/ }))
     await waitFor(() => {
-      expect(onSaveFn).toHaveBeenCalledWith('novo-canal', 1800)
+      expect(onUpdateFn).toHaveBeenCalledWith('novo-canal', 1800, false)
     })
   })
 
-  it('accepta un nom valid amb TTL buit (null)', async () => {
+  it('accepta un nom valid amb TTL buit (null) i isPrivate', async () => {
     renderWithChannel()
     const nameInput = screen.getByLabelText(/Nom del canal/i) as HTMLInputElement
     fireEvent.change(nameInput, { target: { value: 'canal-sense-limit' } })
@@ -110,7 +112,7 @@ describe('ConfigureChannelModal', () => {
     fireEvent.change(ttlInput, { target: { value: '' } })
     fireEvent.click(screen.getByRole('button', { name: /Desar canvis/ }))
     await waitFor(() => {
-      expect(onSaveFn).toHaveBeenCalledWith('canal-sense-limit', null)
+      expect(onUpdateFn).toHaveBeenCalledWith('canal-sense-limit', null, false)
     })
   })
 
@@ -120,9 +122,6 @@ describe('ConfigureChannelModal', () => {
     fireEvent.change(nameInput, { target: { value: 'canal' } })
     const ttlInput = screen.getByLabelText(/Durada dels missatges/i) as HTMLInputElement
     fireEvent.change(ttlInput, { target: { value: '-5' } })
-    // TTL validation happens on submit, button should be disabled if validation fails
-    // Actually looking at the code: negative TTL doesn't disable the button,
-    // it shows error on submit
     expect(screen.getByRole('button', { name: /Desar canvis/ })).not.toBeDisabled()
   })
 
@@ -132,7 +131,6 @@ describe('ConfigureChannelModal', () => {
     fireEvent.change(nameInput, { target: { value: 'canal' } })
     const ttlInput = screen.getByLabelText(/Durada dels missatges/i) as HTMLInputElement
     fireEvent.change(ttlInput, { target: { value: 'abc' } })
-    // Same as above
     expect(screen.getByRole('button', { name: /Desar canvis/ })).not.toBeDisabled()
   })
 
@@ -140,7 +138,8 @@ describe('ConfigureChannelModal', () => {
     renderWithChannel()
     fireEvent.click(screen.getByLabelText('Tancar'))
     expect(onClose).toHaveBeenCalledTimes(1)
-    expect(onSaveFn).not.toHaveBeenCalled()
+    expect(onUpdateFn).not.toHaveBeenCalled()
+    expect(onDeleteFn).not.toHaveBeenCalled()
   })
 
   it('neteja el formulari despres de desar amb exit', async () => {
@@ -149,7 +148,53 @@ describe('ConfigureChannelModal', () => {
     fireEvent.change(nameInput, { target: { value: 'canal-actualitzat' } })
     fireEvent.click(screen.getByRole('button', { name: /Desar canvis/ }))
     await waitFor(() => {
-      expect(onSaveFn).toHaveBeenCalledWith('canal-actualitzat', 3600)
+      expect(onUpdateFn).toHaveBeenCalledWith('canal-actualitzat', 3600, false)
+    })
+  })
+
+  it('mostra el botó esborrar canal', () => {
+    renderWithChannel()
+    expect(screen.getByRole('button', { name: /Esborrar canal/ })).toBeTruthy()
+  })
+
+  it('mostra confirmació d\'esborrat en clicar el botó', () => {
+    renderWithChannel()
+    fireEvent.click(screen.getByRole('button', { name: /Esborrar canal/ }))
+    expect(screen.getByText(/Estàs segur que vols esborrar aquest canal/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Esborrar$/ })).toBeTruthy()
+    // After confirmation shown, there are now 2 Cancel·lar buttons; just check count
+    const cancelButtons = screen.getAllByRole('button', { name: /Cancel·lar/ })
+    expect(cancelButtons.length).toBe(2)
+  })
+
+  it('confirmació visual d\'esborrat crida onDelete', async () => {
+    renderWithChannel()
+    fireEvent.click(screen.getByRole('button', { name: /Esborrar canal/ }))
+    // After showing confirmation, use the exact "Esborrar" button (not "Esborrar canal")
+    fireEvent.click(screen.getByRole('button', { name: /^Esborrar$/ }))
+    await waitFor(() => {
+      expect(onDeleteFn).toHaveBeenCalledWith('ch-1')
+    })
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('cancel·lar esborrat tanca el confirmation', () => {
+    renderWithChannel()
+    fireEvent.click(screen.getByRole('button', { name: /Esborrar canal/ }))
+    const cancelButtons = screen.getAllByRole('button', { name: /Cancel·lar/ })
+    // the one inside the error confirm div (first one)
+    fireEvent.click(cancelButtons[0])
+    expect(onDeleteFn).not.toHaveBeenCalled()
+    expect(screen.queryByText(/Estàs segur que vols esborrar aquest canal/)).toBeNull()
+  })
+
+  it('canvia el camp isPrivate en checkbox', async () => {
+    renderWithChannel()
+    const checkbox = screen.getByLabelText(/Canal privat/i) as HTMLInputElement
+    expect(checkbox.checked).toBe(false)
+    fireEvent.click(checkbox)
+    await waitFor(() => {
+      expect(onUpdateFn).toHaveBeenCalledWith('general', 3600, true)
     })
   })
 })
