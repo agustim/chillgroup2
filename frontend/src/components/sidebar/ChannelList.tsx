@@ -1,10 +1,11 @@
 import React from 'react'
-import { Channel } from '../../types'
+import { Channel, VoiceConnection, VoiceParticipant } from '../../types'
 import { EncryptionIcon } from '../shared/EncryptionIcon'
 
 interface ChannelListProps {
   channels: Channel[]
   selectedChannel: Channel | null
+  voiceConnection: VoiceConnection | null
   onSelectChannel: (channel: Channel) => void
   username: string
   onLogout?: () => void
@@ -17,6 +18,7 @@ interface ChannelListProps {
 export function ChannelList({
   channels,
   selectedChannel,
+  voiceConnection,
   onSelectChannel,
   username,
   onLogout,
@@ -27,6 +29,19 @@ export function ChannelList({
 }: ChannelListProps) {
   const textChannels = channels.filter((c) => c.type === 'text')
   const voiceChannels = channels.filter((c) => c.type === 'voice')
+
+  // Get participants for a voice channel (from the active connection or mock)
+  const getParticipants = (channel: Channel): VoiceParticipant[] => {
+    if (voiceConnection && voiceConnection.channelId === channel.channelId) {
+      return voiceConnection.participants
+    }
+    // Mock participants for voice channels you're not in (shows # connected)
+    return []
+  }
+
+  const isInVoiceChannel = (channelId: string): boolean => {
+    return voiceConnection !== null && voiceConnection.channelId === channelId
+  }
 
   return (
     <div className="channel-list">
@@ -89,18 +104,64 @@ export function ChannelList({
             </button>
           )}
         </div>
-        {voiceChannels.map((channel) => (
-          <button
-            key={channel.channelId}
-            className={`channel-item voice ${selectedChannel?.channelId === channel.channelId ? 'active' : ''}`}
-            onClick={() => onSelectChannel(channel)}
-          >
-            <span className="channel-voice-icon">🔊</span>
-            <span className="channel-name">{channel.name}</span>
-            <EncryptionIcon type={channel.encryptionType} />
-          </button>
-        ))}
+        {voiceChannels.map((channel) => {
+          const participants = getParticipants(channel)
+          const connected = isInVoiceChannel(channel.channelId)
+
+          return (
+            <div key={channel.channelId} className="voice-channel-wrapper">
+              <button
+                className={`channel-item voice ${selectedChannel?.channelId === channel.channelId ? 'active' : ''}`}
+                onClick={() => onSelectChannel(channel)}
+              >
+                <span className="channel-voice-icon">🔊</span>
+                <span className="channel-name">{channel.name}</span>
+                <EncryptionIcon type={channel.encryptionType} />
+              </button>
+              
+              {/* Show connected users indented below the channel */}
+              {participants.length > 0 && (
+                <div className="voice-channel-participants">
+                  {participants.map((p) => (
+                    <div key={p.userId} className="voice-participant-indicator">
+                      <span className="participant-avatar-small">
+                        {p.username.charAt(0).toUpperCase()}
+                      </span>
+                      <span className="participant-name-small">{p.username}</span>
+                      {p.isSpeaking && <span className="speaking-dot">🗣️</span>}
+                      {p.isDeafened && <span className="deafened-dot">🔕</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
+
+      {/* Active voice connection indicator */}
+      {voiceConnection && (
+        <div className="voice-connection-indicator">
+          <span className="voice-indicator-icon">🔊</span>
+          <span className="voice-indicator-text">Unit a: {voiceConnection.channelName}</span>
+          <button 
+            className="voice-indicator-leave"
+            onClick={() => onSelectChannel({
+              ...voiceConnection,
+              type: 'voice',
+              channelId: voiceConnection.channelId,
+              name: voiceConnection.channelName,
+              encryptionType: 'none',
+              messageTTL: null,
+              isPrivate: false,
+              createdAt: '',
+            })}
+            title="Surt del canal de veu"
+          >
+            Surt
+          </button>
+        </div>
+      )}
     </div>
   )
 }

@@ -82,6 +82,15 @@ export interface VoiceParticipant {
   isSpeaking: boolean
 }
 
+export interface VoiceConnection {
+  channelId: string
+  channelName: string
+  participants: VoiceParticipant[]
+  isJoined: boolean
+  isMuted: boolean
+  isDeafened: boolean
+}
+
 export interface PaginationMeta {
   has_more: boolean
   next_cursor: string | null

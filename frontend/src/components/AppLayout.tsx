@@ -9,7 +9,7 @@ import { CreateTextChannelModal } from './modals/CreateTextChannelModal'
 import { CreateVoiceChannelModal } from './modals/CreateVoiceChannelModal'
 import { InviteMemberModal } from './modals/InviteMemberModal'
 import { ConfigureChannelModal } from './modals/ConfigureChannelModal'
-import { Channel, Server, ServerFullInfo } from '../types'
+import { Channel, Server, ServerFullInfo, VoiceConnection, VoiceParticipant } from '../types'
 import {
   serverInviteMember,
   serversCreate,
@@ -37,7 +37,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const [serverDetails, setServerDetails] = useState<ServerFullInfo | null>(null)
   const [channels, setChannels] = useState<Channel[]>([])
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null)
-  const [voiceJoined, setVoiceJoined] = useState(false)
+  const [voiceConnection, setVoiceConnection] = useState<VoiceConnection | null>(null)
   const [panel, setPanel] = useState<PanelType>('none')
   const [feedback, setFeedback] = useState<string | null>(null)
   
@@ -117,6 +117,73 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
 
   const handleSelectServer = (serverId: string) => {
     setSelectedServer(serverId)
+  }
+
+  // ── Voice connection logic ─────────────────────────────────────
+  // When clicking a voice channel:
+  // - If already in it → leave
+  // - If in a different voice channel → leave current, join new
+  // - If not in any voice channel → join new
+  const handleVoiceChannelClick = (channel: Channel) => {
+    if (channel.type !== 'voice') return
+
+    if (voiceConnection?.channelId === channel.channelId) {
+      // Already in this channel → leave
+      setVoiceConnection(null)
+      setFeedback(`Has sortit del canal "${channel.name}"`)
+      return
+    }
+
+    // Leave current voice channel if in one
+    if (voiceConnection) {
+      setFeedback(`Has sortit del canal "${voiceConnection.channelName}"`)
+    }
+
+    // Join the new voice channel
+    // Simulate joining with mock participants (will connect to LiveKit later)
+    const mockParticipants: VoiceParticipant[] = [
+      {
+        userId: '1',
+        username: 'agusti',
+        joinedAt: new Date().toISOString(),
+        isDeafened: false,
+        isSuppressed: false,
+        isSpeaking: false,
+      },
+    ]
+
+    setVoiceConnection({
+      channelId: channel.channelId,
+      channelName: channel.name,
+      participants: mockParticipants,
+      isJoined: true,
+      isMuted: false,
+      isDeafened: false,
+    })
+    setFeedback(`T'has unit al canal de veu "${channel.name}"`)
+  }
+
+  const handleLeaveVoiceChannel = () => {
+    if (voiceConnection) {
+      setFeedback(`Has sortit del canal "${voiceConnection.channelName}"`)
+      setVoiceConnection(null)
+    }
+  }
+
+  const handleToggleMute = () => {
+    if (!voiceConnection) return
+    setVoiceConnection({
+      ...voiceConnection,
+      isMuted: !voiceConnection.isMuted,
+    })
+  }
+
+  const handleToggleDeafen = () => {
+    if (!voiceConnection) return
+    setVoiceConnection({
+      ...voiceConnection,
+      isDeafened: !voiceConnection.isDeafened,
+    })
   }
 
   const handleCreateServer = async () => {
@@ -266,8 +333,13 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
         <ChannelList
           channels={channels}
           selectedChannel={selectedChannel}
+          voiceConnection={voiceConnection}
           onSelectChannel={(channel) => {
-            setSelectedChannel(channel)
+            if (channel.type === 'voice') {
+              handleVoiceChannelClick(channel)
+            } else {
+              setSelectedChannel(channel)
+            }
           }}
           username={username}
           onLogout={logout}
@@ -303,8 +375,10 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
             />
             <MainContent
               channel={selectedChannel}
-              voiceJoined={voiceJoined}
-              onToggleVoice={() => setVoiceJoined(!voiceJoined)}
+              voiceConnection={voiceConnection}
+              onToggleMute={handleToggleMute}
+              onToggleDeafen={handleToggleDeafen}
+              onLeaveVoice={handleLeaveVoiceChannel}
             />
           </>
         ) : (
