@@ -217,13 +217,13 @@ function mapServerFullInfo(server: any): ServerFullInfo {
 
 function mapChannel(channel: any): ChannelInfo {
   return {
-    channelId: channel.channel_id ?? channel.channelId,
+    channelId: channel.id,
     name: channel.name,
-    type: channel.channel_type ?? channel.type,
-    encryptionType: channel.encryption_type ?? channel.encryptionType,
-    messageTTL: channel.message_ttl ?? channel.messageTTL ?? null,
-    isPrivate: channel.is_private ?? channel.isPrivate ?? false,
-    createdAt: channel.created_at ?? channel.createdAt,
+    type: channel.channel_type,
+    encryptionType: channel.encryption_type,
+    messageTTL: channel.message_ttl,
+    isPrivate: channel.is_private,
+    createdAt: channel.created_at,
   }
 }
 
@@ -387,13 +387,13 @@ export async function channelsList(serverId: string): Promise<ApiResult<Channel[
 
 function mapChannelToTypes(channel: any): Channel {
   return {
-    channelId: channel.channel_id ?? channel.channelId,
+    channelId: channel.id,
     name: channel.name,
-    type: channel.channel_type ?? channel.type,
-    encryptionType: channel.encryption_type ?? channel.encryptionType,
-    messageTTL: channel.message_ttl ?? channel.messageTTL ?? null,
-    isPrivate: channel.is_private ?? channel.isPrivate ?? false,
-    createdAt: channel.created_at ?? channel.createdAt,
+    type: channel.channel_type,
+    encryptionType: channel.encryption_type,
+    messageTTL: channel.message_ttl,
+    isPrivate: channel.is_private,
+    createdAt: channel.created_at,
   }
 }
 

@@ -14,6 +14,9 @@ export function MessageList({ channelId, refreshKey }: MessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const loadMessages = async () => {
+    // Debug: veure què arriba
+    console.log('[MessageList] channelId prop:', channelId)
+    
     // Validar que el channelId existeix
     if (!channelId) {
       setError('Canal no seleccionat')
