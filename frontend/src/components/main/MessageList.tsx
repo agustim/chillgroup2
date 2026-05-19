@@ -14,6 +14,13 @@ export function MessageList({ channelId, refreshKey }: MessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const loadMessages = async () => {
+    // Validar que el channelId existeix
+    if (!channelId) {
+      setError('Canal no seleccionat')
+      setLoading(false)
+      return
+    }
+
     try {
       setLoading(true)
       setError(null)

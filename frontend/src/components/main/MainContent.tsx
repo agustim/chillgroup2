@@ -48,6 +48,17 @@ export function MainContent({ channel, voiceJoined = false, onToggleVoice }: Mai
     }
   }
 
+  // Validar que el canal existeix
+  if (!channel || !channel.channelId) {
+    return (
+      <div className="main-content">
+        <div className="empty-state">
+          <p>Selecciona un canal per començar</p>
+        </div>
+      </div>
+    )
+  }
+
   // Canals de veu
   if (channel.type === 'voice') {
     return (
