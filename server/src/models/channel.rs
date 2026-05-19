@@ -25,6 +25,7 @@ pub struct Channel {
     pub id: Uuid,
     pub server_id: Uuid,
     pub name: String,
+    #[sqlx(rename = "type")]
     pub channel_type: ChannelType,
     pub encryption_type: EncryptionType,
     pub message_ttl: Option<i32>,

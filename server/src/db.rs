@@ -551,7 +551,7 @@ impl DatabasePool {
     }
 
     pub async fn list_channels_for_server(&self, server_id: Uuid) -> Result<Vec<Channel>, sqlx::Error> {
-        let query = "SELECT id, server_id, name, type, encryption_type, message_ttl, is_private, created_at FROM channels WHERE server_id = $1 ORDER BY type ASC, name ASC";
+        let query = "SELECT id, server_id, name, type AS channel_type, encryption_type, message_ttl, is_private, created_at FROM channels WHERE server_id = $1 ORDER BY type ASC, name ASC";
         let mut channels = Vec::new();
         match self {
             DatabasePool::Postgres(pool) => {
