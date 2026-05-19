@@ -2,8 +2,9 @@
 
 use sqlx::{Pool, Sqlite, Postgres, Row};
 use uuid::Uuid;
+use chrono::{DateTime, Utc};
 use crate::config::Config;
-use crate::models::{Channel, ChannelType, EncryptionType};
+use crate::models::{Channel, ChannelType, EncryptionType, Message};
 use shared::types::{ServerInfo, ServerFullInfo, ServerMember as SharedServerMember, ServerRole};
 use tracing::{info, error};
 
@@ -869,7 +870,403 @@ impl DatabasePool {
         }
         Ok(())
     }
+
+    // ── Message CRUD ──────────────────────────────────────────────
+
+    pub async fn create_message(
+        &self,
+        message_id: Uuid,
+        channel_id: Uuid,
+        sender_user_id: Uuid,
+        sender_username: &str,
+        sender_device_id: Uuid,
+        payload: &str,
+        iv: &str,
+        expires_at: Option<DateTime<Utc>>,
+        timestamp: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "INSERT INTO messages \
+                     (id, channel_id, sender_user_id, sender_username, sender_device_id, \
+                      encrypted_payload, iv, timestamp, expires_at, edited_at, deleted_at) \
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL)",
+                )
+                .bind(message_id)
+                .bind(channel_id)
+                .bind(sender_user_id)
+                .bind(sender_username)
+                .bind(sender_device_id)
+                .bind(payload)
+                .bind(iv)
+                .bind(timestamp.to_rfc3339())
+                .bind(expires_at.map(|d| d.to_rfc3339()))
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "INSERT INTO messages \
+                     (id, channel_id, sender_user_id, sender_username, sender_device_id, \
+                      encrypted_payload, iv, timestamp, expires_at, edited_at, deleted_at) \
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)",
+                )
+                .bind(message_id)
+                .bind(channel_id)
+                .bind(sender_user_id)
+                .bind(sender_username)
+                .bind(sender_device_id)
+                .bind(payload)
+                .bind(iv)
+                .bind(timestamp.to_rfc3339())
+                .bind(expires_at.map(|d| d.to_rfc3339()))
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn get_message(&self, message_id: Uuid) -> Result<Option<Message>, sqlx::Error> {
+        let query = "SELECT id, channel_id, sender_user_id, sender_username, sender_device_id, \
+                     encrypted_payload, iv, timestamp, expires_at, edited_at, deleted_at \
+                     FROM messages WHERE id = $1";
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(query)
+                    .bind(message_id)
+                    .fetch_optional(pool)
+                    .await?;
+                row.map(|row| {
+                    Ok(Message {
+                        id: row.get(0),
+                        channel_id: row.get(1),
+                        sender_user_id: row.get(2),
+                        sender_username: row.get(3),
+                        sender_device_id: row.get(4),
+                        encrypted_payload: row.get(5),
+                        iv: row.get(6),
+                        timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(7))
+                            .map(|d| d.with_timezone(&Utc))
+                            .unwrap_or_else(|_| chrono::Utc::now()),
+                        expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(8)),
+                        edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
+                        deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
+                    })
+                })
+                .transpose()
+            }
+            DatabasePool::Sqlite(pool) => {
+                let query = query.replace("$1", "?");
+                let row = sqlx::query(&query)
+                    .bind(message_id)
+                    .fetch_optional(pool)
+                    .await?;
+                row.map(|row| {
+                    Ok(Message {
+                        id: row.get(0),
+                        channel_id: row.get(1),
+                        sender_user_id: row.get(2),
+                        sender_username: row.get(3),
+                        sender_device_id: row.get(4),
+                        encrypted_payload: row.get(5),
+                        iv: row.get(6),
+                        timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(7))
+                            .map(|d| d.with_timezone(&Utc))
+                            .unwrap_or_else(|_| chrono::Utc::now()),
+                        expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(8)),
+                        edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
+                        deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
+                    })
+                })
+                .transpose()
+            }
+        }
+    }
+
+    pub async fn list_messages(
+        &self,
+        channel_id: Uuid,
+        limit: usize,
+        after: Option<Uuid>,
+        before: Option<Uuid>,
+        since: Option<DateTime<Utc>>,
+    ) -> Result<Vec<Message>, sqlx::Error> {
+        let mut msgs = Vec::new();
+
+        match self {
+            DatabasePool::Postgres(pool) => {
+                // Build WHERE clauses with proper $N placeholder numbering
+                let mut conditions = vec![];
+                let mut param_num = 2; // $1 is channel_id
+
+                conditions.push(format!("channel_id = $1"));
+
+                if let Some(a) = after {
+                    conditions.push(format!("id > ${}", param_num));
+                    param_num += 1;
+                    let _ = a; // bound below
+                }
+                if let Some(b) = before {
+                    conditions.push(format!("id < ${}", param_num));
+                    param_num += 1;
+                    let _ = b;
+                }
+                if let Some(s) = since {
+                    conditions.push(format!("timestamp > ${}", param_num));
+                    param_num += 1;
+                    let _ = s;
+                }
+
+                conditions.push("deleted_at IS NULL".to_string());
+
+                let order = if after.is_some() {
+                    "ORDER BY timestamp DESC, id DESC"
+                } else {
+                    "ORDER BY timestamp ASC, id ASC"
+                };
+
+                let query = format!(
+                    "SELECT id, channel_id, sender_user_id, sender_username, sender_device_id, \
+                     encrypted_payload, iv, timestamp, expires_at, edited_at, deleted_at \
+                     FROM messages WHERE {} {} LIMIT $999",
+                    conditions.join(" AND "),
+                    order
+                );
+
+                let mut q = sqlx::query(&query);
+                q = q.bind(channel_id);
+                if let Some(a) = after { q = q.bind(a); }
+                if let Some(b) = before { q = q.bind(b); }
+                if let Some(s) = since { q = q.bind(s.to_rfc3339()); }
+                q = q.bind((limit + 1) as i32);
+
+                let rows = q.fetch_all(pool).await?;
+                for row in rows {
+                    msgs.push(Message {
+                        id: row.get(0),
+                        channel_id: row.get(1),
+                        sender_user_id: row.get(2),
+                        sender_username: row.get(3),
+                        sender_device_id: row.get(4),
+                        encrypted_payload: row.get(5),
+                        iv: row.get(6),
+                        timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(7))
+                            .map(|d| d.with_timezone(&Utc))
+                            .unwrap_or_else(|_| chrono::Utc::now()),
+                        expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(8)),
+                        edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
+                        deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
+                    });
+                }
+            }
+            DatabasePool::Sqlite(pool) => {
+                let mut conditions = vec!["channel_id = ?".to_string()];
+
+                if let Some(a) = after {
+                    conditions.push("id > ?".to_string());
+                    let _ = a;
+                }
+                if let Some(b) = before {
+                    conditions.push("id < ?".to_string());
+                    let _ = b;
+                }
+                if let Some(s) = since {
+                    conditions.push("timestamp > ?".to_string());
+                    let _ = s;
+                }
+
+                conditions.push("deleted_at IS NULL".to_string());
+
+                let order = if after.is_some() {
+                    "ORDER BY timestamp DESC, id DESC"
+                } else {
+                    "ORDER BY timestamp ASC, id ASC"
+                };
+
+                let query = format!(
+                    "SELECT id, channel_id, sender_user_id, sender_username, sender_device_id, \
+                     encrypted_payload, iv, timestamp, expires_at, edited_at, deleted_at \
+                     FROM messages WHERE {} {} LIMIT ?",
+                    conditions.join(" AND "),
+                    order
+                );
+
+                let mut q = sqlx::query(&query);
+                q = q.bind(channel_id);
+                if let Some(a) = after { q = q.bind(a); }
+                if let Some(b) = before { q = q.bind(b); }
+                if let Some(s) = since { q = q.bind(s.to_rfc3339()); }
+                q = q.bind((limit + 1) as i32);
+
+                let rows = q.fetch_all(pool).await?;
+                for row in rows {
+                    msgs.push(Message {
+                        id: row.get(0),
+                        channel_id: row.get(1),
+                        sender_user_id: row.get(2),
+                        sender_username: row.get(3),
+                        sender_device_id: row.get(4),
+                        encrypted_payload: row.get(5),
+                        iv: row.get(6),
+                        timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(7))
+                            .map(|d| d.with_timezone(&Utc))
+                            .unwrap_or_else(|_| chrono::Utc::now()),
+                        expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(8)),
+                        edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
+                        deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
+                    });
+                }
+            }
+        }
+
+        let has_more = msgs.len() > limit;
+        if has_more {
+            msgs.truncate(limit);
+        }
+
+        Ok(msgs)
+    }
+
+    pub async fn update_message(
+        &self,
+        message_id: Uuid,
+        payload: &str,
+        iv: &str,
+        edited_at: DateTime<Utc>,
+    ) -> Result<Message, sqlx::Error> {
+        let query = "UPDATE messages \
+                     SET encrypted_payload = $1, iv = $2, edited_at = $3 \
+                     WHERE id = $4 \
+                     RETURNING id, channel_id, sender_user_id, sender_username, sender_device_id, \
+                               encrypted_payload, iv, timestamp, expires_at, edited_at, deleted_at";
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(query)
+                    .bind(payload)
+                    .bind(iv)
+                    .bind(edited_at.to_rfc3339())
+                    .bind(message_id)
+                    .fetch_one(pool)
+                    .await?;
+                Ok(Message {
+                    id: row.get(0),
+                    channel_id: row.get(1),
+                    sender_user_id: row.get(2),
+                    sender_username: row.get(3),
+                    sender_device_id: row.get(4),
+                    encrypted_payload: row.get(5),
+                    iv: row.get(6),
+                    timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(7))
+                        .map(|d| d.with_timezone(&Utc))
+                        .unwrap_or_else(|_| chrono::Utc::now()),
+                    expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(8)),
+                    edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
+                    deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
+                })
+            }
+            DatabasePool::Sqlite(pool) => {
+                let query = query.replace("$1", "?").replace("$2", "?").replace("$3", "?").replace("$4", "?");
+                let row = sqlx::query(&query)
+                    .bind(payload)
+                    .bind(iv)
+                    .bind(edited_at.to_rfc3339())
+                    .bind(message_id)
+                    .fetch_one(pool)
+                    .await?;
+                Ok(Message {
+                    id: row.get(0),
+                    channel_id: row.get(1),
+                    sender_user_id: row.get(2),
+                    sender_username: row.get(3),
+                    sender_device_id: row.get(4),
+                    encrypted_payload: row.get(5),
+                    iv: row.get(6),
+                    timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(7))
+                        .map(|d| d.with_timezone(&Utc))
+                        .unwrap_or_else(|_| chrono::Utc::now()),
+                    expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(8)),
+                    edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
+                    deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
+                })
+            }
+        }
+    }
+
+    pub async fn delete_message(&self, message_id: Uuid) -> Result<(), sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "UPDATE messages SET deleted_at = $1 WHERE id = $2",
+                )
+                .bind(chrono::Utc::now().to_rfc3339())
+                .bind(message_id)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "UPDATE messages SET deleted_at = ? WHERE id = ?",
+                )
+                .bind(chrono::Utc::now().to_rfc3339())
+                .bind(message_id)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn count_new_messages(
+        &self,
+        channel_id: Uuid,
+        user_id: Uuid,
+        since: &str,
+    ) -> Result<(usize, Option<Uuid>), sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(
+                    "SELECT COUNT(*), MIN(id) FROM messages \
+                     WHERE channel_id = $1 AND sender_user_id != $2 AND deleted_at IS NULL \
+                     AND timestamp > $3",
+                )
+                .bind(channel_id)
+                .bind(user_id)
+                .bind(since)
+                .fetch_one(pool)
+                .await?;
+                let count: i64 = row.get(0);
+                let first_id: Option<Uuid> = row.get(1);
+                Ok((count as usize, first_id))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query(
+                    "SELECT COUNT(*), MIN(id) FROM messages \
+                     WHERE channel_id = ? AND sender_user_id != ? AND deleted_at IS NULL \
+                     AND timestamp > ?",
+                )
+                .bind(channel_id)
+                .bind(user_id)
+                .bind(since)
+                .fetch_one(pool)
+                .await?;
+                let count: i64 = row.get(0);
+                let first_id: Option<Uuid> = row.get(1);
+                Ok((count as usize, first_id))
+            }
+        }
+    }
 }
+
+fn parse_datetime_utc(val: &Option<String>) -> Option<DateTime<Utc>> {
+    val.as_ref().and_then(|s| {
+        chrono::DateTime::parse_from_rfc3339(s)
+            .ok()
+            .map(|d| d.with_timezone(&Utc))
+    })
+}
+
 
 fn parse_server_role(role: &str) -> ServerRole {
     match role {
