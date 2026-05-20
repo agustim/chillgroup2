@@ -251,6 +251,22 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     }
   }
 
+  useEffect(() => {
+    const handlePageClose = () => {
+      if (voiceChannelId) {
+        getSocket().emit('leave-voice-channel', { channelId: voiceChannelId })
+      }
+    }
+
+    window.addEventListener('beforeunload', handlePageClose)
+    window.addEventListener('pagehide', handlePageClose)
+
+    return () => {
+      window.removeEventListener('beforeunload', handlePageClose)
+      window.removeEventListener('pagehide', handlePageClose)
+    }
+  }, [voiceChannelId])
+
   const handleToggleMute = () => {
     if (liveKitMuted !== undefined) {
       toggleLiveKitMute()

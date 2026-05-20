@@ -33,6 +33,8 @@ use middleware::{AppState, AuthClaims};
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct VoicePresenceUser {
+    #[serde(skip_serializing)]
+    socket_id: String,
     user_id: Uuid,
     username: String,
     joined_at: String,
@@ -44,7 +46,7 @@ struct VoicePresenceUser {
 #[derive(Debug, Default)]
 struct VoicePresenceState {
     channel_users: HashMap<Uuid, Vec<VoicePresenceUser>>,
-    user_channel: HashMap<Uuid, Uuid>,
+    socket_channel: HashMap<String, Uuid>,
 }
 
 async fn emit_voice_presence_update(
@@ -150,7 +152,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             let presence_for_join = voice_presence.clone();
             let user_id_for_voice = claims.user_id;
             let username_for_voice = claims.username.clone();
-            socket.on("join-voice-channel", move |Data(data): Data<serde_json::Value>| {
+            socket.on("join-voice-channel", move |socket: SocketRef, Data(data): Data<serde_json::Value>| {
                 let db = db_for_presence.clone();
                 let io = io_for_presence.clone();
                 let presence = presence_for_join.clone();
@@ -163,24 +165,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         return;
                     };
 
+                    let socket_id = socket.id.to_string();
                     let mut affected_channels = Vec::new();
                     {
                         let mut state = presence.write().await;
 
-                        if let Some(prev_channel) = state.user_channel.get(&user_id_for_voice).copied() {
+                        if let Some(prev_channel) = state.socket_channel.get(&socket_id).copied() {
                             if prev_channel != channel_id {
                                 if let Some(users) = state.channel_users.get_mut(&prev_channel) {
-                                    users.retain(|u| u.user_id != user_id_for_voice);
+                                    users.retain(|u| u.socket_id != socket_id);
                                 }
                                 affected_channels.push(prev_channel);
                             }
                         }
 
-                        state.user_channel.insert(user_id_for_voice, channel_id);
+                        state.socket_channel.insert(socket_id.clone(), channel_id);
 
                         let users = state.channel_users.entry(channel_id).or_default();
-                        if !users.iter().any(|u| u.user_id == user_id_for_voice) {
+                        if !users.iter().any(|u| u.socket_id == socket_id) {
                             users.push(VoicePresenceUser {
+                                socket_id,
                                 user_id: user_id_for_voice,
                                 username,
                                 joined_at: chrono::Utc::now().to_rfc3339(),
@@ -209,11 +213,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             let db_for_leave = db.clone();
             let io_for_leave = io.clone();
             let presence_for_leave = voice_presence.clone();
-            socket.on("leave-voice-channel", move |Data(data): Data<serde_json::Value>| {
+            socket.on("leave-voice-channel", move |socket: SocketRef, Data(data): Data<serde_json::Value>| {
                 let db = db_for_leave.clone();
                 let io = io_for_leave.clone();
                 let presence = presence_for_leave.clone();
                 async move {
+                    let socket_id = socket.id.to_string();
                     let requested_channel = data
                         .get("channelId")
                         .and_then(|v| v.as_str())
@@ -222,14 +227,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     let mut affected_channel = None;
                     {
                         let mut state = presence.write().await;
-                        let current_channel = state.user_channel.get(&user_id_for_voice).copied();
+                        let current_channel = state.socket_channel.get(&socket_id).copied();
                         let target_channel = requested_channel.or(current_channel);
 
                         if let Some(channel_id) = target_channel {
                             if let Some(users) = state.channel_users.get_mut(&channel_id) {
-                                users.retain(|u| u.user_id != user_id_for_voice);
+                                users.retain(|u| u.socket_id != socket_id);
                             }
-                            state.user_channel.remove(&user_id_for_voice);
+                            state.socket_channel.remove(&socket_id);
                             affected_channel = Some(channel_id);
                         }
                     }
@@ -299,17 +304,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             let db_for_disconnect = db.clone();
             let io_for_disconnect = io.clone();
             let presence_for_disconnect = voice_presence.clone();
-            socket.on_disconnect(move || {
+            socket.on_disconnect(move |socket: SocketRef| {
                 let db = db_for_disconnect.clone();
                 let io = io_for_disconnect.clone();
                 let presence = presence_for_disconnect.clone();
                 async move {
+                    let socket_id = socket.id.to_string();
                     let mut affected_channel = None;
                     {
                         let mut state = presence.write().await;
-                        if let Some(channel_id) = state.user_channel.remove(&user_id_for_voice) {
+                        if let Some(channel_id) = state.socket_channel.remove(&socket_id) {
                             if let Some(users) = state.channel_users.get_mut(&channel_id) {
-                                users.retain(|u| u.user_id != user_id_for_voice);
+                                users.retain(|u| u.socket_id != socket_id);
                             }
                             affected_channel = Some(channel_id);
                         }
