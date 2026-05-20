@@ -5,9 +5,10 @@ import { messagesList } from '../../lib/api'
 interface MessageListProps {
   channelId: string
   refreshKey?: number
+  socketMessages?: Message[]
 }
 
-export function MessageList({ channelId, refreshKey }: MessageListProps) {
+export function MessageList({ channelId, refreshKey, socketMessages = [] }: MessageListProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -65,7 +66,7 @@ export function MessageList({ channelId, refreshKey }: MessageListProps) {
     )
   }
 
-  if (messages.length === 0) {
+  if (messages.length === 0 && socketMessages.length === 0) {
     return (
       <div className="message-list empty">
         <p>Sense missatges encara</p>
@@ -74,11 +75,18 @@ export function MessageList({ channelId, refreshKey }: MessageListProps) {
     )
   }
 
+  // Combinar missatges carregats + missatges rebuts via socket (sense duplicats)
+  const loadedIds = new Set(messages.map((m) => m.messageId))
+  const combined = [
+    ...messages,
+    ...socketMessages.filter((m) => !loadedIds.has(m.messageId)),
+  ].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+
   return (
     <div className="message-list">
-      {messages.map((msg, index) => {
+      {combined.map((msg, index) => {
         const showHeader =
-          index === 0 || messages[index - 1].senderUserId !== msg.senderUserId
+          index === 0 || combined[index - 1].senderUserId !== msg.senderUserId
 
         return (
           <div

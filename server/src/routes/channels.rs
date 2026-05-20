@@ -70,6 +70,12 @@ pub struct InviteResponse {
     pub devices_invited: u32,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct MarkChannelReadRequest {
+    #[serde(default)]
+    pub last_read_message_id: Option<Uuid>,
+}
+
 pub async fn list_channels(
     State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
@@ -84,8 +90,32 @@ pub async fn list_channels(
         return Err(AppError::Forbidden);
     }
 
-    let channels = state.db.list_channels_for_server(server_id).await.map_err(|e| AppError::DatabaseError(e))?;
+    let channels = state.db.list_channels_for_server(server_id, claims.user_id).await.map_err(|e| AppError::DatabaseError(e))?;
     Ok(Json(channels))
+}
+
+pub async fn mark_channel_read(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path(channel_id): Path<Uuid>,
+    Json(req): Json<MarkChannelReadRequest>,
+) -> Result<StatusCode, AppError> {
+    let channel = state.db.get_channel(channel_id).await.map_err(AppError::DatabaseError)?;
+    let channel = channel.ok_or(AppError::ChannelNotFound)?;
+
+    let role = state.db.is_server_member(channel.server_id, claims.user_id).await
+        .map_err(AppError::DatabaseError)?;
+    if role.is_none() {
+        return Err(AppError::Forbidden);
+    }
+
+    state
+        .db
+        .mark_channel_read(claims.user_id, channel_id, req.last_read_message_id)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn create_channel(
@@ -138,6 +168,7 @@ pub async fn create_channel(
             encryption_type: req.encryption_type,
             message_ttl: req.message_ttl,
             is_private: req.is_private,
+            unread_count: 0,
             created_at: now,
         }),
     ))
@@ -260,6 +291,7 @@ pub async fn delete_channel(
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/servers/{server_id}/channels", get(list_channels).post(create_channel))
+        .route("/api/channels/{channel_id}/read", post(mark_channel_read))
         .route("/api/channels/{channel_id}/keys", get(get_channel_keys))
         .route("/api/channels/{channel_id}/invite", post(invite_to_channel))
         .route("/api/channels/{channel_id}", put(update_channel).delete(delete_channel))

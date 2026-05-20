@@ -30,5 +30,7 @@ pub struct Channel {
     pub encryption_type: EncryptionType,
     pub message_ttl: Option<i32>,
     pub is_private: bool,
+    #[serde(default)]
+    pub unread_count: usize,
     pub created_at: DateTime<Utc>,
 }

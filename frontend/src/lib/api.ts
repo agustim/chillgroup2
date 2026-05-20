@@ -393,8 +393,15 @@ function mapChannelToTypes(channel: any): Channel {
     encryptionType: channel.encryption_type,
     messageTTL: channel.message_ttl,
     isPrivate: channel.is_private,
+    unreadCount: channel.unread_count ?? channel.unreadCount ?? 0,
     createdAt: channel.created_at,
   }
+}
+
+export async function channelsMarkRead(channelId: string, lastReadMessageId?: string) {
+  return apiRequest<void>('POST', `/api/channels/${channelId}/read`, {
+    last_read_message_id: lastReadMessageId ?? null,
+  })
 }
 
 function mapMessageToTypes(msg: any): Message {

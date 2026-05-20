@@ -85,6 +85,9 @@ export function ChannelList({
           >
             <span className="channel-hash">#</span>
             <span className="channel-name">{channel.name}</span>
+            {(channel.unreadCount ?? 0) > 0 && (
+              <span className="channel-unread-badge">{channel.unreadCount}</span>
+            )}
             <EncryptionIcon type={channel.encryptionType} />
           </button>
         ))}

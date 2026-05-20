@@ -55,6 +55,7 @@ export interface Channel {
   encryptionType: EncryptionType
   messageTTL: number | null
   isPrivate: boolean
+  unreadCount?: number
   createdAt: string
 }
 

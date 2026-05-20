@@ -244,6 +244,45 @@ pub async fn send_message(
         deleted_at: None,
     };
 
+    // Broadcast via Socket.IO a tots els clients del canal
+    let room = format!("channel:{}", channel_id);
+    let socket_event = serde_json::json!({
+        "messageId": message.id,
+        "channelId": message.channel_id,
+        "senderUserId": message.sender_user_id,
+        "senderUsername": message.sender_username,
+        "senderDeviceId": message.sender_device_id,
+        "encryptedPayload": message.encrypted_payload,
+        "iv": message.iv,
+        "timestamp": message.timestamp,
+        "editedAt": message.edited_at,
+        "deletedAt": message.deleted_at,
+    });
+    if let Err(e) = state.io.to(room).emit("message", &socket_event).await {
+        tracing::warn!("Error fent broadcast del missatge via socket: {:?}", e);
+    }
+
+    // Actualitzar comptadors unread per membres del servidor (excepte remitent)
+    if let Ok(Some(channel)) = state.db.get_channel(channel_id).await {
+        if let Ok(member_ids) = state.db.list_server_member_ids(channel.server_id).await {
+            for member_id in member_ids.into_iter().filter(|id| *id != claims.user_id) {
+                match state.db.count_unread_messages_for_user(channel_id, member_id).await {
+                    Ok(unread_count) => {
+                        let unread_event = serde_json::json!({
+                            "channelId": channel_id,
+                            "unreadCount": unread_count,
+                        });
+                        let user_room = format!("user:{}", member_id);
+                        if let Err(e) = state.io.to(user_room).emit("unread-updated", &unread_event).await {
+                            tracing::warn!("Error enviant unread-updated: {:?}", e);
+                        }
+                    }
+                    Err(e) => tracing::warn!("Error calculant unread per usuari {}: {}", member_id, e),
+                }
+            }
+        }
+    }
+
     Ok((StatusCode::CREATED, Json(message)))
 }
 

@@ -18,6 +18,7 @@ import {
   serversList,
   channelsCreate,
   channelsList,
+  channelsMarkRead,
   channelInvite,
   channelsUpdate,
   channelDelete,
@@ -128,6 +129,32 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
       fetchChannels(selectedServer)
     }
   }, [selectedServer])
+
+  useEffect(() => {
+    if (!selectedChannel || selectedChannel.type !== 'text') {
+      return
+    }
+
+    channelsMarkRead(selectedChannel.channelId).catch(() => {
+      // Best effort: el socket reconcilia unread igualment.
+    })
+
+    setChannels((prev) =>
+      prev.map((c) =>
+        c.channelId === selectedChannel.channelId ? { ...c, unreadCount: 0 } : c
+      )
+    )
+  }, [selectedChannel?.channelId, selectedChannel?.type])
+
+  const handleUnreadUpdated = (channelId: string, unreadCount: number) => {
+    setChannels((prev) =>
+      prev.map((channel) =>
+        channel.channelId === channelId
+          ? { ...channel, unreadCount }
+          : channel
+      )
+    )
+  }
 
   const handleSelectServer = (serverId: string) => {
     setSelectedServer(serverId)
@@ -387,6 +414,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
               onToggleMute={handleToggleMute}
               onToggleDeafen={handleToggleMute}
               onLeaveVoice={handleLeaveVoiceChannel}
+              onUnreadUpdated={handleUnreadUpdated}
             />
           </>
         ) : (

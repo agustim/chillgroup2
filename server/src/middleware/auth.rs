@@ -32,11 +32,13 @@ pub struct AuthClaims {
 // ── Estat de l'aplicació compartit ──────────────────────────────
 
 use crate::db::DatabasePool;
+use socketioxide::SocketIo;
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: DatabasePool,
     pub config: Config,
+    pub io: SocketIo,
 }
 
 // ── Generació de tokens ─────────────────────────────────────────

@@ -191,6 +191,22 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
         "#,
         r#"CREATE INDEX IF NOT EXISTS idx_messages_channel_id ON messages(channel_id)"#,
         r#"CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp)"#,
+
+        // Channel read state (unread counters server-authoritative)
+        r#"
+        CREATE TABLE IF NOT EXISTS channel_read_state (
+            user_id TEXT NOT NULL,
+            channel_id TEXT NOT NULL,
+            last_read_message_id TEXT,
+            last_read_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_id, channel_id),
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (channel_id) REFERENCES channels(id)
+        )
+        "#,
+        r#"CREATE INDEX IF NOT EXISTS idx_channel_read_state_user ON channel_read_state(user_id)"#,
+        r#"CREATE INDEX IF NOT EXISTS idx_channel_read_state_channel ON channel_read_state(channel_id)"#,
     ];
 
     for query in queries {
@@ -550,7 +566,7 @@ impl DatabasePool {
         Ok(())
     }
 
-    pub async fn list_channels_for_server(&self, server_id: Uuid) -> Result<Vec<Channel>, sqlx::Error> {
+    pub async fn list_channels_for_server(&self, server_id: Uuid, user_id: Uuid) -> Result<Vec<Channel>, sqlx::Error> {
         let query = "SELECT id, server_id, name, type AS channel_type, encryption_type, message_ttl, is_private, created_at FROM channels WHERE server_id = $1 ORDER BY type ASC, name ASC";
         let mut channels = Vec::new();
         match self {
@@ -584,6 +600,7 @@ impl DatabasePool {
                         encryption_type,
                         message_ttl: row.get(5),
                         is_private: is_private != 0,
+                        unread_count: 0,
                         created_at,
                     });
                 }
@@ -619,12 +636,40 @@ impl DatabasePool {
                         encryption_type,
                         message_ttl: row.get(5),
                         is_private: is_private != 0,
+                        unread_count: 0,
                         created_at,
                     });
                 }
             }
         }
+
+        for channel in &mut channels {
+            channel.unread_count = self
+                .count_unread_messages_for_user(channel.id, user_id)
+                .await
+                .unwrap_or(0);
+        }
+
         Ok(channels)
+    }
+
+    pub async fn list_server_member_ids(&self, server_id: Uuid) -> Result<Vec<Uuid>, sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let rows = sqlx::query("SELECT user_id FROM server_members WHERE server_id = $1")
+                    .bind(server_id)
+                    .fetch_all(pool)
+                    .await?;
+                Ok(rows.into_iter().map(|r| r.get(0)).collect())
+            }
+            DatabasePool::Sqlite(pool) => {
+                let rows = sqlx::query("SELECT user_id FROM server_members WHERE server_id = ?")
+                    .bind(server_id)
+                    .fetch_all(pool)
+                    .await?;
+                Ok(rows.into_iter().map(|r| r.get(0)).collect())
+            }
+        }
     }
 
     pub async fn create_channel(&self, channel_id: Uuid, server_id: Uuid, name: &str, channel_type: &str, encryption_type: &str, message_ttl: Option<i32>, is_private: bool) -> Result<(), sqlx::Error> {
@@ -692,6 +737,7 @@ impl DatabasePool {
                         encryption_type,
                         message_ttl: row.get(5),
                         is_private: is_private != 0,
+                        unread_count: 0,
                         created_at,
                     })
                 }).transpose()
@@ -727,6 +773,7 @@ impl DatabasePool {
                         encryption_type,
                         message_ttl: row.get(5),
                         is_private: is_private != 0,
+                        unread_count: 0,
                         created_at,
                     })
                 }).transpose()
@@ -1254,6 +1301,93 @@ impl DatabasePool {
                 let count: i64 = row.get(0);
                 let first_id: Option<Uuid> = row.get(1);
                 Ok((count as usize, first_id))
+            }
+        }
+    }
+
+    pub async fn mark_channel_read(
+        &self,
+        user_id: Uuid,
+        channel_id: Uuid,
+        last_read_message_id: Option<Uuid>,
+    ) -> Result<(), sqlx::Error> {
+        let now = chrono::Utc::now().to_rfc3339();
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "INSERT INTO channel_read_state (user_id, channel_id, last_read_message_id, last_read_at, updated_at) \
+                     VALUES ($1, $2, $3, $4, $4) \
+                     ON CONFLICT (user_id, channel_id) DO UPDATE SET \
+                     last_read_message_id = EXCLUDED.last_read_message_id, \
+                     last_read_at = EXCLUDED.last_read_at, \
+                     updated_at = EXCLUDED.updated_at",
+                )
+                .bind(user_id)
+                .bind(channel_id)
+                .bind(last_read_message_id)
+                .bind(&now)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "INSERT INTO channel_read_state (user_id, channel_id, last_read_message_id, last_read_at, updated_at) \
+                     VALUES (?, ?, ?, ?, ?) \
+                     ON CONFLICT(user_id, channel_id) DO UPDATE SET \
+                     last_read_message_id = excluded.last_read_message_id, \
+                     last_read_at = excluded.last_read_at, \
+                     updated_at = excluded.updated_at",
+                )
+                .bind(user_id)
+                .bind(channel_id)
+                .bind(last_read_message_id)
+                .bind(&now)
+                .bind(&now)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn count_unread_messages_for_user(
+        &self,
+        channel_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<usize, sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(
+                    "SELECT COUNT(*) FROM messages m \
+                     LEFT JOIN channel_read_state rs \
+                       ON rs.channel_id = m.channel_id AND rs.user_id = $2 \
+                     WHERE m.channel_id = $1 \
+                       AND m.sender_user_id != $2 \
+                       AND m.deleted_at IS NULL \
+                       AND m.timestamp > COALESCE(rs.last_read_at, '1970-01-01T00:00:00Z')",
+                )
+                .bind(channel_id)
+                .bind(user_id)
+                .fetch_one(pool)
+                .await?;
+                Ok(row.get::<i64, _>(0) as usize)
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query(
+                    "SELECT COUNT(*) FROM messages m \
+                     LEFT JOIN channel_read_state rs \
+                       ON rs.channel_id = m.channel_id AND rs.user_id = ? \
+                     WHERE m.channel_id = ? \
+                       AND m.sender_user_id != ? \
+                       AND m.deleted_at IS NULL \
+                       AND m.timestamp > COALESCE(rs.last_read_at, '1970-01-01T00:00:00Z')",
+                )
+                .bind(user_id)
+                .bind(channel_id)
+                .bind(user_id)
+                .fetch_one(pool)
+                .await?;
+                Ok(row.get::<i64, _>(0) as usize)
             }
         }
     }

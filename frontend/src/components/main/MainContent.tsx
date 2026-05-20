@@ -1,9 +1,10 @@
-import React, { useState } from 'react'
-import { Channel, VoiceConnection } from '../../types'
+import React, { useState, useCallback } from 'react'
+import { Channel, Message, VoiceConnection } from '../../types'
 import { messagesSend } from '../../lib/api'
 import { MessageList } from './MessageList'
 import { VoiceArea } from './VoiceArea'
 import { MessageInput } from './MessageInput'
+import { useSocketIO } from '../../hooks/useSocketIO'
 
 interface MainContentProps {
   channel: Channel | null
@@ -11,13 +12,35 @@ interface MainContentProps {
   onToggleMute?: () => void
   onToggleDeafen?: () => void
   onLeaveVoice?: () => void
+  onUnreadUpdated?: (channelId: string, unreadCount: number) => void
 }
 
-export function MainContent({ channel, voiceConnection, onToggleMute, onToggleDeafen, onLeaveVoice }: MainContentProps) {
+export function MainContent({ channel, voiceConnection, onToggleMute, onToggleDeafen, onLeaveVoice, onUnreadUpdated }: MainContentProps) {
   const [message, setMessage] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
+  const [socketMessages, setSocketMessages] = useState<Message[]>([])
+
+  const handleSocketMessage = useCallback((msg: Message) => {
+    setSocketMessages((prev) => {
+      // Evitar duplicats
+      if (prev.some((m) => m.messageId === msg.messageId)) return prev
+      return [...prev, msg]
+    })
+  }, [])
+
+  useSocketIO({
+    channelId: channel?.type === 'text' ? (channel?.channelId ?? null) : null,
+    onMessage: handleSocketMessage,
+    onUnreadUpdated,
+  })
+
+  // Netejar missatges de socket quan canviem de canal
+  const channelId = channel?.channelId
+  React.useEffect(() => {
+    setSocketMessages([])
+  }, [channelId])
 
   const handleSendMessage = async () => {
     const trimmedMessage = message.trim()
@@ -78,7 +101,7 @@ export function MainContent({ channel, voiceConnection, onToggleMute, onToggleDe
         {/* Text chat below */}
         {channel && channel.type === 'text' ? (
           <div className="text-panel">
-            <MessageList channelId={channel.channelId} refreshKey={refreshKey} />
+            <MessageList channelId={channel.channelId} refreshKey={refreshKey} socketMessages={socketMessages} />
             {sendError && <div className="message-send-error">{sendError}</div>}
             <MessageInput
               value={message}
@@ -126,7 +149,7 @@ export function MainContent({ channel, voiceConnection, onToggleMute, onToggleDe
   // Canals de text
   return (
     <div className="main-content">
-      <MessageList channelId={channel.channelId} refreshKey={refreshKey} />
+      <MessageList channelId={channel.channelId} refreshKey={refreshKey} socketMessages={socketMessages} />
       {sendError && <div className="message-send-error">{sendError}</div>}
       <MessageInput
         value={message}
