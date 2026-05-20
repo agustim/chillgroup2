@@ -72,7 +72,7 @@ pub async fn create_server(
 
     let server_info = state
         .db
-        .get_server_full_info(server_id)
+        .get_server_full_info(server_id, claims.user_id)
         .await
         .map_err(AppError::DatabaseError)?
         .ok_or(AppError::ServerNotFound)?;
@@ -100,7 +100,7 @@ pub async fn get_server(
 
     let server_info = state
         .db
-        .get_server_full_info(server_id)
+        .get_server_full_info(server_id, claims.user_id)
         .await
         .map_err(AppError::DatabaseError)?
         .ok_or(AppError::ServerNotFound)?;
@@ -135,7 +135,7 @@ pub async fn list_server_members(
 
     let server_info = state
         .db
-        .get_server_full_info(server_id)
+        .get_server_full_info(server_id, claims.user_id)
         .await
         .map_err(AppError::DatabaseError)?
         .ok_or(AppError::ServerNotFound)?;
@@ -227,7 +227,7 @@ pub async fn update_member_role(
 
     let server_info = state
         .db
-        .get_server_full_info(server_id)
+        .get_server_full_info(server_id, claims.user_id)
         .await
         .map_err(AppError::DatabaseError)?
         .ok_or(AppError::ServerNotFound)?;

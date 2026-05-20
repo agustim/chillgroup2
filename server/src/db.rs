@@ -427,7 +427,7 @@ impl DatabasePool {
         Ok(())
     }
 
-    pub async fn get_server_full_info(&self, server_id: Uuid) -> Result<Option<ServerFullInfo>, sqlx::Error> {
+    pub async fn get_server_full_info(&self, server_id: Uuid, user_id: Uuid) -> Result<Option<ServerFullInfo>, sqlx::Error> {
         match self {
             DatabasePool::Postgres(pool) => {
                 let server_row = sqlx::query("SELECT id, name, icon_url, owner_id, created_at FROM servers WHERE id = $1")
@@ -439,6 +439,17 @@ impl DatabasePool {
                     Some(row) => row,
                     None => return Ok(None),
                 };
+
+                // Get user's role in this server
+                let my_role_row = sqlx::query("SELECT role FROM server_members WHERE server_id = $1 AND user_id = $2")
+                    .bind(server_id)
+                    .bind(user_id)
+                    .fetch_optional(pool)
+                    .await?;
+
+                let my_role = my_role_row
+                    .map(|row| parse_server_role(&row.get::<String, _>(0)))
+                    .unwrap_or(ServerRole::Member);
 
                 let members = {
                     let rows = sqlx::query("SELECT u.id, u.username, sm.role, sm.joined_at FROM server_members sm JOIN users u ON u.id = sm.user_id WHERE sm.server_id = $1 ORDER BY sm.joined_at ASC")
@@ -458,6 +469,7 @@ impl DatabasePool {
                     name: server_row.get(1),
                     icon_url: server_row.get(2),
                     owner_id: server_row.get(3),
+                    my_role,
                     members,
                     created_at: server_row.get::<String, _>(4),
                 }))
@@ -472,6 +484,17 @@ impl DatabasePool {
                     Some(row) => row,
                     None => return Ok(None),
                 };
+
+                // Get user's role in this server
+                let my_role_row = sqlx::query("SELECT role FROM server_members WHERE server_id = ? AND user_id = ?")
+                    .bind(server_id)
+                    .bind(user_id)
+                    .fetch_optional(pool)
+                    .await?;
+
+                let my_role = my_role_row
+                    .map(|row| parse_server_role(&row.get::<String, _>(0)))
+                    .unwrap_or(ServerRole::Member);
 
                 let members = {
                     let rows = sqlx::query("SELECT u.id, u.username, sm.role, sm.joined_at FROM server_members sm JOIN users u ON u.id = sm.user_id WHERE sm.server_id = ? ORDER BY sm.joined_at ASC")
@@ -491,6 +514,7 @@ impl DatabasePool {
                     name: server_row.get(1),
                     icon_url: server_row.get(2),
                     owner_id: server_row.get(3),
+                    my_role,
                     members,
                     created_at: server_row.get::<String, _>(4),
                 }))

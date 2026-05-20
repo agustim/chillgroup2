@@ -102,6 +102,7 @@ pub struct ServerFullInfo {
     pub name: String,
     pub icon_url: Option<String>,
     pub owner_id: Uuid,
+    pub my_role: ServerRole,
     pub members: Vec<ServerMember>,
     pub created_at: String,
 }
