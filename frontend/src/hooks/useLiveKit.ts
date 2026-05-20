@@ -78,7 +78,6 @@ export function useLiveKit(): UseLiveKitResult {
       },
       body: JSON.stringify({
         room: LIVEKIT_ROOM_PREFIX + channelId,
-        participant: token.substring(0, 20),
       }),
     })
 
@@ -94,21 +93,35 @@ export function useLiveKit(): UseLiveKitResult {
   // Actualitzar la llista de participants
   const updateParticipants = useCallback(() => {
     if (!roomRef.current) return
-    const remoteParts = roomRef.current.remoteParticipants
+    const room = roomRef.current
+    const remoteParts = room.remoteParticipants
     const parts: VoiceParticipant[] = []
+
+    const localPart = room.localParticipant
+    if (localPart) {
+      const localAudioPub = (localPart as any).getTrackPublication('audio')
+      const localHasAudio = !!(localAudioPub && !localAudioPub.isMuted)
+      parts.push({
+        userId: localPart.identity || localPart.sid,
+        username: localPart.name || localPart.identity || 'Tu',
+        isSpeaking: localPart.isSpeaking,
+        isDeafened: false,
+        isSuppressed: !localHasAudio,
+        joinedAt: new Date().toISOString(),
+      })
+    }
+
     for (const p of remoteParts.values()) {
-      if (!p.isLocal) {
-        const audioPub = (p as any).getTrackPublication('audio')
-        const hasAudio = audioPub && audioPub.isSubscribed
-        parts.push({
-          userId: p.identity || p.sid,
-          username: p.identity || 'Desconegut',
-          isSpeaking: p.isSpeaking,
-          isDeafened: false,
-          isSuppressed: !hasAudio,
-          joinedAt: new Date().toISOString(),
-        })
-      }
+      const audioPub = (p as any).getTrackPublication('audio')
+      const hasAudio = !!(audioPub && audioPub.isSubscribed)
+      parts.push({
+        userId: p.identity || p.sid,
+        username: p.name || p.identity || 'Desconegut',
+        isSpeaking: p.isSpeaking,
+        isDeafened: false,
+        isSuppressed: !hasAudio,
+        joinedAt: new Date().toISOString(),
+      })
     }
     setParticipants(parts)
   }, [])
@@ -215,6 +228,9 @@ export function useLiveKit(): UseLiveKitResult {
       await room.connect(livekitUrl, token)
       console.log('✅ Connectat a LiveKit:', room.name)
 
+      // Sincronitzar llista inicial (inclou participant local)
+      updateParticipants()
+
       // Publicar àudio del micròfon (pedirà permís automàticament)
       console.log('🎤 Creant track d\'àudio...')
       const audioTrack = await createLocalAudioTrack()
@@ -222,6 +238,7 @@ export function useLiveKit(): UseLiveKitResult {
       await room.localParticipant?.publishTrack(audioTrack)
       setIsPublishing(true)
       console.log('🎤 Àudio publicat amb èxit')
+      updateParticipants()
 
     } catch (e: any) {
       console.error('❌ Error connectant a LiveKit:', e)
