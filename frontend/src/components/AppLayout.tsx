@@ -9,7 +9,8 @@ import { CreateTextChannelModal } from './modals/CreateTextChannelModal'
 import { CreateVoiceChannelModal } from './modals/CreateVoiceChannelModal'
 import { InviteMemberModal } from './modals/InviteMemberModal'
 import { ConfigureChannelModal } from './modals/ConfigureChannelModal'
-import { Channel, Server, ServerFullInfo, VoiceConnection, VoiceParticipant } from '../types'
+import { useLiveKit } from '../hooks/useLiveKit'
+import { Channel, Server, ServerFullInfo, VoiceParticipant } from '../types'
 import {
   serverInviteMember,
   serversCreate,
@@ -37,7 +38,8 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const [serverDetails, setServerDetails] = useState<ServerFullInfo | null>(null)
   const [channels, setChannels] = useState<Channel[]>([])
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null)
-  const [voiceConnection, setVoiceConnection] = useState<VoiceConnection | null>(null)
+  const [voiceChannelId, setVoiceChannelId] = useState<string | null>(null)
+  const [voiceChannelName, setVoiceChannelName] = useState<string>('')
   const [panel, setPanel] = useState<PanelType>('none')
   const [feedback, setFeedback] = useState<string | null>(null)
   
@@ -49,6 +51,18 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const [showInviteChannel, setShowInviteChannel] = useState(false)
   const [showConfigureChannel, setShowConfigureChannel] = useState(false)
   
+  // LiveKit hook
+  const {
+    isConnected: liveKitConnected,
+    isPublishing,
+    isMuted: liveKitMuted,
+    participants: liveKitParticipants,
+    connectToChannel: connectLiveKit,
+    disconnect: disconnectLiveKit,
+    toggleMute: toggleLiveKitMute,
+    error: liveKitError,
+  } = useLiveKit()
+
   // Auto-dismiss feedback
   useEffect(() => {
     if (feedback) {
@@ -119,71 +133,52 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     setSelectedServer(serverId)
   }
 
-  // ── Voice connection logic ─────────────────────────────────────
-  // When clicking a voice channel:
-  // - If already in it → leave
-  // - If in a different voice channel → leave current, join new
-  // - If not in any voice channel → join new
-  const handleVoiceChannelClick = (channel: Channel) => {
+  // ── Voice connection logic (LiveKit real) ─────────────────────────────
+  const handleVoiceChannelClick = async (channel: Channel) => {
     if (channel.type !== 'voice') return
 
-    if (voiceConnection?.channelId === channel.channelId) {
-      // Already in this channel → leave
-      setVoiceConnection(null)
+    // If clicking the same channel we're in → leave
+    if (voiceChannelId === channel.channelId) {
+      disconnectLiveKit()
+      setVoiceChannelId(null)
+      setVoiceChannelName('')
       setFeedback(`Has sortit del canal "${channel.name}"`)
       return
     }
 
-    // Leave current voice channel if in one
-    if (voiceConnection) {
-      setFeedback(`Has sortit del canal "${voiceConnection.channelName}"`)
+    // If already in a different voice channel → leave first
+    if (voiceChannelId) {
+      disconnectLiveKit()
+      setFeedback(`Has sortit del canal "${voiceChannelName}"`)
     }
 
     // Join the new voice channel
-    // Simulate joining with mock participants (will connect to LiveKit later)
-    const mockParticipants: VoiceParticipant[] = [
-      {
-        userId: '1',
-        username: 'agusti',
-        joinedAt: new Date().toISOString(),
-        isDeafened: false,
-        isSuppressed: false,
-        isSpeaking: false,
-      },
-    ]
+    setVoiceChannelId(channel.channelId)
+    setVoiceChannelName(channel.name)
 
-    setVoiceConnection({
-      channelId: channel.channelId,
-      channelName: channel.name,
-      participants: mockParticipants,
-      isJoined: true,
-      isMuted: false,
-      isDeafened: false,
-    })
-    setFeedback(`T'has unit al canal de veu "${channel.name}"`)
+    try {
+      await connectLiveKit(channel.channelId, channel.name)
+      setFeedback(`T'has unit al canal de veu "${channel.name}"`)
+    } catch (e: any) {
+      setFeedback(`Error: ${e.message}`)
+      setVoiceChannelId(null)
+      setVoiceChannelName('')
+    }
   }
 
   const handleLeaveVoiceChannel = () => {
-    if (voiceConnection) {
-      setFeedback(`Has sortit del canal "${voiceConnection.channelName}"`)
-      setVoiceConnection(null)
+    if (voiceChannelId) {
+      disconnectLiveKit()
+      setVoiceChannelId(null)
+      setVoiceChannelName('')
+      setFeedback(`Has sortit del canal "${voiceChannelName}"`)
     }
   }
 
   const handleToggleMute = () => {
-    if (!voiceConnection) return
-    setVoiceConnection({
-      ...voiceConnection,
-      isMuted: !voiceConnection.isMuted,
-    })
-  }
-
-  const handleToggleDeafen = () => {
-    if (!voiceConnection) return
-    setVoiceConnection({
-      ...voiceConnection,
-      isDeafened: !voiceConnection.isDeafened,
-    })
+    if (liveKitMuted !== undefined) {
+      toggleLiveKitMute()
+    }
   }
 
   const handleCreateServer = async () => {
@@ -319,6 +314,18 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     }
   }
 
+  // Build voice connection object from LiveKit state
+  const voiceConnection = voiceChannelId
+    ? {
+        channelId: voiceChannelId,
+        channelName: voiceChannelName,
+        participants: liveKitParticipants,
+        isJoined: liveKitConnected,
+        isMuted: liveKitMuted,
+        isDeafened: false,
+      }
+    : null
+
   return (
     <div className="app-layout">
       <ServerBar
@@ -364,6 +371,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
         )}
 
         {feedback && <div className="feedback-banner">{feedback}</div>}
+        {liveKitError && <div className="feedback-banner" style={{ backgroundColor: '#ff4444' }}>{liveKitError}</div>}
 
         {selectedChannel ? (
           <>
@@ -377,7 +385,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
               channel={selectedChannel}
               voiceConnection={voiceConnection}
               onToggleMute={handleToggleMute}
-              onToggleDeafen={handleToggleDeafen}
+              onToggleDeafen={handleToggleMute}
               onLeaveVoice={handleLeaveVoiceChannel}
             />
           </>

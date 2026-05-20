@@ -463,3 +463,19 @@ export async function channelInvite(channelId: string, username: string): Promis
 export async function channelsGetKeys(channelId: string) {
   return apiRequest<any[]>('GET', `/api/channels/${channelId}/keys`)
 }
+
+// ── LiveKit ─────────────────────────────────────────────────────
+
+export interface LiveKitTokenResponse {
+  token: string
+}
+
+export async function livekitGetToken(
+  channelId: string,
+  participantName: string,
+): Promise<ApiResult<LiveKitTokenResponse>> {
+  return apiRequest<LiveKitTokenResponse>('POST', '/api/livekit/token', {
+    room: 'chillgroup-' + channelId,
+    participant: participantName,
+  })
+}
