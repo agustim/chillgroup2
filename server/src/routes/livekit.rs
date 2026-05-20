@@ -11,14 +11,14 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, Header, EncodingKey};
-use crate::middleware::AppState;
+use crate::middleware::{AppState, AuthClaims};
 use crate::error::AppError;
 use tracing::info;
 
 #[derive(Debug, Deserialize)]
 pub struct LiveKitTokenRequest {
     pub room: String,
-    pub participant: String,
+    pub participant: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -29,19 +29,13 @@ pub struct LiveKitTokenResponse {
 /// Generar un token de LiveKit per a una sala.
 pub async fn generate_token(
     State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
     Json(req): Json<LiveKitTokenRequest>,
 ) -> Result<Json<LiveKitTokenResponse>, AppError> {
-    info!("Endpoint generate_token cridat: room={}, participant={}", req.room, req.participant);
+    info!("Endpoint generate_token cridat: room={}, user_id={}", req.room, claims.user_id);
 
     #[derive(Serialize)]
-    struct LiveKitClaims<'a> {
-        iss: &'a str,
-        sub: &'a str,
-        exp: i64,
-        nbf: i64,
-        iat: i64,
-        name: &'a str,
-        identity: &'a str,
+    struct VideoGrant<'a> {
         room: &'a str,
         #[serde(rename = "roomJoin")]
         room_join: bool,
@@ -51,21 +45,35 @@ pub async fn generate_token(
         can_subscribe: bool,
     }
 
+    #[derive(Serialize)]
+    struct LiveKitClaims<'a> {
+        iss: &'a str,
+        sub: &'a str,
+        exp: i64,
+        nbf: i64,
+        iat: i64,
+        name: &'a str,
+        video: VideoGrant<'a>,
+    }
+
     let now = Utc::now();
     let expiration = (now + Duration::hours(23)).timestamp(); // 23 hores de validesa
+    let participant_identity = claims.user_id.to_string();
 
     let claims = LiveKitClaims {
         iss: &state.config.livekit_api_key,
-        sub: &state.config.livekit_api_secret, // sub = API secret
+        // Per LiveKit, sub ha de ser la identitat del participant, no l'API secret.
+        sub: &participant_identity,
         exp: expiration,
         nbf: now.timestamp(),
         iat: now.timestamp(),
-        name: &req.participant,
-        identity: &req.participant,
-        room: &req.room,
-        room_join: true,
-        can_publish: true,
-        can_subscribe: true,
+        name: &claims.username,
+        video: VideoGrant {
+            room: &req.room,
+            room_join: true,
+            can_publish: true,
+            can_subscribe: true,
+        },
     };
 
     let token = encode(
