@@ -1000,13 +1000,15 @@ impl DatabasePool {
     }
 
     pub async fn get_message(&self, message_id: Uuid) -> Result<Option<Message>, sqlx::Error> {
+        let now = chrono::Utc::now().to_rfc3339();
         let query = "SELECT id, channel_id, sender_user_id, sender_username, sender_device_id, \
                      encrypted_payload, iv, timestamp, expires_at, edited_at, deleted_at \
-                     FROM messages WHERE id = $1";
+                     FROM messages WHERE id = $1 AND (expires_at IS NULL OR expires_at > $2)";
         match self {
             DatabasePool::Postgres(pool) => {
                 let row = sqlx::query(query)
                     .bind(message_id)
+                    .bind(&now)
                     .fetch_optional(pool)
                     .await?;
                 row.map(|row| {
@@ -1032,6 +1034,7 @@ impl DatabasePool {
                 let query = query.replace("$1", "?");
                 let row = sqlx::query(&query)
                     .bind(message_id)
+                    .bind(&now)
                     .fetch_optional(pool)
                     .await?;
                 row.map(|row| {
@@ -1065,28 +1068,28 @@ impl DatabasePool {
         since: Option<DateTime<Utc>>,
     ) -> Result<Vec<Message>, sqlx::Error> {
         let mut msgs = Vec::new();
+        let now = chrono::Utc::now().to_rfc3339();
 
         match self {
             DatabasePool::Postgres(pool) => {
                 // Build WHERE clauses with proper $N placeholder numbering
                 let mut conditions = vec![];
-                let mut param_num = 2; // $1 is channel_id
 
                 conditions.push(format!("channel_id = $1"));
+                conditions.push(format!("(expires_at IS NULL OR expires_at > $2)"));
 
                 if let Some(a) = after {
-                    conditions.push(format!("id > ${}", param_num));
-                    param_num += 1;
+                    conditions.push("id > $3".to_string());
                     let _ = a; // bound below
                 }
                 if let Some(b) = before {
-                    conditions.push(format!("id < ${}", param_num));
-                    param_num += 1;
+                    let before_param = if after.is_some() { 4 } else { 3 };
+                    conditions.push(format!("id < ${}", before_param));
                     let _ = b;
                 }
                 if let Some(s) = since {
-                    conditions.push(format!("timestamp > ${}", param_num));
-                    param_num += 1;
+                    let since_param = 3 + usize::from(after.is_some()) + usize::from(before.is_some());
+                    conditions.push(format!("timestamp > ${}", since_param));
                     let _ = s;
                 }
 
@@ -1106,8 +1109,10 @@ impl DatabasePool {
                     order
                 );
 
+                let query = query.replace("$1", "?").replace("$2", "?");
                 let mut q = sqlx::query(&query);
                 q = q.bind(channel_id);
+                q = q.bind(&now);
                 if let Some(a) = after { q = q.bind(a); }
                 if let Some(b) = before { q = q.bind(b); }
                 if let Some(s) = since { q = q.bind(s.to_rfc3339()); }
@@ -1133,7 +1138,7 @@ impl DatabasePool {
                 }
             }
             DatabasePool::Sqlite(pool) => {
-                let mut conditions = vec!["channel_id = ?".to_string()];
+                let mut conditions = vec!["channel_id = ?".to_string(), "(expires_at IS NULL OR expires_at > ?)".to_string()];
 
                 if let Some(a) = after {
                     conditions.push("id > ?".to_string());
@@ -1166,6 +1171,7 @@ impl DatabasePool {
 
                 let mut q = sqlx::query(&query);
                 q = q.bind(channel_id);
+                q = q.bind(&now);
                 if let Some(a) = after { q = q.bind(a); }
                 if let Some(b) = before { q = q.bind(b); }
                 if let Some(s) = since { q = q.bind(s.to_rfc3339()); }
@@ -1289,22 +1295,49 @@ impl DatabasePool {
         Ok(())
     }
 
+    pub async fn delete_expired_messages(&self) -> Result<u64, sqlx::Error> {
+        let now = chrono::Utc::now().to_rfc3339();
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let result = sqlx::query(
+                    "DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at <= $1",
+                )
+                .bind(&now)
+                .execute(pool)
+                .await?;
+                Ok(result.rows_affected())
+            }
+            DatabasePool::Sqlite(pool) => {
+                let result = sqlx::query(
+                    "DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at <= ?",
+                )
+                .bind(&now)
+                .execute(pool)
+                .await?;
+                Ok(result.rows_affected())
+            }
+        }
+    }
+
     pub async fn count_new_messages(
         &self,
         channel_id: Uuid,
         user_id: Uuid,
         since: &str,
     ) -> Result<(usize, Option<Uuid>), sqlx::Error> {
+        let now = chrono::Utc::now().to_rfc3339();
         match self {
             DatabasePool::Postgres(pool) => {
                 let row = sqlx::query(
                     "SELECT COUNT(*), MIN(id) FROM messages \
                      WHERE channel_id = $1 AND sender_user_id != $2 AND deleted_at IS NULL \
+                     AND (expires_at IS NULL OR expires_at > $4) \
                      AND timestamp > $3",
                 )
                 .bind(channel_id)
                 .bind(user_id)
                 .bind(since)
+                .bind(&now)
                 .fetch_one(pool)
                 .await?;
                 let count: i64 = row.get(0);
@@ -1315,10 +1348,12 @@ impl DatabasePool {
                 let row = sqlx::query(
                     "SELECT COUNT(*), MIN(id) FROM messages \
                      WHERE channel_id = ? AND sender_user_id != ? AND deleted_at IS NULL \
+                     AND (expires_at IS NULL OR expires_at > ?) \
                      AND timestamp > ?",
                 )
                 .bind(channel_id)
                 .bind(user_id)
+                .bind(&now)
                 .bind(since)
                 .fetch_one(pool)
                 .await?;
@@ -1379,6 +1414,7 @@ impl DatabasePool {
         channel_id: Uuid,
         user_id: Uuid,
     ) -> Result<usize, sqlx::Error> {
+                let now = chrono::Utc::now().to_rfc3339();
         match self {
             DatabasePool::Postgres(pool) => {
                 let row = sqlx::query(
@@ -1388,10 +1424,12 @@ impl DatabasePool {
                      WHERE m.channel_id = $1 \
                        AND m.sender_user_id != $2 \
                        AND m.deleted_at IS NULL \
+                                             AND (m.expires_at IS NULL OR m.expires_at > $3) \
                        AND m.timestamp > COALESCE(rs.last_read_at, '1970-01-01T00:00:00Z')",
                 )
                 .bind(channel_id)
                 .bind(user_id)
+                                .bind(&now)
                 .fetch_one(pool)
                 .await?;
                 Ok(row.get::<i64, _>(0) as usize)
@@ -1404,11 +1442,13 @@ impl DatabasePool {
                      WHERE m.channel_id = ? \
                        AND m.sender_user_id != ? \
                        AND m.deleted_at IS NULL \
+                                             AND (m.expires_at IS NULL OR m.expires_at > ?) \
                        AND m.timestamp > COALESCE(rs.last_read_at, '1970-01-01T00:00:00Z')",
                 )
                 .bind(user_id)
                 .bind(channel_id)
                 .bind(user_id)
+                                .bind(&now)
                 .fetch_one(pool)
                 .await?;
                 Ok(row.get::<i64, _>(0) as usize)

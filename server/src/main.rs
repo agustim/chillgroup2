@@ -16,19 +16,18 @@ use axum::{
     Router,
     middleware::from_fn,
 };
+use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
+use socketioxide::{SocketIo, extract::{Data, SocketRef}};
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 use tracing::info;
-use socketioxide::{SocketIo, extract::{Data, SocketRef}};
-use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-use crate::db::DatabasePool;
-
 use config::Config;
-use middleware::{AppState, AuthClaims};
+use crate::db::DatabasePool;
+use middleware::AppState;
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -97,8 +96,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))?;
     info!("✅ Base de dades connectada correctament");
 
-    // Inicialitzar Socket.IO
+    // Inicialitzar Socket.IO i la purga periòdica de TTL
     let (socket_layer, io) = SocketIo::new_layer();
+    services::ttl_cleanup::spawn_ttl_cleanup(db_pool.clone(), config.ttl_cleanup_interval_minutes);
     let io_for_ns = io.clone();
     let jwt_secret = config.jwt_secret.clone();
     let socket_db = db_pool.clone();
@@ -110,12 +110,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let io = io_for_ns.clone();
         let voice_presence = voice_presence.clone();
         async move {
-            // Verificar JWT de l'auth del socket
             let token = auth.get("token").and_then(|t| t.as_str()).unwrap_or("");
             let mut validation = Validation::new(Algorithm::HS256);
             validation.leeway = 5;
 
-            let decoded = decode::<AuthClaims>(
+            let decoded = decode::<crate::middleware::AuthClaims>(
                 token,
                 &DecodingKey::from_secret(secret.as_bytes()),
                 &validation,
@@ -132,7 +131,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             info!("Socket autenticat correctament: {}", socket.id);
             socket.join(format!("user:{}", claims.user_id));
 
-            // Entrar a la room personal de l'usuari (per notificacions futures)
             socket.on("join-channel", |socket: SocketRef, Data(data): Data<serde_json::Value>| async move {
                 if let Some(channel_id) = data.get("channelId").and_then(|v| v.as_str()) {
                     socket.join(format!("channel:{}", channel_id));
@@ -339,7 +337,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     let Some(channel_id_str) = data.get("channelId").and_then(|v| v.as_str()) else {
                         return;
                     };
-                    let Ok(channel_id) = uuid::Uuid::parse_str(channel_id_str) else {
+                    let Ok(channel_id) = Uuid::parse_str(channel_id_str) else {
                         return;
                     };
 
@@ -388,16 +386,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .merge(user_routes)
         .layer(from_fn(middleware::extract_claims));
 
-    // Combinar rutes públiques i protegides amb la capa de Socket.IO
-    let app = public_app
-        .merge(protected_app)
-        .layer(socket_layer)
-        .layer(CorsLayer::permissive());
+    // Combinar rutes públiques i protegides
+    let app = public_app.merge(protected_app).layer(CorsLayer::permissive());
+
+    let app = app.layer(socket_layer);
 
     // Iniciar servidor
     let addr = format!("{}:{}", state.config.server_host, state.config.server_port);
     info!("📡 Servidor escoltant a {}", addr);
-    info!("🔌 Socket.IO disponible a ws://{}/socket.io/", addr);
     info!("🔑 LiveKit host: {}", state.config.livekit_host);
     info!("🔒 JWT expiration: {} days", state.config.jwt_expiration_days);
 

@@ -4,10 +4,10 @@ use axum::{
     extract::State,
     http::StatusCode,
     Json,
-    routing::{get, post, put, delete},
+    routing::{get, post},
     Router, extract::Path, extract::Query,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use crate::{
@@ -208,9 +208,23 @@ pub async fn send_message(
 ) -> Result<(StatusCode, Json<Message>), AppError> {
     info!("Endpoint send_message cridat: channel_id={}, user_id={}", channel_id, claims.user_id);
 
+    let channel = state.db.get_channel(channel_id).await
+        .map_err(|e| {
+            tracing::error!("Error fetching channel for message send: {}", e);
+            AppError::InternalError
+        })?
+        .ok_or(AppError::ChannelNotFound)?;
+
     let message_id = Uuid::new_v4();
-    let expires_at = req.expires_at.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok()).map(|d| d.with_timezone(&chrono::Utc));
     let timestamp = chrono::Utc::now();
+    let request_expires_at = req
+        .expires_at
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+        .map(|d| d.with_timezone(&chrono::Utc));
+    let channel_expires_at = channel
+        .message_ttl
+        .map(|ttl| timestamp + Duration::seconds(i64::from(ttl)));
+    let expires_at = channel_expires_at.or(request_expires_at);
 
     // Persist to DB
     state.db.create_message(
@@ -263,22 +277,20 @@ pub async fn send_message(
     }
 
     // Actualitzar comptadors unread per membres del servidor (excepte remitent)
-    if let Ok(Some(channel)) = state.db.get_channel(channel_id).await {
-        if let Ok(member_ids) = state.db.list_server_member_ids(channel.server_id).await {
-            for member_id in member_ids.into_iter().filter(|id| *id != claims.user_id) {
-                match state.db.count_unread_messages_for_user(channel_id, member_id).await {
-                    Ok(unread_count) => {
-                        let unread_event = serde_json::json!({
-                            "channelId": channel_id,
-                            "unreadCount": unread_count,
-                        });
-                        let user_room = format!("user:{}", member_id);
-                        if let Err(e) = state.io.to(user_room).emit("unread-updated", &unread_event).await {
-                            tracing::warn!("Error enviant unread-updated: {:?}", e);
-                        }
+    if let Ok(member_ids) = state.db.list_server_member_ids(channel.server_id).await {
+        for member_id in member_ids.into_iter().filter(|id| *id != claims.user_id) {
+            match state.db.count_unread_messages_for_user(channel_id, member_id).await {
+                Ok(unread_count) => {
+                    let unread_event = serde_json::json!({
+                        "channelId": channel_id,
+                        "unreadCount": unread_count,
+                    });
+                    let user_room = format!("user:{}", member_id);
+                    if let Err(e) = state.io.to(user_room).emit("unread-updated", &unread_event).await {
+                        tracing::warn!("Error enviant unread-updated: {:?}", e);
                     }
-                    Err(e) => tracing::warn!("Error calculant unread per usuari {}: {}", member_id, e),
                 }
+                Err(e) => tracing::warn!("Error calculant unread per usuari {}: {}", member_id, e),
             }
         }
     }
@@ -470,7 +482,7 @@ pub struct ListDirectMessagesQuery {
 
 /// Llistar converses directes de l'usuari.
 pub async fn list_conversations(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
 ) -> Result<Json<Vec<DirectMessageConversation>>, AppError> {
     info!("Endpoint list_conversations cridat: user_id={}", claims.user_id);
