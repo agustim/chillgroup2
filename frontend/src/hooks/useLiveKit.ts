@@ -125,9 +125,8 @@ export function useLiveKit(): UseLiveKitResult {
       }
       localAudioTrackRef.current = null
 
-      // Obtenir URL del LiveKit
-      const env = (import.meta as any).env
-      const livekitUrl = env?.VITE_LIVEKIT_URL
+      // Obtenir URL del LiveKit (carregada des del .env de l'arrel)
+      const livekitUrl = import.meta.env.VITE_LIVEKIT_URL
       if (!livekitUrl) {
         throw new Error('VITE_LIVEKIT_URL no està configurada')
       }
