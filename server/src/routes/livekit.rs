@@ -34,35 +34,38 @@ pub async fn generate_token(
     info!("Endpoint generate_token cridat: room={}, participant={}", req.room, req.participant);
 
     #[derive(Serialize)]
-    struct LiveKitClaims {
-        iss: String,
-        sub: String,
+    struct LiveKitClaims<'a> {
+        iss: &'a str,
+        sub: &'a str,
         exp: i64,
         nbf: i64,
         iat: i64,
-        name: String,
+        name: &'a str,
+        identity: &'a str,
+        room: &'a str,
+        #[serde(rename = "roomJoin")]
         room_join: bool,
-        room: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        can_subscribe: Option<bool>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        can_publish: Option<bool>,
+        #[serde(rename = "canPublish")]
+        can_publish: bool,
+        #[serde(rename = "canSubscribe")]
+        can_subscribe: bool,
     }
 
     let now = Utc::now();
-    let expiration = (now + Duration::minutes(5)).timestamp();
+    let expiration = (now + Duration::hours(23)).timestamp(); // 23 hores de validesa
 
     let claims = LiveKitClaims {
-        iss: state.config.livekit_api_key.clone(),
-        sub: state.config.livekit_api_key.clone(),
+        iss: &state.config.livekit_api_key,
+        sub: &state.config.livekit_api_secret, // sub = API secret
         exp: expiration,
         nbf: now.timestamp(),
         iat: now.timestamp(),
-        name: req.participant.clone(),
+        name: &req.participant,
+        identity: &req.participant,
+        room: &req.room,
         room_join: true,
-        room: req.room.clone(),
-        can_subscribe: Some(true),
-        can_publish: Some(true),
+        can_publish: true,
+        can_subscribe: true,
     };
 
     let token = encode(
