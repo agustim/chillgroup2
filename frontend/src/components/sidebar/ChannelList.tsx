@@ -6,6 +6,7 @@ interface ChannelListProps {
   channels: Channel[]
   selectedChannel: Channel | null
   voiceConnection: VoiceConnection | null
+  voicePresenceByChannel?: Record<string, VoiceParticipant[]>
   onSelectChannel: (channel: Channel) => void
   username: string
   onLogout?: () => void
@@ -19,6 +20,7 @@ export function ChannelList({
   channels,
   selectedChannel,
   voiceConnection,
+  voicePresenceByChannel = {},
   onSelectChannel,
   username,
   onLogout,
@@ -35,8 +37,7 @@ export function ChannelList({
     if (voiceConnection && voiceConnection.channelId === channel.channelId) {
       return voiceConnection.participants
     }
-    // Mock participants for voice channels you're not in (shows # connected)
-    return []
+    return voicePresenceByChannel[channel.channelId] ?? []
   }
 
   const isInVoiceChannel = (channelId: string): boolean => {

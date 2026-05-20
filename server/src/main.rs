@@ -21,9 +21,58 @@ use tracing_subscriber::{EnvFilter, FmtSubscriber};
 use tracing::info;
 use socketioxide::{SocketIo, extract::{Data, SocketRef}};
 use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
+use std::{collections::HashMap, sync::Arc};
+use tokio::sync::RwLock;
+use uuid::Uuid;
+
+use crate::db::DatabasePool;
 
 use config::Config;
 use middleware::{AppState, AuthClaims};
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VoicePresenceUser {
+    user_id: Uuid,
+    username: String,
+    joined_at: String,
+    is_deafened: bool,
+    is_suppressed: bool,
+    is_speaking: bool,
+}
+
+#[derive(Debug, Default)]
+struct VoicePresenceState {
+    channel_users: HashMap<Uuid, Vec<VoicePresenceUser>>,
+    user_channel: HashMap<Uuid, Uuid>,
+}
+
+async fn emit_voice_presence_update(
+    db: &DatabasePool,
+    io: &SocketIo,
+    channel_id: Uuid,
+    users: Vec<VoicePresenceUser>,
+) {
+    let Ok(Some(channel)) = db.get_channel(channel_id).await else {
+        return;
+    };
+
+    let Ok(member_ids) = db.list_server_member_ids(channel.server_id).await else {
+        return;
+    };
+
+    let payload = serde_json::json!({
+        "channelId": channel_id,
+        "users": users,
+    });
+
+    for member_id in member_ids {
+        let room = format!("user:{}", member_id);
+        if let Err(e) = io.to(room).emit("voice-presence-updated", &payload).await {
+            tracing::warn!("Error enviant voice-presence-updated: {:?}", e);
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -48,12 +97,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Inicialitzar Socket.IO
     let (socket_layer, io) = SocketIo::new_layer();
+    let io_for_ns = io.clone();
     let jwt_secret = config.jwt_secret.clone();
     let socket_db = db_pool.clone();
+    let voice_presence = Arc::new(RwLock::new(VoicePresenceState::default()));
 
     io.ns("/", move |socket: SocketRef, Data(auth): Data<serde_json::Value>| {
         let secret = jwt_secret.clone();
         let db = socket_db.clone();
+        let io = io_for_ns.clone();
+        let voice_presence = voice_presence.clone();
         async move {
             // Verificar JWT de l'auth del socket
             let token = auth.get("token").and_then(|t| t.as_str()).unwrap_or("");
@@ -89,6 +142,186 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 if let Some(channel_id) = data.get("channelId").and_then(|v| v.as_str()) {
                     socket.leave(format!("channel:{}", channel_id));
                     info!("Socket {} ha sortit de channel:{}", socket.id, channel_id);
+                }
+            });
+
+            let db_for_presence = db.clone();
+            let io_for_presence = io.clone();
+            let presence_for_join = voice_presence.clone();
+            let user_id_for_voice = claims.user_id;
+            let username_for_voice = claims.username.clone();
+            socket.on("join-voice-channel", move |Data(data): Data<serde_json::Value>| {
+                let db = db_for_presence.clone();
+                let io = io_for_presence.clone();
+                let presence = presence_for_join.clone();
+                let username = username_for_voice.clone();
+                async move {
+                    let Some(channel_id_str) = data.get("channelId").and_then(|v| v.as_str()) else {
+                        return;
+                    };
+                    let Ok(channel_id) = Uuid::parse_str(channel_id_str) else {
+                        return;
+                    };
+
+                    let mut affected_channels = Vec::new();
+                    {
+                        let mut state = presence.write().await;
+
+                        if let Some(prev_channel) = state.user_channel.get(&user_id_for_voice).copied() {
+                            if prev_channel != channel_id {
+                                if let Some(users) = state.channel_users.get_mut(&prev_channel) {
+                                    users.retain(|u| u.user_id != user_id_for_voice);
+                                }
+                                affected_channels.push(prev_channel);
+                            }
+                        }
+
+                        state.user_channel.insert(user_id_for_voice, channel_id);
+
+                        let users = state.channel_users.entry(channel_id).or_default();
+                        if !users.iter().any(|u| u.user_id == user_id_for_voice) {
+                            users.push(VoicePresenceUser {
+                                user_id: user_id_for_voice,
+                                username,
+                                joined_at: chrono::Utc::now().to_rfc3339(),
+                                is_deafened: false,
+                                is_suppressed: false,
+                                is_speaking: false,
+                            });
+                        }
+                        affected_channels.push(channel_id);
+                    }
+
+                    for affected_channel in affected_channels {
+                        let users = {
+                            let state = presence.read().await;
+                            state
+                                .channel_users
+                                .get(&affected_channel)
+                                .cloned()
+                                .unwrap_or_default()
+                        };
+                        emit_voice_presence_update(&db, &io, affected_channel, users).await;
+                    }
+                }
+            });
+
+            let db_for_leave = db.clone();
+            let io_for_leave = io.clone();
+            let presence_for_leave = voice_presence.clone();
+            socket.on("leave-voice-channel", move |Data(data): Data<serde_json::Value>| {
+                let db = db_for_leave.clone();
+                let io = io_for_leave.clone();
+                let presence = presence_for_leave.clone();
+                async move {
+                    let requested_channel = data
+                        .get("channelId")
+                        .and_then(|v| v.as_str())
+                        .and_then(|id| Uuid::parse_str(id).ok());
+
+                    let mut affected_channel = None;
+                    {
+                        let mut state = presence.write().await;
+                        let current_channel = state.user_channel.get(&user_id_for_voice).copied();
+                        let target_channel = requested_channel.or(current_channel);
+
+                        if let Some(channel_id) = target_channel {
+                            if let Some(users) = state.channel_users.get_mut(&channel_id) {
+                                users.retain(|u| u.user_id != user_id_for_voice);
+                            }
+                            state.user_channel.remove(&user_id_for_voice);
+                            affected_channel = Some(channel_id);
+                        }
+                    }
+
+                    if let Some(channel_id) = affected_channel {
+                        let users = {
+                            let state = presence.read().await;
+                            state
+                                .channel_users
+                                .get(&channel_id)
+                                .cloned()
+                                .unwrap_or_default()
+                        };
+                        emit_voice_presence_update(&db, &io, channel_id, users).await;
+                    }
+                }
+            });
+
+            let db_for_snapshot = db.clone();
+            let presence_for_snapshot = voice_presence.clone();
+            socket.on("get-voice-presence", move |socket: SocketRef, Data(data): Data<serde_json::Value>| {
+                let db = db_for_snapshot.clone();
+                let presence = presence_for_snapshot.clone();
+                async move {
+                    let Some(server_id_str) = data.get("serverId").and_then(|v| v.as_str()) else {
+                        return;
+                    };
+                    let Ok(server_id) = Uuid::parse_str(server_id_str) else {
+                        return;
+                    };
+
+                    let Ok(role) = db.is_server_member(server_id, claims.user_id).await else {
+                        return;
+                    };
+                    if role.is_none() {
+                        return;
+                    }
+
+                    let Ok(channels) = db.list_channels_for_server(server_id, claims.user_id).await else {
+                        return;
+                    };
+
+                    let state = presence.read().await;
+                    let channel_entries: Vec<serde_json::Value> = channels
+                        .into_iter()
+                        .filter(|c| matches!(c.channel_type, crate::models::channel::ChannelType::Voice))
+                        .map(|c| {
+                            let users = state.channel_users.get(&c.id).cloned().unwrap_or_default();
+                            serde_json::json!({
+                                "channelId": c.id,
+                                "users": users,
+                            })
+                        })
+                        .collect();
+
+                    let payload = serde_json::json!({
+                        "serverId": server_id,
+                        "channels": channel_entries,
+                    });
+
+                    if let Err(e) = socket.emit("voice-presence-snapshot", &payload) {
+                        tracing::warn!("Error enviant voice-presence-snapshot: {:?}", e);
+                    }
+                }
+            });
+
+            let db_for_disconnect = db.clone();
+            let io_for_disconnect = io.clone();
+            let presence_for_disconnect = voice_presence.clone();
+            socket.on_disconnect(move || {
+                let db = db_for_disconnect.clone();
+                let io = io_for_disconnect.clone();
+                let presence = presence_for_disconnect.clone();
+                async move {
+                    let mut affected_channel = None;
+                    {
+                        let mut state = presence.write().await;
+                        if let Some(channel_id) = state.user_channel.remove(&user_id_for_voice) {
+                            if let Some(users) = state.channel_users.get_mut(&channel_id) {
+                                users.retain(|u| u.user_id != user_id_for_voice);
+                            }
+                            affected_channel = Some(channel_id);
+                        }
+                    }
+
+                    if let Some(channel_id) = affected_channel {
+                        let users = {
+                            let state = presence.read().await;
+                            state.channel_users.get(&channel_id).cloned().unwrap_or_default()
+                        };
+                        emit_voice_presence_update(&db, &io, channel_id, users).await;
+                    }
                 }
             });
 

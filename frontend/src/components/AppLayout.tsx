@@ -11,6 +11,7 @@ import { InviteMemberModal } from './modals/InviteMemberModal'
 import { ConfigureChannelModal } from './modals/ConfigureChannelModal'
 import { useLiveKit } from '../hooks/useLiveKit'
 import { Channel, Server, ServerFullInfo, VoiceParticipant } from '../types'
+import { getSocket } from '../lib/socket'
 import {
   serverInviteMember,
   serversCreate,
@@ -41,6 +42,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null)
   const [voiceChannelId, setVoiceChannelId] = useState<string | null>(null)
   const [voiceChannelName, setVoiceChannelName] = useState<string>('')
+  const [voicePresenceByChannel, setVoicePresenceByChannel] = useState<Record<string, VoiceParticipant[]>>({})
   const [panel, setPanel] = useState<PanelType>('none')
   const [feedback, setFeedback] = useState<string | null>(null)
   
@@ -131,6 +133,49 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   }, [selectedServer])
 
   useEffect(() => {
+    const socket = getSocket()
+
+    const handleVoicePresenceUpdated = (data: { channelId: string; users: VoiceParticipant[] }) => {
+      setVoicePresenceByChannel((prev) => ({
+        ...prev,
+        [data.channelId]: data.users ?? [],
+      }))
+    }
+
+    const handleVoicePresenceSnapshot = (data: {
+      serverId: string
+      channels: Array<{ channelId: string; users: VoiceParticipant[] }>
+    }) => {
+      if (!selectedServer || data.serverId !== selectedServer) {
+        return
+      }
+      const next: Record<string, VoiceParticipant[]> = {}
+      for (const channel of data.channels ?? []) {
+        next[channel.channelId] = channel.users ?? []
+      }
+      setVoicePresenceByChannel(next)
+    }
+
+    socket.on('voice-presence-updated', handleVoicePresenceUpdated)
+    socket.on('voice-presence-snapshot', handleVoicePresenceSnapshot)
+
+    return () => {
+      socket.off('voice-presence-updated', handleVoicePresenceUpdated)
+      socket.off('voice-presence-snapshot', handleVoicePresenceSnapshot)
+    }
+  }, [selectedServer])
+
+  useEffect(() => {
+    if (!selectedServer) {
+      setVoicePresenceByChannel({})
+      return
+    }
+    const socket = getSocket()
+    setVoicePresenceByChannel({})
+    socket.emit('get-voice-presence', { serverId: selectedServer })
+  }, [selectedServer])
+
+  useEffect(() => {
     if (!selectedChannel || selectedChannel.type !== 'text') {
       return
     }
@@ -167,6 +212,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     // If clicking the same channel we're in → leave
     if (voiceChannelId === channel.channelId) {
       disconnectLiveKit()
+      getSocket().emit('leave-voice-channel', { channelId: channel.channelId })
       setVoiceChannelId(null)
       setVoiceChannelName('')
       setFeedback(`Has sortit del canal "${channel.name}"`)
@@ -176,6 +222,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     // If already in a different voice channel → leave first
     if (voiceChannelId) {
       disconnectLiveKit()
+      getSocket().emit('leave-voice-channel', { channelId: voiceChannelId })
       setFeedback(`Has sortit del canal "${voiceChannelName}"`)
     }
 
@@ -185,6 +232,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
 
     try {
       await connectLiveKit(channel.channelId, channel.name)
+      getSocket().emit('join-voice-channel', { channelId: channel.channelId })
       setFeedback(`T'has unit al canal de veu "${channel.name}"`)
     } catch (e: any) {
       setFeedback(`Error: ${e.message}`)
@@ -195,6 +243,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
 
   const handleLeaveVoiceChannel = () => {
     if (voiceChannelId) {
+      getSocket().emit('leave-voice-channel', { channelId: voiceChannelId })
       disconnectLiveKit()
       setVoiceChannelId(null)
       setVoiceChannelName('')
@@ -368,6 +417,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           channels={channels}
           selectedChannel={selectedChannel}
           voiceConnection={voiceConnection}
+          voicePresenceByChannel={voicePresenceByChannel}
           onSelectChannel={(channel) => {
             if (channel.type === 'voice') {
               handleVoiceChannelClick(channel)
