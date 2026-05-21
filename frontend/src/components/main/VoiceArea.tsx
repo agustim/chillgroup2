@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react'
+import React, { useRef, useEffect, useState } from 'react'
 import { VoiceConnection } from '../../types'
 
 interface VoiceAreaProps {
@@ -66,9 +66,26 @@ export function VoiceArea({
 }: VoiceAreaProps) {
   if (!connection) return null
 
+  const MIN_ZOOM = 0.7
+  const MAX_ZOOM = 2.2
+  const DEFAULT_ZOOM = 1.5
+
+  const [participantZoom, setParticipantZoom] = useState(DEFAULT_ZOOM)
+
   const conn = connection
   const localParticipant = conn.participants[0]
   const remoteParticipants = conn.participants.slice(1)
+
+  const zoomIn = () => setParticipantZoom((prev) => Math.min(MAX_ZOOM, +(prev + 0.1).toFixed(2)))
+  const zoomOut = () => setParticipantZoom((prev) => Math.max(MIN_ZOOM, +(prev - 0.1).toFixed(2)))
+  const resetZoom = () => setParticipantZoom(DEFAULT_ZOOM)
+
+  const isAtMinZoom = participantZoom <= MIN_ZOOM
+  const isAtMaxZoom = participantZoom >= MAX_ZOOM
+  const participantsGridStyle = {
+    gridTemplateColumns: `repeat(auto-fill, minmax(${(130 * participantZoom).toFixed(1)}px, 1fr))`,
+    ['--participant-zoom' as '--participant-zoom']: participantZoom,
+  } as React.CSSProperties & Record<'--participant-zoom', number>
 
   return (
     <div className="voice-area connected">
@@ -101,6 +118,29 @@ export function VoiceArea({
           >
             🎥
           </button>
+          <button
+            className="voice-control-btn"
+            onClick={zoomOut}
+            title="Fer més petits els participants"
+            disabled={isAtMinZoom}
+          >
+            -
+          </button>
+          <button
+            className="voice-control-btn"
+            onClick={resetZoom}
+            title="Restablir zoom"
+          >
+            {Math.round(participantZoom * 100)}%
+          </button>
+          <button
+            className="voice-control-btn"
+            onClick={zoomIn}
+            title="Fer més grans els participants"
+            disabled={isAtMaxZoom}
+          >
+            +
+          </button>
         </div>
 
         <button className="leave-voice-btn" onClick={onLeave} title="Surt del canal de veu">
@@ -110,7 +150,7 @@ export function VoiceArea({
 
       {/* Grid de participants — creix dinàmicament */}
       <div className="voice-participants">
-        <div className="participants-grid">
+        <div className="participants-grid" style={participantsGridStyle}>
           {localParticipant && (
             <ParticipantTile
               participant={localParticipant}
