@@ -21,6 +21,7 @@ export function MainContent({ channel, voiceConnection, onToggleMute, onToggleDe
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
   const [socketMessages, setSocketMessages] = useState<Message[]>([])
+  const [expiringMessageIds, setExpiringMessageIds] = useState<Set<string>>(new Set())
 
   const handleSocketMessage = useCallback((msg: Message) => {
     setSocketMessages((prev) => {
@@ -30,10 +31,24 @@ export function MainContent({ channel, voiceConnection, onToggleMute, onToggleDe
     })
   }, [])
 
+  const handleMessagesExpired = useCallback((_channelId: string, messageIds: string[]) => {
+    setExpiringMessageIds((prev) => new Set([...prev, ...messageIds]))
+    // Passats 600ms (durada de l'animació), retirem els missatges de l'estat
+    setTimeout(() => {
+      setSocketMessages((prev) => prev.filter((m) => !messageIds.includes(m.messageId)))
+      setExpiringMessageIds((prev) => {
+        const next = new Set(prev)
+        messageIds.forEach((id) => next.delete(id))
+        return next
+      })
+    }, 600)
+  }, [])
+
   useSocketIO({
     channelId: channel?.type === 'text' ? (channel?.channelId ?? null) : null,
     onMessage: handleSocketMessage,
     onUnreadUpdated,
+    onMessagesExpired: handleMessagesExpired,
   })
 
   // Netejar missatges de socket quan canviem de canal
@@ -101,7 +116,7 @@ export function MainContent({ channel, voiceConnection, onToggleMute, onToggleDe
         {/* Text chat below */}
         {channel && channel.type === 'text' ? (
           <div className="text-panel">
-            <MessageList channelId={channel.channelId} refreshKey={refreshKey} socketMessages={socketMessages} />
+            <MessageList channelId={channel.channelId} refreshKey={refreshKey} socketMessages={socketMessages} expiringMessageIds={expiringMessageIds} />
             {sendError && <div className="message-send-error">{sendError}</div>}
             <MessageInput
               value={message}
@@ -149,7 +164,7 @@ export function MainContent({ channel, voiceConnection, onToggleMute, onToggleDe
   // Canals de text
   return (
     <div className="main-content">
-      <MessageList channelId={channel.channelId} refreshKey={refreshKey} socketMessages={socketMessages} />
+      <MessageList channelId={channel.channelId} refreshKey={refreshKey} socketMessages={socketMessages} expiringMessageIds={expiringMessageIds} />
       {sendError && <div className="message-send-error">{sendError}</div>}
       <MessageInput
         value={message}

@@ -6,18 +6,24 @@ interface MessageListProps {
   channelId: string
   refreshKey?: number
   socketMessages?: Message[]
+  expiringMessageIds?: Set<string>
 }
 
-export function MessageList({ channelId, refreshKey, socketMessages = [] }: MessageListProps) {
+export function MessageList({ channelId, refreshKey, socketMessages = [], expiringMessageIds }: MessageListProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const expiringMessageIdsRef = useRef<Set<string> | undefined>(expiringMessageIds)
+
+  // Mantenir la ref actualitzada amb el valor actual de expiringMessageIds
+  useEffect(() => {
+    expiringMessageIdsRef.current = expiringMessageIds
+  }, [expiringMessageIds])
 
   const loadMessages = async () => {
     // Debug: veure què arriba
     console.log('[MessageList] channelId prop:', channelId)
-    
     // Validar que el channelId existeix
     if (!channelId) {
       setError('Canal no seleccionat')
@@ -30,7 +36,11 @@ export function MessageList({ channelId, refreshKey, socketMessages = [] }: Mess
       setError(null)
       const result = await messagesList(channelId, 50)
       if (result.success && result.data) {
-        setMessages(result.data.data)
+        // Filtrar missatges que estan a expiringMessageIds
+        const filtered = expiringMessageIdsRef.current && expiringMessageIdsRef.current.size > 0
+          ? result.data.data.filter((m) => !expiringMessageIdsRef.current!.has(m.messageId))
+          : result.data.data
+        setMessages(filtered)
       } else {
         setError('No es poden carregar els missatges')
       }
@@ -44,6 +54,21 @@ export function MessageList({ channelId, refreshKey, socketMessages = [] }: Mess
   useEffect(() => {
     loadMessages()
   }, [channelId, refreshKey])
+
+  // Quan arriben missatges expirats, esperem la durada de l'animació i els retirem de l'estat local
+  useEffect(() => {
+    if (!expiringMessageIds || expiringMessageIds.size === 0) return
+    const timer = setTimeout(() => {
+      setMessages((prev) => prev.filter((m) => !expiringMessageIds.has(m.messageId)))
+    }, 600)
+    return () => clearTimeout(timer)
+  }, [expiringMessageIds])
+
+  // Quan expiringMessageIds es reactualitza, filtrar immediatament els missatges carregats
+  useEffect(() => {
+    if (!expiringMessageIds || expiringMessageIds.size === 0) return
+    setMessages((prev) => prev.filter((m) => !expiringMessageIds.has(m.messageId)))
+  }, [expiringMessageIds])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -75,12 +100,15 @@ export function MessageList({ channelId, refreshKey, socketMessages = [] }: Mess
     )
   }
 
-  // Combinar missatges carregats + missatges rebuts via socket (sense duplicats)
+  // Combinar missatges carregats + missatges rebuts via socket (sense duplicats),
+  // i filtrar els que estan a expiringMessageIds per evitar el "flash" després de l'animació
   const loadedIds = new Set(messages.map((m) => m.messageId))
   const combined = [
     ...messages,
     ...socketMessages.filter((m) => !loadedIds.has(m.messageId)),
-  ].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+  ]
+    .filter((m) => !expiringMessageIds?.has(m.messageId))
+    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
 
   return (
     <div className="message-list">
@@ -91,7 +119,7 @@ export function MessageList({ channelId, refreshKey, socketMessages = [] }: Mess
         return (
           <div
             key={msg.messageId}
-            className={`message-bubble ${msg.deletedAt ? 'deleted' : ''} ${msg.editedAt ? 'edited' : ''} ${showHeader ? 'first-in-row' : ''}`}
+            className={`message-bubble ${msg.deletedAt ? 'deleted' : ''} ${msg.editedAt ? 'edited' : ''} ${showHeader ? 'first-in-row' : ''} ${expiringMessageIds?.has(msg.messageId) ? 'expiring' : ''}`}
           >
             {showHeader && (
               <div className="message-sender">

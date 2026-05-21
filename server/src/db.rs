@@ -1295,28 +1295,47 @@ impl DatabasePool {
         Ok(())
     }
 
-    pub async fn delete_expired_messages(&self) -> Result<u64, sqlx::Error> {
+    /// Esborra físicament els missatges expirats i retorna els (message_id, channel_id) eliminats
+    /// perquè el servei pugui notificar els clients connectats.
+    pub async fn delete_expired_messages(&self) -> Result<Vec<(Uuid, Uuid)>, sqlx::Error> {
         let now = chrono::Utc::now().to_rfc3339();
+        let mut deleted = Vec::new();
         match self {
             DatabasePool::Postgres(pool) => {
-                let result = sqlx::query(
-                    "DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at <= $1",
+                let rows = sqlx::query(
+                    "DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at <= $1 \
+                     RETURNING id, channel_id",
                 )
                 .bind(&now)
-                .execute(pool)
+                .fetch_all(pool)
                 .await?;
-                Ok(result.rows_affected())
+                for row in rows {
+                    deleted.push((row.get::<Uuid, _>(0), row.get::<Uuid, _>(1)));
+                }
             }
             DatabasePool::Sqlite(pool) => {
-                let result = sqlx::query(
-                    "DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at <= ?",
+                // SQLite no suporta RETURNING en versions antigues; fem SELECT + DELETE
+                let rows = sqlx::query(
+                    "SELECT id, channel_id FROM messages \
+                     WHERE expires_at IS NOT NULL AND expires_at <= ?",
                 )
                 .bind(&now)
-                .execute(pool)
+                .fetch_all(pool)
                 .await?;
-                Ok(result.rows_affected())
+                for row in &rows {
+                    deleted.push((row.get::<Uuid, _>(0), row.get::<Uuid, _>(1)));
+                }
+                if !deleted.is_empty() {
+                    sqlx::query(
+                        "DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at <= ?",
+                    )
+                    .bind(&now)
+                    .execute(pool)
+                    .await?;
+                }
             }
         }
+        Ok(deleted)
     }
 
     pub async fn count_new_messages(

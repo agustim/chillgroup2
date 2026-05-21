@@ -19,12 +19,14 @@ interface UseSocketIOOptions {
   channelId: string | null
   onMessage: (message: Message) => void
   onUnreadUpdated?: (channelId: string, unreadCount: number) => void
+  onMessagesExpired?: (channelId: string, messageIds: string[]) => void
 }
 
-export function useSocketIO({ channelId, onMessage, onUnreadUpdated }: UseSocketIOOptions): void {
+export function useSocketIO({ channelId, onMessage, onUnreadUpdated, onMessagesExpired }: UseSocketIOOptions): void {
   const prevChannelIdRef = useRef<string | null>(null)
   const onMessageRef = useRef(onMessage)
   const onUnreadUpdatedRef = useRef(onUnreadUpdated)
+  const onMessagesExpiredRef = useRef(onMessagesExpired)
 
   // Mantenir la referència actualitzada sense re-subscriure
   useEffect(() => {
@@ -34,6 +36,10 @@ export function useSocketIO({ channelId, onMessage, onUnreadUpdated }: UseSocket
   useEffect(() => {
     onUnreadUpdatedRef.current = onUnreadUpdated
   }, [onUnreadUpdated])
+
+  useEffect(() => {
+    onMessagesExpiredRef.current = onMessagesExpired
+  }, [onMessagesExpired])
 
   useEffect(() => {
     const socket = getSocket()
@@ -64,12 +70,18 @@ export function useSocketIO({ channelId, onMessage, onUnreadUpdated }: UseSocket
       onUnreadUpdatedRef.current?.(data.channelId, data.unreadCount)
     }
 
+    const handleMessagesExpired = (data: { channelId: string; messageIds: string[] }) => {
+      onMessagesExpiredRef.current?.(data.channelId, data.messageIds)
+    }
+
     socket.on('message', handleMessage)
     socket.on('unread-updated', handleUnreadUpdated)
+    socket.on('messages-expired', handleMessagesExpired)
 
     return () => {
       socket.off('message', handleMessage)
       socket.off('unread-updated', handleUnreadUpdated)
+      socket.off('messages-expired', handleMessagesExpired)
     }
   }, [channelId])
 

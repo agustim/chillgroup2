@@ -547,6 +547,17 @@ body {
   opacity: 0.5;
 }
 
+.message-bubble.expiring {
+  animation: message-expire 0.55s ease-in forwards;
+  pointer-events: none;
+}
+
+@keyframes message-expire {
+  0%   { opacity: 1;   transform: scaleY(1);    max-height: 200px; margin-top: inherit; }
+  40%  { opacity: 0.3; transform: scaleY(0.85); max-height: 200px; }
+  100% { opacity: 0;   transform: scaleY(0);    max-height: 0;     margin-top: 0; padding-top: 0; padding-bottom: 0; }
+}
+
 .message-sender {
   display: flex;
   align-items: center;

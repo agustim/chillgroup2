@@ -98,7 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Inicialitzar Socket.IO i la purga periòdica de TTL
     let (socket_layer, io) = SocketIo::new_layer();
-    services::ttl_cleanup::spawn_ttl_cleanup(db_pool.clone(), config.ttl_cleanup_interval_minutes);
+    services::ttl_cleanup::spawn_ttl_cleanup(db_pool.clone(), io.clone(), config.ttl_cleanup_interval_minutes);
     let io_for_ns = io.clone();
     let jwt_secret = config.jwt_secret.clone();
     let socket_db = db_pool.clone();
