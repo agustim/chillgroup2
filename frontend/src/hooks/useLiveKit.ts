@@ -13,7 +13,7 @@ import { useRef, useState, useCallback, useEffect } from 'react'
 import {
   Room,
   RoomEvent,
-  createLocalAudioTrack,
+  createLocalScreenTracks,
   createLocalVideoTrack,
 } from 'livekit-client'
 import type { VoiceParticipant } from '../types'
@@ -31,6 +31,8 @@ interface UseLiveKitResult {
   isDeafened: boolean
   /** Càmera activa */
   isCameraOn: boolean
+  /** Compartint pantalla */
+  isScreenSharing: boolean
   /** Track de vídeo local (per previsualitzar) */
   localVideoTrack: any | null
   /** Tracks de vídeo remots (identity -> track) */
@@ -47,6 +49,8 @@ interface UseLiveKitResult {
   toggleDeafen: () => void
   /** Toggle càmera */
   toggleCamera: () => Promise<void>
+  /** Toggle compartir pantalla */
+  toggleScreenShare: () => Promise<void>
   /** Error de connexió */
   error: string | null
 }
@@ -64,14 +68,16 @@ export function useLiveKit(): UseLiveKitResult {
   const roomRef = useRef<Room | null>(null)
   const localAudioTrackRef = useRef<any>(null)
   const localVideoTrackRef = useRef<any>(null)
+  const localScreenTrackRef = useRef<any>(null)
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map())
   const remoteVideoTracksRef = useRef<Map<string, any>>(new Map())
   const isDeafenedRef = useRef(false)
   const [isConnected, setIsConnected] = useState(false)
   const [isPublishing, setIsPublishing] = useState(false)
-  const [isMuted, setIsMuted] = useState(false)
+  const [isMuted, setIsMuted] = useState(true)
   const [isDeafened, setIsDeafened] = useState(false)
   const [isCameraOn, setIsCameraOn] = useState(false)
+  const [isScreenSharing, setIsScreenSharing] = useState(false)
   const [localVideoTrack, setLocalVideoTrack] = useState<any>(null)
   const [remoteVideoTracks, setRemoteVideoTracks] = useState<Record<string, any>>({})
   const [participants, setParticipants] = useState<VoiceParticipant[]>([])
@@ -236,6 +242,49 @@ export function useLiveKit(): UseLiveKitResult {
     }
   }, [updateParticipants])
 
+  const toggleScreenShare = useCallback(async () => {
+    try {
+      if (!roomRef.current?.localParticipant) return
+
+      if (localScreenTrackRef.current) {
+        await roomRef.current.localParticipant.unpublishTrack(localScreenTrackRef.current)
+        localScreenTrackRef.current.stop()
+        localScreenTrackRef.current = null
+        setIsScreenSharing(false)
+      } else {
+        const tracks = await createLocalScreenTracks({ audio: false })
+        const videoTrack = tracks.find((t: any) => t.kind === 'video')
+        if (!videoTrack) {
+          throw new Error('No s\'ha pogut obtenir el track de pantalla')
+        }
+        localScreenTrackRef.current = videoTrack
+        await roomRef.current.localParticipant.publishTrack(videoTrack)
+        setIsScreenSharing(true)
+
+        // Si l'usuari atura el share des del navegador, sincronitzem estat.
+        videoTrack.mediaStreamTrack?.addEventListener('ended', async () => {
+          try {
+            if (roomRef.current?.localParticipant && localScreenTrackRef.current) {
+              await roomRef.current.localParticipant.unpublishTrack(localScreenTrackRef.current)
+            }
+          } catch (_) {
+            // ignore
+          }
+          try {
+            localScreenTrackRef.current?.stop()
+          } catch (_) {
+            // ignore
+          }
+          localScreenTrackRef.current = null
+          setIsScreenSharing(false)
+        }, { once: true })
+      }
+    } catch (e: any) {
+      console.error('Error toggle screen share:', e)
+      setError(e.message || 'Error compartint pantalla')
+    }
+  }, [])
+
   // Connectar a un canal de veu
   const connectToChannel = useCallback(async (channelId: string, channelName: string) => {
     try {
@@ -256,6 +305,9 @@ export function useLiveKit(): UseLiveKitResult {
 
       // Obtenir token del backend
       const token = await fetchToken(channelId)
+
+      // Aplicar preferència actual de so abans de subscriure nous tracks
+      isDeafenedRef.current = isDeafened
 
       // Crear i connectar a la sala
       const room = new Room({
@@ -343,7 +395,10 @@ export function useLiveKit(): UseLiveKitResult {
           localVideoTrackRef.current.stop()
           localVideoTrackRef.current = null
           setLocalVideoTrack(null)
-          setIsCameraOn(false)
+        }
+        if (localScreenTrackRef.current) {
+          localScreenTrackRef.current.stop()
+          localScreenTrackRef.current = null
         }
         setIsConnected(false)
         setIsPublishing(false)
@@ -367,16 +422,29 @@ export function useLiveKit(): UseLiveKitResult {
       await room.connect(livekitUrl, token)
       console.log('✅ Connectat a LiveKit:', room.name)
 
-      // Sincronitzar llista inicial (inclou participant local)
-      updateParticipants()
+      // Aplicar estat per defecte/persistit del micro (OFF per defecte)
+      await room.localParticipant?.setMicrophoneEnabled(!isMuted)
+      setIsPublishing(!isMuted)
 
-      // Publicar àudio del micròfon (pedirà permís automàticament)
-      console.log('🎤 Creant track d\'àudio...')
-      const audioTrack = await createLocalAudioTrack()
-      localAudioTrackRef.current = audioTrack
-      await room.localParticipant?.publishTrack(audioTrack)
-      setIsPublishing(true)
-      console.log('🎤 Àudio publicat amb èxit')
+      // Aplicar estat per defecte/persistit de la càmera (OFF per defecte)
+      if (isCameraOn) {
+        const videoTrack = await createLocalVideoTrack()
+        localVideoTrackRef.current = videoTrack
+        await room.localParticipant?.publishTrack(videoTrack)
+        setLocalVideoTrack(videoTrack)
+      }
+
+      // Aplicar estat per defecte/persistit de screen share
+      if (isScreenSharing) {
+        const tracks = await createLocalScreenTracks({ audio: false })
+        const screenTrack = tracks.find((t: any) => t.kind === 'video')
+        if (screenTrack) {
+          localScreenTrackRef.current = screenTrack
+          await room.localParticipant?.publishTrack(screenTrack)
+        }
+      }
+
+      // Sincronitzar llista inicial (inclou participant local)
       updateParticipants()
 
     } catch (e: any) {
@@ -397,7 +465,7 @@ export function useLiveKit(): UseLiveKitResult {
       setIsConnected(false)
       setIsPublishing(false)
     }
-  }, [fetchToken, updateParticipants, attachRemoteAudio, detachRemoteAudio])
+  }, [fetchToken, isCameraOn, isDeafened, isMuted, isScreenSharing, updateParticipants, attachRemoteAudio, detachRemoteAudio])
 
   // Desconnectar
   const disconnect = useCallback(() => {
@@ -413,7 +481,12 @@ export function useLiveKit(): UseLiveKitResult {
       } catch (_) { /* ignore */ }
       localVideoTrackRef.current = null
       setLocalVideoTrack(null)
-      setIsCameraOn(false)
+    }
+    if (localScreenTrackRef.current) {
+      try {
+        localScreenTrackRef.current.stop()
+      } catch (_) { /* ignore */ }
+      localScreenTrackRef.current = null
     }
     audioElementsRef.current.forEach(el => {
       el.srcObject = null
@@ -426,11 +499,8 @@ export function useLiveKit(): UseLiveKitResult {
       roomRef.current.disconnect()
       roomRef.current = null
     }
-    isDeafenedRef.current = false
     setIsConnected(false)
     setIsPublishing(false)
-    setIsMuted(false)
-    setIsDeafened(false)
     setParticipants([])
   }, [])
 
@@ -455,6 +525,7 @@ export function useLiveKit(): UseLiveKitResult {
     isMuted,
     isDeafened,
     isCameraOn,
+    isScreenSharing,
     localVideoTrack,
     remoteVideoTracks,
     participants,
@@ -463,6 +534,7 @@ export function useLiveKit(): UseLiveKitResult {
     toggleMute,
     toggleDeafen,
     toggleCamera,
+    toggleScreenShare,
     error,
   }
 }

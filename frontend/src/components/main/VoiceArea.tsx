@@ -3,9 +3,6 @@ import { VoiceConnection } from '../../types'
 
 interface VoiceAreaProps {
   connection?: VoiceConnection
-  onToggleMute?: () => void
-  onToggleDeafen?: () => void
-  onToggleCamera?: () => Promise<void>
   onLeave?: () => void
   localVideoTrack?: any
   remoteVideoTracks?: Record<string, any>
@@ -57,9 +54,6 @@ function ParticipantTile({
 
 export function VoiceArea({
   connection,
-  onToggleMute,
-  onToggleDeafen,
-  onToggleCamera,
   onLeave,
   localVideoTrack,
   remoteVideoTracks = {},
@@ -97,27 +91,6 @@ export function VoiceArea({
         </div>
 
         <div className="voice-header-controls">
-          <button
-            className={`voice-control-btn ${conn.isMuted ? 'active-off' : 'active-on'}`}
-            onClick={onToggleMute}
-            title={conn.isMuted ? 'Activar micròfon' : 'Silenciar micròfon'}
-          >
-            🎤
-          </button>
-          <button
-            className={`voice-control-btn ${conn.isDeafened ? 'active-off' : 'active-on'}`}
-            onClick={onToggleDeafen}
-            title={conn.isDeafened ? 'Activar so' : 'Desactivar so'}
-          >
-            🔊
-          </button>
-          <button
-            className={`voice-control-btn ${conn.isCameraOn ? 'active-on' : 'active-off'}`}
-            onClick={onToggleCamera}
-            title={conn.isCameraOn ? 'Apagar càmera' : 'Activar càmera'}
-          >
-            🎥
-          </button>
           <button
             className="voice-control-btn"
             onClick={zoomOut}

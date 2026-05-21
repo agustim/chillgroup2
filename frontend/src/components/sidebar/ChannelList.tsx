@@ -7,6 +7,14 @@ interface ChannelListProps {
   selectedChannel: Channel | null
   voiceConnection: VoiceConnection | null
   voicePresenceByChannel?: Record<string, VoiceParticipant[]>
+  isMuted?: boolean
+  isDeafened?: boolean
+  isCameraOn?: boolean
+  isScreenSharing?: boolean
+  onToggleMute?: () => void
+  onToggleDeafen?: () => void
+  onToggleCamera?: () => void
+  onToggleScreenShare?: () => void
   onSelectChannel: (channel: Channel) => void
   username: string
   onLogout?: () => void
@@ -21,6 +29,14 @@ export function ChannelList({
   selectedChannel,
   voiceConnection,
   voicePresenceByChannel = {},
+  isMuted = true,
+  isDeafened = false,
+  isCameraOn = false,
+  isScreenSharing = false,
+  onToggleMute,
+  onToggleDeafen,
+  onToggleCamera,
+  onToggleScreenShare,
   onSelectChannel,
   username,
   onLogout,
@@ -29,6 +45,7 @@ export function ChannelList({
   onCreateVoiceChannel,
   canCreateChannel = false,
 }: ChannelListProps) {
+  const voiceControlsEnabled = !!voiceConnection
   const textChannels = channels.filter((c) => c.type === 'text')
   const voiceChannels = channels.filter((c) => c.type === 'voice')
 
@@ -166,6 +183,41 @@ export function ChannelList({
           </button>
         </div>
       )}
+
+      <div className="channel-list-bottom-controls">
+        <button
+          className={`voice-user-btn ${isMuted ? 'active-off' : 'active-on'}`}
+          onClick={onToggleMute}
+          title={isMuted ? 'Activar micròfon' : 'Silenciar micròfon'}
+          disabled={!voiceControlsEnabled}
+        >
+          🎤
+        </button>
+        <button
+          className={`voice-user-btn ${isDeafened ? 'active-off' : 'active-on'}`}
+          onClick={onToggleDeafen}
+          title={isDeafened ? 'Activar so' : 'Desactivar so'}
+          disabled={!voiceControlsEnabled}
+        >
+          🔊
+        </button>
+        <button
+          className={`voice-user-btn ${isCameraOn ? 'active-on' : 'active-off'}`}
+          onClick={onToggleCamera}
+          title={isCameraOn ? 'Apagar càmera' : 'Activar càmera'}
+          disabled={!voiceControlsEnabled}
+        >
+          🎥
+        </button>
+        <button
+          className={`voice-user-btn ${isScreenSharing ? 'active-on' : 'active-off'}`}
+          onClick={onToggleScreenShare}
+          title={isScreenSharing ? 'Aturar compartir pantalla' : 'Compartir pantalla'}
+          disabled={!voiceControlsEnabled}
+        >
+          🔁
+        </button>
+      </div>
     </div>
   )
 }

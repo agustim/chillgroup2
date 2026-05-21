@@ -10,9 +10,6 @@ import { useSocketIO } from '../../hooks/useSocketIO'
 interface MainContentProps {
   channel: Channel | null
   voiceConnection: VoiceConnection | null
-  onToggleMute?: () => void
-  onToggleDeafen?: () => void
-  onToggleCamera?: () => Promise<void>
   onLeaveVoice?: () => void
   onUnreadUpdated?: (channelId: string, unreadCount: number) => void
   onConfigureChannel?: () => void
@@ -25,9 +22,6 @@ interface MainContentProps {
 export function MainContent({
   channel,
   voiceConnection,
-  onToggleMute,
-  onToggleDeafen,
-  onToggleCamera,
   onLeaveVoice,
   onUnreadUpdated,
   onConfigureChannel,
@@ -129,9 +123,6 @@ export function MainContent({
         <div className="voice-panel">
           <VoiceArea
             connection={voiceConnection}
-            onToggleMute={onToggleMute}
-            onToggleDeafen={onToggleDeafen}
-            onToggleCamera={onToggleCamera}
             onLeave={onLeaveVoice}
             localVideoTrack={localVideoTrack}
             remoteVideoTracks={remoteVideoTracks}

@@ -320,6 +320,63 @@ body {
   white-space: nowrap;
 }
 
+.user-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.voice-user-btn {
+  background: var(--bg-input);
+  border: none;
+  border-radius: var(--button-radius);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 5px 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.voice-user-btn:hover {
+  background: var(--bg-active);
+}
+
+.voice-user-btn.active-off {
+  background: var(--error);
+  color: var(--text-on-accent);
+}
+
+.voice-user-btn.active-on {
+  background: var(--success);
+  color: var(--text-on-accent);
+}
+
+.voice-user-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.channel-list-bottom-controls {
+  margin-top: auto;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  padding: 10px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.02) 0%, rgba(0, 0, 0, 0.18) 100%), var(--bg-sidebar);
+  border-top: 1px solid var(--bg-active);
+}
+
+.channel-list-bottom-controls .voice-user-btn {
+  width: 100%;
+  min-height: 30px;
+}
+
 .logout-btn {
   background: none;
   border: none;

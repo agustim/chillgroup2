@@ -60,6 +60,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     isMuted: liveKitMuted,
     isDeafened: liveKitDeafened,
     isCameraOn: liveKitCameraOn,
+    isScreenSharing: liveKitScreenSharing,
     localVideoTrack,
     remoteVideoTracks,
     participants: liveKitParticipants,
@@ -68,6 +69,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     toggleMute: toggleLiveKitMute,
     toggleDeafen: toggleLiveKitDeafen,
     toggleCamera: toggleLiveKitCamera,
+    toggleScreenShare: toggleLiveKitScreenShare,
     error: liveKitError,
   } = useLiveKit()
 
@@ -289,9 +291,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   }, [voiceChannelId])
 
   const handleToggleMute = () => {
-    if (liveKitMuted !== undefined) {
-      toggleLiveKitMute()
-    }
+    toggleLiveKitMute()
   }
 
   const handleToggleDeafen = () => {
@@ -300,6 +300,10 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
 
   const handleToggleCamera = async () => {
     await toggleLiveKitCamera()
+  }
+
+  const handleToggleScreenShare = async () => {
+    await toggleLiveKitScreenShare()
   }
 
   const handleCreateServer = async () => {
@@ -483,6 +487,14 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           selectedChannel={selectedChannel}
           voiceConnection={voiceConnection}
           voicePresenceByChannel={voicePresenceByChannel}
+          isMuted={liveKitMuted}
+          isDeafened={liveKitDeafened}
+          isCameraOn={liveKitCameraOn}
+          isScreenSharing={liveKitScreenSharing}
+          onToggleMute={handleToggleMute}
+          onToggleDeafen={handleToggleDeafen}
+          onToggleCamera={() => { void handleToggleCamera() }}
+          onToggleScreenShare={() => { void handleToggleScreenShare() }}
           onSelectChannel={(channel) => {
             if (channel.type === 'voice') {
               handleVoiceChannelClick(channel)
@@ -520,9 +532,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
             <MainContent
               channel={selectedChannel}
               voiceConnection={voiceConnection}
-              onToggleMute={handleToggleMute}
-              onToggleDeafen={handleToggleDeafen}
-              onToggleCamera={handleToggleCamera}
               onLeaveVoice={handleLeaveVoiceChannel}
               onUnreadUpdated={handleUnreadUpdated}
               onConfigureChannel={handleConfigureChannel}
@@ -536,9 +545,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           <MainContent
             channel={null}
             voiceConnection={voiceConnection}
-            onToggleMute={handleToggleMute}
-            onToggleDeafen={handleToggleDeafen}
-            onToggleCamera={handleToggleCamera}
             onLeaveVoice={handleLeaveVoiceChannel}
             localVideoTrack={localVideoTrack}
             remoteVideoTracks={remoteVideoTracks}
