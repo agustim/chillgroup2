@@ -82,25 +82,25 @@ export function VoiceArea({
 
         <div className="voice-header-controls">
           <button
-            className={`voice-control-btn ${conn.isMuted ? 'active-off' : ''}`}
+            className={`voice-control-btn ${conn.isMuted ? 'active-off' : 'active-on'}`}
             onClick={onToggleMute}
             title={conn.isMuted ? 'Activar micròfon' : 'Silenciar micròfon'}
           >
-            🎤{conn.isMuted && <span className="control-slash">✕</span>}
+            🎤
           </button>
           <button
-            className={`voice-control-btn ${conn.isDeafened ? 'active-off' : ''}`}
+            className={`voice-control-btn ${conn.isDeafened ? 'active-off' : 'active-on'}`}
             onClick={onToggleDeafen}
             title={conn.isDeafened ? 'Activar so' : 'Desactivar so'}
           >
-            🔊{conn.isDeafened && <span className="control-slash">✕</span>}
+            🔊
           </button>
           <button
-            className={`voice-control-btn ${conn.isCameraOn ? 'active-on' : ''}`}
+            className={`voice-control-btn ${conn.isCameraOn ? 'active-on' : 'active-off'}`}
             onClick={onToggleCamera}
             title={conn.isCameraOn ? 'Apagar càmera' : 'Activar càmera'}
           >
-            🎥{!conn.isCameraOn && <span className="control-slash">✕</span>}
+            🎥
           </button>
         </div>
 

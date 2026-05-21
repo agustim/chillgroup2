@@ -424,11 +424,12 @@ export function useLiveKit(): UseLiveKitResult {
 
   // Toggle mute/unmute
   const toggleMute = useCallback(async () => {
-    if (!localAudioTrackRef.current) return
+    if (!roomRef.current?.localParticipant) return
 
     try {
       const newMuted = !isMuted
-      localAudioTrackRef.current.setMuted(newMuted)
+      // LiveKit v2: setMicrophoneEnabled(true) = micro actiu, (false) = mutat
+      await roomRef.current.localParticipant.setMicrophoneEnabled(!newMuted)
       setIsMuted(newMuted)
     } catch (e: any) {
       console.error('Error toggle mute:', e)
