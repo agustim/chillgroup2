@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Message } from '../../types'
 import { messagesList } from '../../lib/api'
+import { logger } from '../../lib/logger'
 
 interface MessageListProps {
   channelId: string
@@ -23,7 +24,7 @@ export function MessageList({ channelId, refreshKey, socketMessages = [], expiri
 
   const loadMessages = async () => {
     // Debug: veure què arriba
-    console.log('[MessageList] channelId prop:', channelId)
+    logger.debug('[MessageList] channelId prop:', channelId)
     // Validar que el channelId existeix
     if (!channelId) {
       setError('Canal no seleccionat')

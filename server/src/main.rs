@@ -77,17 +77,18 @@ async fn emit_voice_presence_update(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Carregar configuració abans d'inicialitzar tracing per poder aplicar BACKEND_DEBUG.
+    let (config, env_path) = Config::from_env().map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))?;
+
     // Inicialitzar tracing amb nivells de log
     let subscriber = FmtSubscriber::builder()
-        .with_env_filter(EnvFilter::from_default_env().add_directive(tracing::level_filters::LevelFilter::INFO.into()))
+        .with_env_filter(EnvFilter::new(config.backend_debug.as_tracing_filter()))
         .finish();
     tracing::subscriber::set_global_default(subscriber)
         .expect("No s'ha pogut configurar el subscriber de tracing");
 
     info!("🚀 Inicialitzant ChillGroup v2...");
 
-    // Carregar configuració
-    let (config, env_path) = Config::from_env().map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))?;
     info!("✅ Configuració carregada correctament (des de: {})", env_path.display());
 
     // Connectar base de dades amb comprovació

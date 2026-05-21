@@ -16,6 +16,7 @@ import {
   createLocalScreenTracks,
   createLocalVideoTrack,
 } from 'livekit-client'
+import { logger } from '../lib/logger'
 import type { VoiceParticipant } from '../types'
 
 const LIVEKIT_ROOM_PREFIX = 'chillgroup-'
@@ -116,7 +117,7 @@ export function useLiveKit(): UseLiveKitResult {
     audioEl.muted = isDeafenedRef.current
     document.body.appendChild(audioEl)
     audioElementsRef.current.set(participantSid, audioEl)
-    console.log('🔊 Àudio adjuntat per:', participantSid)
+    logger.debug('🔊 Àudio adjuntat per:', participantSid)
   }, [])
 
   // Eliminar l'element d'àudio d'un participant
@@ -126,7 +127,7 @@ export function useLiveKit(): UseLiveKitResult {
       el.srcObject = null
       el.remove()
       audioElementsRef.current.delete(participantSid)
-      console.log('🔇 Àudio eliminat per:', participantSid)
+      logger.debug('🔇 Àudio eliminat per:', participantSid)
     }
   }, [])
 
@@ -246,7 +247,7 @@ export function useLiveKit(): UseLiveKitResult {
       }
       updateParticipants()
     } catch (e: any) {
-      console.error('Error toggle càmera:', e)
+      logger.error('Error toggle càmera:', e)
       setError(e.message || 'Error accedint a la càmera')
     }
   }, [updateParticipants])
@@ -292,7 +293,7 @@ export function useLiveKit(): UseLiveKitResult {
         }, { once: true })
       }
     } catch (e: any) {
-      console.error('Error toggle screen share:', e)
+      logger.error('Error toggle screen share:', e)
       setError(e.message || 'Error compartint pantalla')
     }
   }, [])
@@ -332,18 +333,18 @@ export function useLiveKit(): UseLiveKitResult {
       // ── Esdeveniments de sala ─────────────────────
 
       room.on(RoomEvent.ParticipantConnected, (p: any) => {
-        console.log('🎙 Participant connectat:', p.identity)
+        logger.debug('🎙 Participant connectat:', p.identity)
         updateParticipants()
       })
 
       room.on(RoomEvent.ParticipantDisconnected, (p: any) => {
-        console.log('👋 Participant desconnectat:', p.identity)
+        logger.debug('👋 Participant desconnectat:', p.identity)
         updateParticipants()
       })
 
       // TrackSubscribed(track, publication, participant)
       room.on(RoomEvent.TrackSubscribed, (track: any, publication: any, participant: any) => {
-        console.log('📻 Track subscrit de:', participant.identity, 'kind:', track.kind)
+        logger.debug('📻 Track subscrit de:', participant.identity, 'kind:', track.kind)
         if (track.kind === 'audio') {
           attachRemoteAudio(track, participant.sid)
         } else if (track.kind === 'video') {
@@ -360,7 +361,7 @@ export function useLiveKit(): UseLiveKitResult {
       })
 
       room.on(RoomEvent.TrackUnsubscribed, (track: any, publication: any, participant: any) => {
-        console.log('📵 Track no subscrit de:', participant?.identity)
+        logger.debug('📵 Track no subscrit de:', participant?.identity)
         if (track.kind === 'audio') {
           detachRemoteAudio(participant.sid)
         } else if (track.kind === 'video') {
@@ -410,7 +411,7 @@ export function useLiveKit(): UseLiveKitResult {
       })
 
       room.on(RoomEvent.Disconnected, (reason: any) => {
-        console.log('🔌 Desconnectat de LiveKit:', reason)
+        logger.info('🔌 Desconnectat de LiveKit:', reason)
         audioElementsRef.current.forEach(el => {
           el.srcObject = null
           el.remove()
@@ -434,21 +435,21 @@ export function useLiveKit(): UseLiveKitResult {
       })
 
       room.on(RoomEvent.ConnectionStateChanged, (state: string) => {
-        console.log('📡 Connection state:', state)
+        logger.debug('📡 Connection state:', state)
         if (state === 'connected') {
           setIsConnected(true)
         }
       })
 
       room.on(RoomEvent.MediaDevicesError, (err: Error) => {
-        console.error('❌ Error de dispositius multimèdia:', err)
+        logger.error('❌ Error de dispositius multimèdia:', err)
         setError(`Error accedint al micròfon: ${err.message}`)
       })
 
       // Connectar a la sala
-      console.log('🔗 Connectant a LiveKit:', room.name, 'a', livekitUrl)
+      logger.info('🔗 Connectant a LiveKit:', room.name, 'a', livekitUrl)
       await room.connect(livekitUrl, token)
-      console.log('✅ Connectat a LiveKit:', room.name)
+      logger.info('✅ Connectat a LiveKit:', room.name)
 
       // Aplicar estat per defecte/persistit del micro (OFF per defecte)
       await room.localParticipant?.setMicrophoneEnabled(!isMuted)
@@ -477,7 +478,7 @@ export function useLiveKit(): UseLiveKitResult {
       updateParticipants()
 
     } catch (e: any) {
-      console.error('❌ Error connectant a LiveKit:', e)
+      logger.error('❌ Error connectant a LiveKit:', e)
       setError(e.message || 'Error connectant al canal de veu')
 
       // Netejar en cas d'error
@@ -544,7 +545,7 @@ export function useLiveKit(): UseLiveKitResult {
       await roomRef.current.localParticipant.setMicrophoneEnabled(!newMuted)
       setIsMuted(newMuted)
     } catch (e: any) {
-      console.error('Error toggle mute:', e)
+      logger.error('Error toggle mute:', e)
       setError(e.message || 'Error mutejant el micròfon')
     }
   }, [isMuted])

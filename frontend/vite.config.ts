@@ -7,6 +7,9 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname, '..'), '')
   
   return {
+    define: {
+      __FRONTEND_DEBUG__: JSON.stringify(env.FRONTEND_DEBUG ?? env.VITE_FRONTEND_DEBUG ?? 'info'),
+    },
     plugins: [react()],
     server: {
       host: '0.0.0.0',

@@ -2,12 +2,50 @@
 
 use std::env;
 use std::path::PathBuf;
+use std::str::FromStr;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogLevel {
+    Error,
+    Warn,
+    Info,
+    Debug,
+}
+
+impl LogLevel {
+    pub fn as_tracing_filter(self) -> &'static str {
+        match self {
+            Self::Error => "error",
+            Self::Warn => "warn",
+            Self::Info => "info",
+            Self::Debug => "debug",
+        }
+    }
+}
+
+impl FromStr for LogLevel {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "error" => Ok(Self::Error),
+            "warn" => Ok(Self::Warn),
+            "info" => Ok(Self::Info),
+            "debug" => Ok(Self::Debug),
+            other => Err(format!(
+                "BACKEND_DEBUG invàlid: '{}'. Valors permesos: error, warn, info, debug",
+                other
+            )),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct Config {
     pub server_host: String,
     pub server_port: u16,
+    pub backend_debug: LogLevel,
     pub database_url: String,
     pub ttl_cleanup_interval_minutes: u64,
     pub livekit_host: String,
@@ -44,6 +82,11 @@ impl Config {
                 .ok()
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(8080),
+            backend_debug: env::var("BACKEND_DEBUG")
+                .ok()
+                .map(|level| level.parse())
+                .transpose()?
+                .unwrap_or(LogLevel::Info),
             database_url: get_var("DATABASE_URL")?,
             ttl_cleanup_interval_minutes: env::var("TTL_CLEANUP_INTERVAL_MINUTES")
                 .ok()
