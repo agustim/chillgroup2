@@ -17,6 +17,7 @@
     "lint": "eslint src --ext .ts,.tsx"
   },
   "dependencies": {
+    "@noble/post-quantum": "^0.6.1",
     "livekit-client": "^2.8.0",
     "socket.io-client": "^4.8.1"
   },

@@ -3,7 +3,7 @@
 //! Gestiona l'emmagatzematge local de claus criptogràfiques i dades de sessió.
 
 const DB_NAME = 'chillgroup-store'
-const DB_VERSION = 1
+const DB_VERSION = 2
 
 /**
  * Obtenir la base de dades IndexedDB.
@@ -21,6 +21,13 @@ function getDB(): Promise<IDBDatabase> {
       // Object store per a keypairs del dispositiu
       if (!db.objectStoreNames.contains('keypairs')) {
         db.createObjectStore('keypairs', { keyPath: 'deviceId' })
+      }
+
+      // Object store V2 per a keypairs amb nom lògic (múltiples claus)
+      if (!db.objectStoreNames.contains('keypairsV2')) {
+        const store = db.createObjectStore('keypairsV2', { keyPath: 'nameNormalized' })
+        store.createIndex('name', 'name', { unique: true })
+        store.createIndex('deviceId', 'deviceId', { unique: false })
       }
 
       // Object store per a claus de canal (bytes)
@@ -69,6 +76,27 @@ function base64ToUint8Array(data: string): Uint8Array {
 }
 
 // ── KeyPairs (Dispositiu) ─────────────────────────────────────
+
+export interface NamedKeypairRecord {
+  name: string
+  nameNormalized: string
+  deviceId: string | null
+  kyberSecretKey: string
+  kyberPublicKey: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface NamedKeypairSummary {
+  name: string
+  deviceId: string | null
+  createdAt: number
+  updatedAt: number
+}
+
+function normalizeKeypairName(name: string): string {
+  return name.trim().toLowerCase()
+}
 
 /**
  * Guardar el keypair del dispositiu a IndexedDB.
@@ -165,6 +193,141 @@ export async function listKeypairs(): Promise<Array<{ deviceId: string; createdA
   })
 }
 
+/**
+ * Guardar (o sobreescriure) un keypair nominal al store V2.
+ */
+export async function upsertNamedKeypair(
+  name: string,
+  deviceId: string | null,
+  secretKey: Uint8Array,
+  publicKey: Uint8Array
+): Promise<void> {
+  const normalized = normalizeKeypairName(name)
+  const db = await getDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('keypairsV2', 'readwrite')
+    const store = tx.objectStore('keypairsV2')
+    const now = Date.now()
+
+    const getReq = store.get(normalized)
+    getReq.onsuccess = () => {
+      const prev = getReq.result as NamedKeypairRecord | undefined
+      store.put({
+        name: name.trim(),
+        nameNormalized: normalized,
+        deviceId,
+        kyberSecretKey: uint8ArrayToBase64(secretKey),
+        kyberPublicKey: uint8ArrayToBase64(publicKey),
+        createdAt: prev?.createdAt ?? now,
+        updatedAt: now,
+      })
+    }
+    getReq.onerror = () => {
+      db.close()
+      reject(getReq.error)
+    }
+
+    tx.oncomplete = () => {
+      db.close()
+      resolve()
+    }
+    tx.onerror = () => {
+      db.close()
+      reject(tx.error)
+    }
+  })
+}
+
+/**
+ * Obtenir un keypair nominal per nom.
+ */
+export async function getNamedKeypair(name: string): Promise<{
+  summary: NamedKeypairSummary
+  secretKey: Uint8Array
+  publicKey: Uint8Array
+} | null> {
+  const normalized = normalizeKeypairName(name)
+  const db = await getDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('keypairsV2', 'readonly')
+    const store = tx.objectStore('keypairsV2')
+    const request = store.get(normalized)
+    request.onsuccess = () => {
+      const result = request.result as NamedKeypairRecord | undefined
+      if (!result) {
+        db.close()
+        resolve(null)
+        return
+      }
+
+      db.close()
+      resolve({
+        summary: {
+          name: result.name,
+          deviceId: result.deviceId,
+          createdAt: result.createdAt,
+          updatedAt: result.updatedAt,
+        },
+        secretKey: base64ToUint8Array(result.kyberSecretKey),
+        publicKey: base64ToUint8Array(result.kyberPublicKey),
+      })
+    }
+    request.onerror = () => {
+      db.close()
+      reject(request.error)
+    }
+  })
+}
+
+/**
+ * Llistar keypairs nominals (store V2).
+ */
+export async function listNamedKeypairs(): Promise<NamedKeypairSummary[]> {
+  const db = await getDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('keypairsV2', 'readonly')
+    const store = tx.objectStore('keypairsV2')
+    const request = store.getAll()
+    request.onsuccess = () => {
+      const records = (request.result as NamedKeypairRecord[])
+        .map((item) => ({
+          name: item.name,
+          deviceId: item.deviceId,
+          createdAt: item.createdAt,
+          updatedAt: item.updatedAt,
+        }))
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+      db.close()
+      resolve(records)
+    }
+    request.onerror = () => {
+      db.close()
+      reject(request.error)
+    }
+  })
+}
+
+/**
+ * Eliminar un keypair nominal.
+ */
+export async function deleteNamedKeypair(name: string): Promise<void> {
+  const normalized = normalizeKeypairName(name)
+  const db = await getDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('keypairsV2', 'readwrite')
+    const store = tx.objectStore('keypairsV2')
+    store.delete(normalized)
+    tx.oncomplete = () => {
+      db.close()
+      resolve()
+    }
+    tx.onerror = () => {
+      db.close()
+      reject(tx.error)
+    }
+  })
+}
+
 // ── Channel Keys (Bytes) ──────────────────────────────────────
 
 /**
@@ -216,6 +379,74 @@ export async function getChannelKey(channelId: string): Promise<Uint8Array | nul
       const keyBytes = base64ToUint8Array(result.keyBytes)
       db.close()
       resolve(keyBytes)
+    }
+    request.onerror = () => {
+      db.close()
+      reject(request.error)
+    }
+  })
+}
+
+export interface StoredChannelKeyRecord {
+  channelId: string
+  keyBytes: Uint8Array
+  type: 'symmetric' | 'asymmetric'
+  acquiredAt: number
+  expiresAt: number | null
+}
+
+/**
+ * Llistar metadata de totes les claus de canal guardades.
+ */
+export async function listChannelKeys(): Promise<
+  Array<{
+    channelId: string
+    type: 'symmetric' | 'asymmetric'
+    acquiredAt: number
+    expiresAt: number | null
+  }>
+> {
+  const db = await getDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('channelKeysBytes', 'readonly')
+    const store = tx.objectStore('channelKeysBytes')
+    const request = store.getAll()
+    request.onsuccess = () => {
+      const items = request.result.map((item: any) => ({
+        channelId: item.channelId,
+        type: item.type as 'symmetric' | 'asymmetric',
+        acquiredAt: item.acquiredAt,
+        expiresAt: item.expiresAt ?? null,
+      }))
+      db.close()
+      resolve(items)
+    }
+    request.onerror = () => {
+      db.close()
+      reject(request.error)
+    }
+  })
+}
+
+/**
+ * Llistar totes les claus de canal (inclou bytes) per exportació/importació.
+ */
+export async function getAllChannelKeys(): Promise<StoredChannelKeyRecord[]> {
+  const db = await getDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('channelKeysBytes', 'readonly')
+    const store = tx.objectStore('channelKeysBytes')
+    const request = store.getAll()
+    request.onsuccess = () => {
+      const items = request.result.map((item: any) => ({
+        channelId: item.channelId,
+        keyBytes: base64ToUint8Array(item.keyBytes),
+        type: item.type as 'symmetric' | 'asymmetric',
+        acquiredAt: item.acquiredAt,
+        expiresAt: item.expiresAt ?? null,
+      }))
+      db.close()
+      resolve(items)
     }
     request.onerror = () => {
       db.close()
@@ -414,11 +645,12 @@ export async function clearAll(): Promise<void> {
   const db = await getDB()
   return new Promise((resolve, reject) => {
     const tx = db.transaction(
-      ['keypairs', 'channelKeysBytes', 'channelKeys', 'devicePublicKeys', 'livekitSessionKeys'],
+      ['keypairs', 'keypairsV2', 'channelKeysBytes', 'channelKeys', 'devicePublicKeys', 'livekitSessionKeys'],
       'readwrite'
     )
     const stores = [
       tx.objectStore('keypairs'),
+      tx.objectStore('keypairsV2'),
       tx.objectStore('channelKeysBytes'),
       tx.objectStore('channelKeys'),
       tx.objectStore('devicePublicKeys'),

@@ -8,9 +8,11 @@ import { CreateTextChannelModal } from './modals/CreateTextChannelModal'
 import { CreateVoiceChannelModal } from './modals/CreateVoiceChannelModal'
 import { InviteMemberModal } from './modals/InviteMemberModal'
 import { ConfigureChannelModal } from './modals/ConfigureChannelModal'
+import { DeviceKeysModal } from './modals/DeviceKeysModal'
 import { useLiveKit } from '../hooks/useLiveKit'
 import { Channel, Server, ServerFullInfo, VoiceParticipant } from '../types'
 import { getSocket } from '../lib/socket'
+import { hasLocalDeviceKeypair } from '../lib/device-keys'
 import {
   serverInviteMember,
   serversCreate,
@@ -33,7 +35,7 @@ type PanelType = 'none' | 'serverConfig' | 'channelConfig' | 'devices'
 type ServerMenuAction = 'config' | 'invite' | 'createText' | 'createVoice' | 'devices' | null
 
 export function AppLayout({ username, onLogout }: AppLayoutProps) {
-  const { user, logout } = useAuth()
+  const { user, logout, currentDeviceId } = useAuth()
   const [servers, setServers] = useState<Server[]>([])
   const [selectedServer, setSelectedServer] = useState<string | null>(null)
   const [serverDetails, setServerDetails] = useState<ServerFullInfo | null>(null)
@@ -52,6 +54,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const [showInviteServer, setShowInviteServer] = useState(false)
   const [showInviteChannel, setShowInviteChannel] = useState(false)
   const [showConfigureChannel, setShowConfigureChannel] = useState(false)
+  const [showDeviceKeysModal, setShowDeviceKeysModal] = useState(false)
   
   // LiveKit hook
   const {
@@ -81,6 +84,29 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
       return () => clearTimeout(timer)
     }
   }, [feedback])
+
+  useEffect(() => {
+    if (!user || !currentDeviceId) {
+      return
+    }
+
+    let cancelled = false
+    hasLocalDeviceKeypair(currentDeviceId)
+      .then((hasKeypair) => {
+        if (!cancelled && !hasKeypair) {
+          setShowDeviceKeysModal(true)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setShowDeviceKeysModal(true)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [user, currentDeviceId])
 
   const selectedServerInfo = selectedServer ? servers.find((server) => server.serverId === selectedServer) : undefined
   const canManageServer =
@@ -381,7 +407,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   }
 
   const handleManageDevices = () => {
-    setPanel((current) => (current === 'devices' ? 'none' : 'devices'))
+    setShowDeviceKeysModal(true)
   }
 
   // Obrir modal de configuració de canal
@@ -435,7 +461,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
         setShowCreateVoiceChannel(true)
         break
       case 'devices':
-        setPanel('devices')
+        setShowDeviceKeysModal(true)
         break
     }
   }
@@ -578,23 +604,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           </div>
         )}
 
-        {panel === 'devices' && user && (
-          <div className="panel devices-panel">
-            <h3>Gestió de dispositius</h3>
-            <ul>
-              {user.devices.map((device) => (
-                <li key={device.deviceId}>
-                  <strong>{device.label}</strong> ({device.deviceId})
-                  <div className="device-status">
-                    {device.revoked ? 'Revocat' : 'Actiu'} · darrera connexió: {device.lastSeen}
-                  </div>
-                </li>
-              ))}
-            </ul>
-            <p className="panel-note">Les accions de dispositiu estaran disponibles quan el backend implementi l'API corresponent.</p>
-          </div>
-        )}
-
         {/* ── Modals ─────────────────────────────────── */}
         <CreateServerModal
           isOpen={showCreateServer}
@@ -641,6 +650,15 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           onUpdate={handleConfigureChannelSubmit}
           onDelete={handleDeleteChannel}
         />
+
+        {user && (
+          <DeviceKeysModal
+            isOpen={showDeviceKeysModal}
+            onClose={() => setShowDeviceKeysModal(false)}
+            currentDeviceId={currentDeviceId}
+            devices={user.devices ?? []}
+          />
+        )}
       </div>
     </div>
   )

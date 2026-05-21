@@ -1,10 +1,12 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react'
 import { User } from '../types'
 import { authLogin, authRegister, authMe, authRefresh } from '../lib/api'
+import { getStoredDeviceId, persistDeviceId } from '../lib/device-identity'
 
 interface AuthContextType {
   user: User | null
   token: string | null
+  currentDeviceId: string | null
   isAuthenticated: boolean
   isLoading: boolean
   error: string | null
@@ -19,6 +21,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [token, setToken] = useState<string | null>(null)
+  const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -40,6 +43,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // sessionStorage not available
     }
+  }, [])
+
+  const saveDeviceId = useCallback((deviceId: string) => {
+    setCurrentDeviceId(deviceId)
+    persistDeviceId(deviceId)
+  }, [])
+
+  const loadDeviceId = useCallback(() => {
+    const stored = getStoredDeviceId()
+    setCurrentDeviceId(stored)
   }, [])
 
   const clearAuth = useCallback(() => {
@@ -73,6 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const result = await authLogin(username, password)
       if (result.success && result.data) {
         saveToken(result.data.token)
+        saveDeviceId(result.data.deviceId)
         await fetchUser(result.data.token)
       } else {
         const msg = !result.success ? result.error.message : 'Login failed'
@@ -85,7 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false)
     }
-  }, [saveToken, fetchUser])
+  }, [saveToken, saveDeviceId, fetchUser])
 
   const register = useCallback(async (username: string, password: string) => {
     setIsLoading(true)
@@ -94,6 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const result = await authRegister(username, password)
       if (result.success && result.data) {
         saveToken(result.data.token)
+        saveDeviceId(result.data.deviceId)
         await fetchUser(result.data.token)
       } else {
         const msg = !result.success ? result.error.message : 'Register failed'
@@ -106,7 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false)
     }
-  }, [saveToken, fetchUser])
+  }, [saveToken, saveDeviceId, fetchUser])
 
   const logout = useCallback(() => {
     clearAuth()
@@ -127,6 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Load token on mount and verify (only if no user is already authenticated)
   React.useEffect(() => {
     loadToken()
+    loadDeviceId()
     
     // Only verify stored token if no user is already set
     // This prevents race conditions after login
@@ -158,13 +174,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } else {
       setIsLoading(false)
     }
-  }, [loadToken, fetchUser, user])
+  }, [loadToken, loadDeviceId, fetchUser, user])
 
   return (
     <AuthContext.Provider
       value={{
         user,
         token,
+        currentDeviceId,
         isAuthenticated: !!user && !!token,
         isLoading,
         error,
