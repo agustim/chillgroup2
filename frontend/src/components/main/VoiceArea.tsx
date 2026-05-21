@@ -48,9 +48,8 @@ function ParticipantTile({
       )}
       <span className="participant-name">{participant.username}</span>
       <div className="participant-status-icons">
-        {participant.isSpeaking && <span title="Parlant">🗣️</span>}
-        {participant.isDeafened && <span title="Sord">🔇</span>}
-        {participant.isSuppressed && !participant.isSpeaking && <span title="Silenciat">🔕</span>}
+        {participant.isSuppressed && <span title="Micròfon apagat">🔕</span>}
+        {participant.isDeafened && <span title="Altaveu apagat">🔇</span>}
       </div>
     </div>
   )

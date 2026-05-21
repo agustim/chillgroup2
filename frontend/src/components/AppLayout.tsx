@@ -181,6 +181,22 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   }, [selectedServer])
 
   useEffect(() => {
+    if (!voiceChannelId) {
+      return
+    }
+
+    const socket = getSocket()
+    const localIsSpeaking = liveKitParticipants[0]?.isSpeaking ?? false
+
+    socket.emit('voice-state-updated', {
+      channelId: voiceChannelId,
+      isSuppressed: !!liveKitMuted,
+      isDeafened: !!liveKitDeafened,
+      isSpeaking: localIsSpeaking,
+    })
+  }, [voiceChannelId, liveKitMuted, liveKitDeafened, liveKitParticipants])
+
+  useEffect(() => {
     if (!selectedChannel || selectedChannel.type !== 'text') {
       return
     }
@@ -419,12 +435,31 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     }
   }
 
+  const mergedVoiceParticipants = voiceChannelId
+    ? liveKitParticipants.map((participant) => {
+        const socketPresence = (voicePresenceByChannel[voiceChannelId] ?? []).find(
+          (presence) => presence.userId === participant.userId
+        )
+
+        if (!socketPresence) {
+          return participant
+        }
+
+        return {
+          ...participant,
+          isSuppressed: socketPresence.isSuppressed,
+          isDeafened: socketPresence.isDeafened,
+          isSpeaking: participant.isSpeaking || socketPresence.isSpeaking,
+        }
+      })
+    : []
+
   // Build voice connection object from LiveKit state
   const voiceConnection = voiceChannelId
     ? {
         channelId: voiceChannelId,
         channelName: voiceChannelName,
-        participants: liveKitParticipants,
+        participants: mergedVoiceParticipants,
         isJoined: liveKitConnected,
         isMuted: liveKitMuted,
         isDeafened: liveKitDeafened,

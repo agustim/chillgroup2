@@ -1157,6 +1157,11 @@ body {
   font-size: 10px;
   font-weight: 600;
   flex-shrink: 0;
+  transition: box-shadow var(--transition-fast);
+}
+
+.participant-avatar-small.speaking {
+  box-shadow: 0 0 0 2px var(--success);
 }
 
 .participant-name-small {
@@ -1164,16 +1169,6 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.speaking-dot {
-  font-size: 10px;
-  animation: speakPulse 1s ease-in-out infinite;
-}
-
-@keyframes speakPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
 }
 
 .deafened-dot {

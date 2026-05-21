@@ -146,6 +146,20 @@ export function useLiveKit(): UseLiveKitResult {
     return data.token
   }, [])
 
+  const hasMicrophoneEnabled = useCallback((participant: any): boolean => {
+    if (!participant) return false
+
+    const getPub = participant.getTrackPublication?.bind(participant)
+    const directPub = getPub?.('microphone') ?? getPub?.('audio')
+    if (directPub) return !directPub.isMuted
+
+    const pubs = participant.trackPublications
+      ? Array.from(participant.trackPublications.values())
+      : []
+    const micPub = pubs.find((pub: any) => pub?.source === 'microphone' || pub?.kind === 'audio')
+    return !!(micPub && !micPub.isMuted)
+  }, [])
+
   // Actualitzar la llista de participants
   const updateParticipants = useCallback(() => {
     if (!roomRef.current) return
@@ -155,8 +169,7 @@ export function useLiveKit(): UseLiveKitResult {
 
     const localPart = room.localParticipant
     if (localPart) {
-      const localAudioPub = (localPart as any).getTrackPublication('audio')
-      const localHasAudio = !!(localAudioPub && !localAudioPub.isMuted)
+      const localHasAudio = hasMicrophoneEnabled(localPart)
       parts.push({
         userId: localPart.identity || localPart.sid,
         username: localPart.name || localPart.identity || 'Tu',
@@ -169,8 +182,7 @@ export function useLiveKit(): UseLiveKitResult {
     }
 
     for (const p of remoteParts.values()) {
-      const audioPub = (p as any).getTrackPublication('audio')
-      const hasAudio = !!(audioPub && audioPub.isSubscribed)
+      const hasAudio = hasMicrophoneEnabled(p)
       parts.push({
         userId: p.identity || p.sid,
         username: p.name || p.identity || 'Desconegut',
@@ -182,7 +194,7 @@ export function useLiveKit(): UseLiveKitResult {
       })
     }
     setParticipants(parts)
-  }, [])
+  }, [hasMicrophoneEnabled])
 
   // Toggle deafen: silencia / activa tots els elements d'àudio remots
   const toggleDeafen = useCallback(() => {

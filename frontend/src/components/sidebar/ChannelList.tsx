@@ -128,12 +128,12 @@ export function ChannelList({
                 <div className="voice-channel-participants">
                   {participants.map((p) => (
                     <div key={p.userId} className="voice-participant-indicator">
-                      <span className="participant-avatar-small">
+                      <span className={`participant-avatar-small ${p.isSpeaking ? 'speaking' : ''}`}>
                         {p.username.charAt(0).toUpperCase()}
                       </span>
                       <span className="participant-name-small">{p.username}</span>
-                      {p.isSpeaking && <span className="speaking-dot">🗣️</span>}
-                      {p.isDeafened && <span className="deafened-dot">🔕</span>}
+                      {p.isSuppressed && <span className="deafened-dot" title="Micròfon apagat">🔕</span>}
+                      {p.isDeafened && <span className="deafened-dot" title="Altaveu apagat">🔇</span>}
                     </div>
                   ))}
                 </div>

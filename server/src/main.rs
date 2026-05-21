@@ -251,6 +251,65 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 }
             });
 
+            let db_for_state = db.clone();
+            let io_for_state = io.clone();
+            let presence_for_state = voice_presence.clone();
+            socket.on("voice-state-updated", move |socket: SocketRef, Data(data): Data<serde_json::Value>| {
+                let db = db_for_state.clone();
+                let io = io_for_state.clone();
+                let presence = presence_for_state.clone();
+                async move {
+                    let socket_id = socket.id.to_string();
+                    let requested_channel = data
+                        .get("channelId")
+                        .and_then(|v| v.as_str())
+                        .and_then(|id| Uuid::parse_str(id).ok());
+
+                    let is_suppressed = data
+                        .get("isSuppressed")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    let is_deafened = data
+                        .get("isDeafened")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    let is_speaking = data
+                        .get("isSpeaking")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+
+                    let mut affected_channel = None;
+                    {
+                        let mut state = presence.write().await;
+                        let current_channel = state.socket_channel.get(&socket_id).copied();
+                        let target_channel = requested_channel.or(current_channel);
+
+                        if let Some(channel_id) = target_channel {
+                            if let Some(users) = state.channel_users.get_mut(&channel_id) {
+                                if let Some(user) = users.iter_mut().find(|u| u.socket_id == socket_id) {
+                                    user.is_suppressed = is_suppressed;
+                                    user.is_deafened = is_deafened;
+                                    user.is_speaking = is_speaking;
+                                    affected_channel = Some(channel_id);
+                                }
+                            }
+                        }
+                    }
+
+                    if let Some(channel_id) = affected_channel {
+                        let users = {
+                            let state = presence.read().await;
+                            state
+                                .channel_users
+                                .get(&channel_id)
+                                .cloned()
+                                .unwrap_or_default()
+                        };
+                        emit_voice_presence_update(&db, &io, channel_id, users).await;
+                    }
+                }
+            });
+
             let db_for_snapshot = db.clone();
             let presence_for_snapshot = voice_presence.clone();
             socket.on("get-voice-presence", move |socket: SocketRef, Data(data): Data<serde_json::Value>| {
