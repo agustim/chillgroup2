@@ -160,30 +160,6 @@ export function ChannelList({
         })}
       </div>
 
-      {/* Active voice connection indicator */}
-      {voiceConnection && (
-        <div className="voice-connection-indicator">
-          <span className="voice-indicator-icon">🔊</span>
-          <span className="voice-indicator-text">Unit a: {voiceConnection.channelName}</span>
-          <button 
-            className="voice-indicator-leave"
-            onClick={() => onSelectChannel({
-              ...voiceConnection,
-              type: 'voice',
-              channelId: voiceConnection.channelId,
-              name: voiceConnection.channelName,
-              encryptionType: 'none',
-              messageTTL: null,
-              isPrivate: false,
-              createdAt: '',
-            })}
-            title="Surt del canal de veu"
-          >
-            Surt
-          </button>
-        </div>
-      )}
-
       <div className="channel-list-bottom-controls">
         <button
           className={`voice-user-btn ${isMuted ? 'active-off' : 'active-on'}`}
