@@ -35,8 +35,10 @@ interface UseLiveKitResult {
   isScreenSharing: boolean
   /** Track de vídeo local (per previsualitzar) */
   localVideoTrack: any | null
+  /** Track local de compartir pantalla */
+  localScreenTrack: any | null
   /** Tracks de vídeo remots (identity -> track) */
-  remoteVideoTracks: Record<string, any>
+  remoteVideoTracks: Record<string, any[]>
   /** Participants remots a la sala */
   participants: VoiceParticipant[]
   /** Connectar a un canal de veu */
@@ -70,7 +72,7 @@ export function useLiveKit(): UseLiveKitResult {
   const localVideoTrackRef = useRef<any>(null)
   const localScreenTrackRef = useRef<any>(null)
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map())
-  const remoteVideoTracksRef = useRef<Map<string, any>>(new Map())
+  const remoteVideoTracksRef = useRef<Map<string, any[]>>(new Map())
   const isDeafenedRef = useRef(false)
   const [isConnected, setIsConnected] = useState(false)
   const [isPublishing, setIsPublishing] = useState(false)
@@ -79,7 +81,8 @@ export function useLiveKit(): UseLiveKitResult {
   const [isCameraOn, setIsCameraOn] = useState(false)
   const [isScreenSharing, setIsScreenSharing] = useState(false)
   const [localVideoTrack, setLocalVideoTrack] = useState<any>(null)
-  const [remoteVideoTracks, setRemoteVideoTracks] = useState<Record<string, any>>({})
+  const [localScreenTrack, setLocalScreenTrack] = useState<any>(null)
+  const [remoteVideoTracks, setRemoteVideoTracks] = useState<Record<string, any[]>>({})
   const [participants, setParticipants] = useState<VoiceParticipant[]>([])
   const [error, setError] = useState<string | null>(null)
 
@@ -166,6 +169,10 @@ export function useLiveKit(): UseLiveKitResult {
     return !!(micPub && !micPub.isMuted)
   }, [])
 
+  const getTrackKey = useCallback((track: any): string => {
+    return track?.sid || track?.mediaStreamTrack?.id || String(track)
+  }, [])
+
   // Actualitzar la llista de participants
   const updateParticipants = useCallback(() => {
     if (!roomRef.current) return
@@ -189,14 +196,16 @@ export function useLiveKit(): UseLiveKitResult {
 
     for (const p of remoteParts.values()) {
       const hasAudio = hasMicrophoneEnabled(p)
+      const userId = p.identity || p.sid
+      const remoteTracks = remoteVideoTracksRef.current.get(userId) ?? []
       parts.push({
-        userId: p.identity || p.sid,
+        userId,
         username: p.name || p.identity || 'Desconegut',
         isSpeaking: p.isSpeaking,
         isDeafened: false,
         isSuppressed: !hasAudio,
         joinedAt: new Date().toISOString(),
-        videoTrack: remoteVideoTracksRef.current.get(p.sid) ?? undefined,
+        videoTrack: remoteTracks[0] ?? undefined,
       })
     }
     setParticipants(parts)
@@ -250,6 +259,7 @@ export function useLiveKit(): UseLiveKitResult {
         await roomRef.current.localParticipant.unpublishTrack(localScreenTrackRef.current)
         localScreenTrackRef.current.stop()
         localScreenTrackRef.current = null
+        setLocalScreenTrack(null)
         setIsScreenSharing(false)
       } else {
         const tracks = await createLocalScreenTracks({ audio: false })
@@ -258,6 +268,7 @@ export function useLiveKit(): UseLiveKitResult {
           throw new Error('No s\'ha pogut obtenir el track de pantalla')
         }
         localScreenTrackRef.current = videoTrack
+        setLocalScreenTrack(videoTrack)
         await roomRef.current.localParticipant.publishTrack(videoTrack)
         setIsScreenSharing(true)
 
@@ -276,6 +287,7 @@ export function useLiveKit(): UseLiveKitResult {
             // ignore
           }
           localScreenTrackRef.current = null
+          setLocalScreenTrack(null)
           setIsScreenSharing(false)
         }, { once: true })
       }
@@ -335,8 +347,14 @@ export function useLiveKit(): UseLiveKitResult {
         if (track.kind === 'audio') {
           attachRemoteAudio(track, participant.sid)
         } else if (track.kind === 'video') {
-          remoteVideoTracksRef.current.set(participant.sid, track)
-          setRemoteVideoTracks(prev => ({ ...prev, [participant.identity]: track }))
+          const userId = participant.identity || participant.sid
+          const prevTracks = remoteVideoTracksRef.current.get(userId) ?? []
+          const nextTracks = prevTracks.some((t: any) => getTrackKey(t) === getTrackKey(track))
+            ? prevTracks
+            : [...prevTracks, track]
+
+          remoteVideoTracksRef.current.set(userId, nextTracks)
+          setRemoteVideoTracks(prev => ({ ...prev, [userId]: nextTracks }))
         }
         updateParticipants()
       })
@@ -346,12 +364,21 @@ export function useLiveKit(): UseLiveKitResult {
         if (track.kind === 'audio') {
           detachRemoteAudio(participant.sid)
         } else if (track.kind === 'video') {
-          remoteVideoTracksRef.current.delete(participant.sid)
-          setRemoteVideoTracks(prev => {
-            const next = { ...prev }
-            delete next[participant.identity]
-            return next
-          })
+          const userId = participant.identity || participant.sid
+          const prevTracks = remoteVideoTracksRef.current.get(userId) ?? []
+          const nextTracks = prevTracks.filter((t: any) => getTrackKey(t) !== getTrackKey(track))
+
+          if (nextTracks.length === 0) {
+            remoteVideoTracksRef.current.delete(userId)
+            setRemoteVideoTracks(prev => {
+              const next = { ...prev }
+              delete next[userId]
+              return next
+            })
+          } else {
+            remoteVideoTracksRef.current.set(userId, nextTracks)
+            setRemoteVideoTracks(prev => ({ ...prev, [userId]: nextTracks }))
+          }
         }
         updateParticipants()
       })
@@ -399,6 +426,7 @@ export function useLiveKit(): UseLiveKitResult {
         if (localScreenTrackRef.current) {
           localScreenTrackRef.current.stop()
           localScreenTrackRef.current = null
+          setLocalScreenTrack(null)
         }
         setIsConnected(false)
         setIsPublishing(false)
@@ -440,6 +468,7 @@ export function useLiveKit(): UseLiveKitResult {
         const screenTrack = tracks.find((t: any) => t.kind === 'video')
         if (screenTrack) {
           localScreenTrackRef.current = screenTrack
+          setLocalScreenTrack(screenTrack)
           await room.localParticipant?.publishTrack(screenTrack)
         }
       }
@@ -465,7 +494,7 @@ export function useLiveKit(): UseLiveKitResult {
       setIsConnected(false)
       setIsPublishing(false)
     }
-  }, [fetchToken, isCameraOn, isDeafened, isMuted, isScreenSharing, updateParticipants, attachRemoteAudio, detachRemoteAudio])
+  }, [fetchToken, getTrackKey, isCameraOn, isDeafened, isMuted, isScreenSharing, updateParticipants, attachRemoteAudio, detachRemoteAudio])
 
   // Desconnectar
   const disconnect = useCallback(() => {
@@ -487,6 +516,7 @@ export function useLiveKit(): UseLiveKitResult {
         localScreenTrackRef.current.stop()
       } catch (_) { /* ignore */ }
       localScreenTrackRef.current = null
+      setLocalScreenTrack(null)
     }
     audioElementsRef.current.forEach(el => {
       el.srcObject = null
@@ -527,6 +557,7 @@ export function useLiveKit(): UseLiveKitResult {
     isCameraOn,
     isScreenSharing,
     localVideoTrack,
+    localScreenTrack,
     remoteVideoTracks,
     participants,
     connectToChannel,

@@ -936,9 +936,6 @@ body {
   box-shadow: 0 0 0 2px var(--success);
 }
 
-.participant-tile.empty {
-  opacity: 0.3;
-}
 
 /* Vídeo del participant */
 .participant-video {
@@ -972,6 +969,15 @@ body {
   max-width: 100%;
 }
 
+.participant-stream-badge {
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg-input);
+  border-radius: 999px;
+  padding: 2px 6px;
+  line-height: 1;
+}
+
 .participant-status-icons {
   position: absolute;
   top: 4px;
@@ -987,11 +993,6 @@ body {
   top: 4px;
   right: 4px;
   font-size: 12px;
-}
-
-.empty-slot {
-  font-size: calc(24px * var(--participant-zoom));
-  color: var(--text-muted);
 }
 
 /* ── Server Config Button ─────────────────────── */

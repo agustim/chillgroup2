@@ -16,7 +16,8 @@ interface MainContentProps {
   onInviteChannel?: () => void
   canManageChannel?: boolean
   localVideoTrack?: any
-  remoteVideoTracks?: Record<string, any>
+  localScreenTrack?: any
+  remoteVideoTracks?: Record<string, any[]>
 }
 
 export function MainContent({
@@ -28,6 +29,7 @@ export function MainContent({
   onInviteChannel,
   canManageChannel = false,
   localVideoTrack,
+  localScreenTrack,
   remoteVideoTracks = {},
 }: MainContentProps) {
   const [message, setMessage] = useState('')
@@ -125,6 +127,7 @@ export function MainContent({
             connection={voiceConnection}
             onLeave={onLeaveVoice}
             localVideoTrack={localVideoTrack}
+            localScreenTrack={localScreenTrack}
             remoteVideoTracks={remoteVideoTracks}
           />
         </div>

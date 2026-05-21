@@ -5,17 +5,20 @@ interface VoiceAreaProps {
   connection?: VoiceConnection
   onLeave?: () => void
   localVideoTrack?: any
-  remoteVideoTracks?: Record<string, any>
+  localScreenTrack?: any
+  remoteVideoTracks?: Record<string, any[]>
 }
 
 /** Tile d'un participant amb vídeo o avatar */
 function ParticipantTile({
   participant,
   videoTrack,
+  streamBadge,
   isLocal = false,
 }: {
   participant: { userId: string; username: string; isSpeaking: boolean; isDeafened: boolean; isSuppressed: boolean }
   videoTrack?: any
+  streamBadge?: string
   isLocal?: boolean
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -44,6 +47,7 @@ function ParticipantTile({
         </div>
       )}
       <span className="participant-name">{participant.username}</span>
+      {streamBadge && <span className="participant-stream-badge">{streamBadge}</span>}
       <div className="participant-status-icons">
         {participant.isSuppressed && <span title="Micròfon apagat">🔕</span>}
         {participant.isDeafened && <span title="Altaveu apagat">🔇</span>}
@@ -56,6 +60,7 @@ export function VoiceArea({
   connection,
   onLeave,
   localVideoTrack,
+  localScreenTrack,
   remoteVideoTracks = {},
 }: VoiceAreaProps) {
   if (!connection) return null
@@ -128,22 +133,40 @@ export function VoiceArea({
             <ParticipantTile
               participant={localParticipant}
               videoTrack={localVideoTrack}
+              streamBadge={localVideoTrack ? 'CAM' : undefined}
               isLocal
             />
           )}
-          {remoteParticipants.map((p) => (
+
+          {localParticipant && localScreenTrack && (
             <ParticipantTile
-              key={p.userId}
-              participant={p}
-              videoTrack={remoteVideoTracks[p.userId]}
+              key={`${localParticipant.userId}-screen`}
+              participant={localParticipant}
+              videoTrack={localScreenTrack}
+              streamBadge="SCREEN"
+              isLocal
             />
-          ))}
-          {/* Slots buits fins a mínim 4 participants */}
-          {[...Array(Math.max(0, 4 - conn.participants.length))].map((_, i) => (
-            <div key={`empty-${i}`} className="participant-tile empty">
-              <span className="empty-slot">+</span>
-            </div>
-          ))}
+          )}
+
+          {remoteParticipants.map((p) => {
+            const tracks = remoteVideoTracks[p.userId] ?? []
+            if (tracks.length === 0) {
+              return <ParticipantTile key={p.userId} participant={p} />
+            }
+
+            return tracks.map((track, idx) => {
+              const source = String(track?.source ?? '').toLowerCase()
+              const isScreen = source.includes('screen')
+              return (
+                <ParticipantTile
+                  key={`${p.userId}-${track?.sid || idx}`}
+                  participant={p}
+                  videoTrack={track}
+                  streamBadge={isScreen ? 'SCREEN' : 'CAM'}
+                />
+              )
+            })
+          })}
         </div>
       </div>
     </div>

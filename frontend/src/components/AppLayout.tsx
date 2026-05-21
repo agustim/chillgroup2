@@ -62,6 +62,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     isCameraOn: liveKitCameraOn,
     isScreenSharing: liveKitScreenSharing,
     localVideoTrack,
+    localScreenTrack,
     remoteVideoTracks,
     participants: liveKitParticipants,
     connectToChannel: connectLiveKit,
@@ -538,6 +539,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
               onInviteChannel={handleInviteChannel}
               canManageChannel={canManageChannel}
               localVideoTrack={localVideoTrack}
+              localScreenTrack={localScreenTrack}
               remoteVideoTracks={remoteVideoTracks}
             />
           </>
@@ -547,6 +549,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
             voiceConnection={voiceConnection}
             onLeaveVoice={handleLeaveVoiceChannel}
             localVideoTrack={localVideoTrack}
+            localScreenTrack={localScreenTrack}
             remoteVideoTracks={remoteVideoTracks}
           />
         ) : (
