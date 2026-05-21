@@ -81,6 +81,8 @@ export interface VoiceParticipant {
   isDeafened: boolean
   isSuppressed: boolean
   isSpeaking: boolean
+  /** Track de vídeo de LiveKit, si la càmera és activa */
+  videoTrack?: any
 }
 
 export interface VoiceConnection {
@@ -90,6 +92,7 @@ export interface VoiceConnection {
   isJoined: boolean
   isMuted: boolean
   isDeafened: boolean
+  isCameraOn: boolean
 }
 
 export interface PaginationMeta {

@@ -4,6 +4,7 @@ import { messagesSend } from '../../lib/api'
 import { MessageList } from './MessageList'
 import { VoiceArea } from './VoiceArea'
 import { MessageInput } from './MessageInput'
+import { ChannelHeader } from './ChannelHeader'
 import { useSocketIO } from '../../hooks/useSocketIO'
 
 interface MainContentProps {
@@ -11,11 +12,30 @@ interface MainContentProps {
   voiceConnection: VoiceConnection | null
   onToggleMute?: () => void
   onToggleDeafen?: () => void
+  onToggleCamera?: () => Promise<void>
   onLeaveVoice?: () => void
   onUnreadUpdated?: (channelId: string, unreadCount: number) => void
+  onConfigureChannel?: () => void
+  onInviteChannel?: () => void
+  canManageChannel?: boolean
+  localVideoTrack?: any
+  remoteVideoTracks?: Record<string, any>
 }
 
-export function MainContent({ channel, voiceConnection, onToggleMute, onToggleDeafen, onLeaveVoice, onUnreadUpdated }: MainContentProps) {
+export function MainContent({
+  channel,
+  voiceConnection,
+  onToggleMute,
+  onToggleDeafen,
+  onToggleCamera,
+  onLeaveVoice,
+  onUnreadUpdated,
+  onConfigureChannel,
+  onInviteChannel,
+  canManageChannel = false,
+  localVideoTrack,
+  remoteVideoTracks = {},
+}: MainContentProps) {
   const [message, setMessage] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
   const [sending, setSending] = useState(false)
@@ -99,24 +119,42 @@ export function MainContent({ channel, voiceConnection, onToggleMute, onToggleDe
     )
   }
 
-  // Quan tens veu connectada, mostra VoiceArea a la part superior i el canal de text a sota
-  if (voiceConnection) {
-    return (
-      <div className="main-content voice-split-layout">
-        {/* Voice panel at the top */}
+  const isTextChannel = channel?.type === 'text'
+
+  // Layout: voice-panel a l'esquerra (si connectat) + text-area a la dreta (si canal de text)
+  return (
+    <div className={`main-content ${voiceConnection ? 'voice-active-layout' : ''}`}>
+      {/* Panell de veu (sempre visible si connectat, independentment del canal de text) */}
+      {voiceConnection && (
         <div className="voice-panel">
           <VoiceArea
             connection={voiceConnection}
             onToggleMute={onToggleMute}
             onToggleDeafen={onToggleDeafen}
+            onToggleCamera={onToggleCamera}
             onLeave={onLeaveVoice}
+            localVideoTrack={localVideoTrack}
+            remoteVideoTracks={remoteVideoTracks}
           />
         </div>
+      )}
 
-        {/* Text chat below */}
-        {channel && channel.type === 'text' ? (
+      {/* Àrea de text: channel-header + missatges + input */}
+      {isTextChannel && channel && (
+        <div className="text-area">
+          <ChannelHeader
+            channel={channel}
+            canManageChannel={canManageChannel}
+            onConfigureChannel={onConfigureChannel}
+            onInviteChannel={onInviteChannel}
+          />
           <div className="text-panel">
-            <MessageList channelId={channel.channelId} refreshKey={refreshKey} socketMessages={socketMessages} expiringMessageIds={expiringMessageIds} />
+            <MessageList
+              channelId={channel.channelId}
+              refreshKey={refreshKey}
+              socketMessages={socketMessages}
+              expiringMessageIds={expiringMessageIds}
+            />
             {sendError && <div className="message-send-error">{sendError}</div>}
             <MessageInput
               value={message}
@@ -127,53 +165,17 @@ export function MainContent({ channel, voiceConnection, onToggleMute, onToggleDe
               encryptionType={channel.encryptionType}
             />
           </div>
-        ) : (
-          <div className="text-panel">
-            <div className="empty-state">
-              <p>Selecciona un canal de text per parlar</p>
-            </div>
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  // Sense veu connectada: mostra el canal seleccionat
-  if (!channel) {
-    return (
-      <div className="main-content">
-        <div className="empty-state">
-          <p>Selecciona un canal per començar</p>
         </div>
-      </div>
-    )
-  }
+      )}
 
-  // Canals de veu (seleccionats directament, sense connexió prèvia)
-  if (channel.type === 'voice') {
-    return (
-      <div className="main-content">
-        <VoiceArea
-          channel={{ channelId: channel.channelId, name: channel.name, type: 'voice' as const }}
-          joined={false}
-        />
-      </div>
-    )
-  }
-
-  // Canals de text
-  return (
-    <div className="main-content">
-      <MessageList channelId={channel.channelId} refreshKey={refreshKey} socketMessages={socketMessages} expiringMessageIds={expiringMessageIds} />
-      {sendError && <div className="message-send-error">{sendError}</div>}
-      <MessageInput
-        value={message}
-        onChange={setMessage}
-        onKeyDown={handleKeyDown}
-        onSubmit={handleSendMessage}
-        placeholder={`Missatjar a #${channel.name}`}
-        encryptionType={channel.encryptionType}
-      />
+      {/* Si en veu però sense canal de text seleccionat */}
+      {voiceConnection && !isTextChannel && (
+        <div className="text-area empty-text-area">
+          <div className="empty-state">
+            <p>Selecciona un canal de text per xatejar</p>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

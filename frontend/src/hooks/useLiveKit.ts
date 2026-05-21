@@ -14,6 +14,7 @@ import {
   Room,
   RoomEvent,
   createLocalAudioTrack,
+  createLocalVideoTrack,
 } from 'livekit-client'
 import type { VoiceParticipant } from '../types'
 
@@ -26,14 +27,26 @@ interface UseLiveKitResult {
   isPublishing: boolean
   /** Estem mutejats (micròfon apagat) */
   isMuted: boolean
+  /** Escoltem els altres (speaker actiu) */
+  isDeafened: boolean
+  /** Càmera activa */
+  isCameraOn: boolean
+  /** Track de vídeo local (per previsualitzar) */
+  localVideoTrack: any | null
+  /** Tracks de vídeo remots (identity -> track) */
+  remoteVideoTracks: Record<string, any>
   /** Participants remots a la sala */
   participants: VoiceParticipant[]
   /** Connectar a un canal de veu */
   connectToChannel: (channelId: string, channelName: string) => Promise<void>
   /** Desconnectar del canal */
   disconnect: () => void
-  /** Toggle mute/unmute */
+  /** Toggle mute/unmute del micròfon */
   toggleMute: () => Promise<void>
+  /** Toggle deafen (sentir o no els altres) */
+  toggleDeafen: () => void
+  /** Toggle càmera */
+  toggleCamera: () => Promise<void>
   /** Error de connexió */
   error: string | null
 }
@@ -50,10 +63,17 @@ function getJwtToken(): string | null {
 export function useLiveKit(): UseLiveKitResult {
   const roomRef = useRef<Room | null>(null)
   const localAudioTrackRef = useRef<any>(null)
+  const localVideoTrackRef = useRef<any>(null)
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map())
+  const remoteVideoTracksRef = useRef<Map<string, any>>(new Map())
+  const isDeafenedRef = useRef(false)
   const [isConnected, setIsConnected] = useState(false)
   const [isPublishing, setIsPublishing] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
+  const [isDeafened, setIsDeafened] = useState(false)
+  const [isCameraOn, setIsCameraOn] = useState(false)
+  const [localVideoTrack, setLocalVideoTrack] = useState<any>(null)
+  const [remoteVideoTracks, setRemoteVideoTracks] = useState<Record<string, any>>({})
   const [participants, setParticipants] = useState<VoiceParticipant[]>([])
   const [error, setError] = useState<string | null>(null)
 
@@ -84,6 +104,7 @@ export function useLiveKit(): UseLiveKitResult {
     const audioEl = track.attach() as HTMLAudioElement
     audioEl.setAttribute('data-participant', participantSid)
     audioEl.autoplay = true
+    audioEl.muted = isDeafenedRef.current
     document.body.appendChild(audioEl)
     audioElementsRef.current.set(participantSid, audioEl)
     console.log('🔊 Àudio adjuntat per:', participantSid)
@@ -140,9 +161,10 @@ export function useLiveKit(): UseLiveKitResult {
         userId: localPart.identity || localPart.sid,
         username: localPart.name || localPart.identity || 'Tu',
         isSpeaking: localPart.isSpeaking,
-        isDeafened: false,
+        isDeafened: isDeafenedRef.current,
         isSuppressed: !localHasAudio,
         joinedAt: new Date().toISOString(),
+        videoTrack: localVideoTrackRef.current ?? undefined,
       })
     }
 
@@ -156,10 +178,51 @@ export function useLiveKit(): UseLiveKitResult {
         isDeafened: false,
         isSuppressed: !hasAudio,
         joinedAt: new Date().toISOString(),
+        videoTrack: remoteVideoTracksRef.current.get(p.sid) ?? undefined,
       })
     }
     setParticipants(parts)
   }, [])
+
+  // Toggle deafen: silencia / activa tots els elements d'àudio remots
+  const toggleDeafen = useCallback(() => {
+    const newDeafened = !isDeafenedRef.current
+    isDeafenedRef.current = newDeafened
+    audioElementsRef.current.forEach(el => {
+      el.muted = newDeafened
+    })
+    setIsDeafened(newDeafened)
+    updateParticipants()
+  }, [updateParticipants])
+
+  // Toggle càmera
+  const toggleCamera = useCallback(async () => {
+    try {
+      if (localVideoTrackRef.current) {
+        // Apagar càmera
+        if (roomRef.current?.localParticipant) {
+          await roomRef.current.localParticipant.unpublishTrack(localVideoTrackRef.current)
+        }
+        localVideoTrackRef.current.stop()
+        localVideoTrackRef.current = null
+        setLocalVideoTrack(null)
+        setIsCameraOn(false)
+      } else {
+        // Encendre càmera
+        const videoTrack = await createLocalVideoTrack()
+        localVideoTrackRef.current = videoTrack
+        if (roomRef.current?.localParticipant) {
+          await roomRef.current.localParticipant.publishTrack(videoTrack)
+        }
+        setLocalVideoTrack(videoTrack)
+        setIsCameraOn(true)
+      }
+      updateParticipants()
+    } catch (e: any) {
+      console.error('Error toggle càmera:', e)
+      setError(e.message || 'Error accedint a la càmera')
+    }
+  }, [updateParticipants])
 
   // Connectar a un canal de veu
   const connectToChannel = useCallback(async (channelId: string, channelName: string) => {
@@ -207,6 +270,9 @@ export function useLiveKit(): UseLiveKitResult {
         console.log('📻 Track subscrit de:', participant.identity, 'kind:', track.kind)
         if (track.kind === 'audio') {
           attachRemoteAudio(track, participant.sid)
+        } else if (track.kind === 'video') {
+          remoteVideoTracksRef.current.set(participant.sid, track)
+          setRemoteVideoTracks(prev => ({ ...prev, [participant.identity]: track }))
         }
         updateParticipants()
       })
@@ -215,6 +281,13 @@ export function useLiveKit(): UseLiveKitResult {
         console.log('📵 Track no subscrit de:', participant?.identity)
         if (track.kind === 'audio') {
           detachRemoteAudio(participant.sid)
+        } else if (track.kind === 'video') {
+          remoteVideoTracksRef.current.delete(participant.sid)
+          setRemoteVideoTracks(prev => {
+            const next = { ...prev }
+            delete next[participant.identity]
+            return next
+          })
         }
         updateParticipants()
       })
@@ -252,6 +325,14 @@ export function useLiveKit(): UseLiveKitResult {
           el.remove()
         })
         audioElementsRef.current.clear()
+        remoteVideoTracksRef.current.clear()
+        setRemoteVideoTracks({})
+        if (localVideoTrackRef.current) {
+          localVideoTrackRef.current.stop()
+          localVideoTrackRef.current = null
+          setLocalVideoTrack(null)
+          setIsCameraOn(false)
+        }
         setIsConnected(false)
         setIsPublishing(false)
         localAudioTrackRef.current = null
@@ -314,18 +395,30 @@ export function useLiveKit(): UseLiveKitResult {
       } catch (_) { /* ignore */ }
       localAudioTrackRef.current = null
     }
+    if (localVideoTrackRef.current) {
+      try {
+        localVideoTrackRef.current.stop()
+      } catch (_) { /* ignore */ }
+      localVideoTrackRef.current = null
+      setLocalVideoTrack(null)
+      setIsCameraOn(false)
+    }
     audioElementsRef.current.forEach(el => {
       el.srcObject = null
       el.remove()
     })
     audioElementsRef.current.clear()
+    remoteVideoTracksRef.current.clear()
+    setRemoteVideoTracks({})
     if (roomRef.current) {
       roomRef.current.disconnect()
       roomRef.current = null
     }
+    isDeafenedRef.current = false
     setIsConnected(false)
     setIsPublishing(false)
     setIsMuted(false)
+    setIsDeafened(false)
     setParticipants([])
   }, [])
 
@@ -347,10 +440,16 @@ export function useLiveKit(): UseLiveKitResult {
     isConnected,
     isPublishing,
     isMuted,
+    isDeafened,
+    isCameraOn,
+    localVideoTrack,
+    remoteVideoTracks,
     participants,
     connectToChannel,
     disconnect,
     toggleMute,
+    toggleDeafen,
+    toggleCamera,
     error,
   }
 }

@@ -3,7 +3,6 @@ import { useAuth } from '../contexts/AuthContext'
 import { ServerBar } from './sidebar/ServerBar'
 import { ChannelList } from './sidebar/ChannelList'
 import { MainContent } from './main/MainContent'
-import { ChannelHeader } from './main/ChannelHeader'
 import { CreateServerModal } from './modals/CreateServerModal'
 import { CreateTextChannelModal } from './modals/CreateTextChannelModal'
 import { CreateVoiceChannelModal } from './modals/CreateVoiceChannelModal'
@@ -59,10 +58,16 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     isConnected: liveKitConnected,
     isPublishing,
     isMuted: liveKitMuted,
+    isDeafened: liveKitDeafened,
+    isCameraOn: liveKitCameraOn,
+    localVideoTrack,
+    remoteVideoTracks,
     participants: liveKitParticipants,
     connectToChannel: connectLiveKit,
     disconnect: disconnectLiveKit,
     toggleMute: toggleLiveKitMute,
+    toggleDeafen: toggleLiveKitDeafen,
+    toggleCamera: toggleLiveKitCamera,
     error: liveKitError,
   } = useLiveKit()
 
@@ -273,6 +278,14 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     }
   }
 
+  const handleToggleDeafen = () => {
+    toggleLiveKitDeafen()
+  }
+
+  const handleToggleCamera = async () => {
+    await toggleLiveKitCamera()
+  }
+
   const handleCreateServer = async () => {
     setShowCreateServer(true)
   }
@@ -414,7 +427,8 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
         participants: liveKitParticipants,
         isJoined: liveKitConnected,
         isMuted: liveKitMuted,
-        isDeafened: false,
+        isDeafened: liveKitDeafened,
+        isCameraOn: liveKitCameraOn,
       }
     : null
 
@@ -468,21 +482,32 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
 
         {selectedChannel ? (
           <>
-            <ChannelHeader
-              channel={selectedChannel}
-              canManageChannel={canManageChannel}
-              onConfigureChannel={handleConfigureChannel}
-              onInviteChannel={handleInviteChannel}
-            />
             <MainContent
               channel={selectedChannel}
               voiceConnection={voiceConnection}
               onToggleMute={handleToggleMute}
-              onToggleDeafen={handleToggleMute}
+              onToggleDeafen={handleToggleDeafen}
+              onToggleCamera={handleToggleCamera}
               onLeaveVoice={handleLeaveVoiceChannel}
               onUnreadUpdated={handleUnreadUpdated}
+              onConfigureChannel={handleConfigureChannel}
+              onInviteChannel={handleInviteChannel}
+              canManageChannel={canManageChannel}
+              localVideoTrack={localVideoTrack}
+              remoteVideoTracks={remoteVideoTracks}
             />
           </>
+        ) : voiceConnection ? (
+          <MainContent
+            channel={null}
+            voiceConnection={voiceConnection}
+            onToggleMute={handleToggleMute}
+            onToggleDeafen={handleToggleDeafen}
+            onToggleCamera={handleToggleCamera}
+            onLeaveVoice={handleLeaveVoiceChannel}
+            localVideoTrack={localVideoTrack}
+            remoteVideoTracks={remoteVideoTracks}
+          />
         ) : (
           <div className="welcome-screen">
             <h1>Benvingut/da, {username}!</h1>
