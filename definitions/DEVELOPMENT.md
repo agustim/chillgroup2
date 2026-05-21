@@ -832,3 +832,18 @@ pub async fn health(
 | Missatge latency (remote) | < 50ms |
 | Concurrent WebSocket connections | 10,000+ |
 | Concurrent LiveKit participants | 50/channel |
+
+## Future Improvements
+
+### Environment Variable-based Debug Logging
+
+Actualment els logs es controlen via `tracing` (backend) i `console` (frontend) sense nivells configurables. Per millorar la debuggabilitat en producció i desenvolupament, seria útil afegir:
+
+- `BACKEND_DEBUG=info|debug|warn|error` — Controlar els nivells de logs de `tracing` (server-side) via variable d'entorn
+- `FRONTEND_DEBUG=info|debug|warn|error` — Crear un logger custom per al frontend que filtri els `console.*` calls per nivell
+
+Això evitaria comentar/descomentar logs manuals i permetria activar/desactivar logging en temps d'execució sense recompilacions.
+
+**Implementació sugerida:**
+- **Backend**: Llegir `BACKEND_DEBUG` a `config.rs` i configurar dinàmicament el layer de `tracing` a `main.rs`
+- **Frontend**: Crear `lib/logger.ts` que wrappegi `console.log/warn/error` i filtri per nivell

@@ -50,6 +50,7 @@ function getJwtToken(): string | null {
 export function useLiveKit(): UseLiveKitResult {
   const roomRef = useRef<Room | null>(null)
   const localAudioTrackRef = useRef<any>(null)
+  const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map())
   const [isConnected, setIsConnected] = useState(false)
   const [isPublishing, setIsPublishing] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
@@ -59,9 +60,43 @@ export function useLiveKit(): UseLiveKitResult {
   // Netejar quan es desmunta
   useEffect(() => {
     return () => {
+      // Eliminar tots els elements d'àudio remots
+      audioElementsRef.current.forEach(el => {
+        el.srcObject = null
+        el.remove()
+      })
+      audioElementsRef.current.clear()
       roomRef.current?.disconnect()
       roomRef.current = null
       localAudioTrackRef.current = null
+    }
+  }, [])
+
+  // Adjuntar un track d'àudio remot al DOM perquè es pugui sentir
+  const attachRemoteAudio = useCallback((track: any, participantSid: string) => {
+    // Evitar duplicats
+    const existing = audioElementsRef.current.get(participantSid)
+    if (existing) {
+      existing.srcObject = null
+      existing.remove()
+      audioElementsRef.current.delete(participantSid)
+    }
+    const audioEl = track.attach() as HTMLAudioElement
+    audioEl.setAttribute('data-participant', participantSid)
+    audioEl.autoplay = true
+    document.body.appendChild(audioEl)
+    audioElementsRef.current.set(participantSid, audioEl)
+    console.log('🔊 Àudio adjuntat per:', participantSid)
+  }, [])
+
+  // Eliminar l'element d'àudio d'un participant
+  const detachRemoteAudio = useCallback((participantSid: string) => {
+    const el = audioElementsRef.current.get(participantSid)
+    if (el) {
+      el.srcObject = null
+      el.remove()
+      audioElementsRef.current.delete(participantSid)
+      console.log('🔇 Àudio eliminat per:', participantSid)
     }
   }, [])
 
@@ -169,12 +204,18 @@ export function useLiveKit(): UseLiveKitResult {
 
       // TrackSubscribed(track, publication, participant)
       room.on(RoomEvent.TrackSubscribed, (track: any, publication: any, participant: any) => {
-        console.log('📻 Track subscrit de:', participant.identity)
+        console.log('📻 Track subscrit de:', participant.identity, 'kind:', track.kind)
+        if (track.kind === 'audio') {
+          attachRemoteAudio(track, participant.sid)
+        }
         updateParticipants()
       })
 
-      room.on(RoomEvent.TrackUnsubscribed, (publication: any, participant: any) => {
-        console.log('📵 Track no subscrit de:', participant.identity)
+      room.on(RoomEvent.TrackUnsubscribed, (track: any, publication: any, participant: any) => {
+        console.log('📵 Track no subscrit de:', participant?.identity)
+        if (track.kind === 'audio') {
+          detachRemoteAudio(participant.sid)
+        }
         updateParticipants()
       })
 
@@ -206,6 +247,11 @@ export function useLiveKit(): UseLiveKitResult {
 
       room.on(RoomEvent.Disconnected, (reason: any) => {
         console.log('🔌 Desconnectat de LiveKit:', reason)
+        audioElementsRef.current.forEach(el => {
+          el.srcObject = null
+          el.remove()
+        })
+        audioElementsRef.current.clear()
         setIsConnected(false)
         setIsPublishing(false)
         localAudioTrackRef.current = null
@@ -258,7 +304,7 @@ export function useLiveKit(): UseLiveKitResult {
       setIsConnected(false)
       setIsPublishing(false)
     }
-  }, [fetchToken, updateParticipants])
+  }, [fetchToken, updateParticipants, attachRemoteAudio, detachRemoteAudio])
 
   // Desconnectar
   const disconnect = useCallback(() => {
@@ -268,6 +314,11 @@ export function useLiveKit(): UseLiveKitResult {
       } catch (_) { /* ignore */ }
       localAudioTrackRef.current = null
     }
+    audioElementsRef.current.forEach(el => {
+      el.srcObject = null
+      el.remove()
+    })
+    audioElementsRef.current.clear()
     if (roomRef.current) {
       roomRef.current.disconnect()
       roomRef.current = null
