@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react'
 import { Channel, Message, VoiceConnection } from '../../types'
 import { messagesSend } from '../../lib/api'
+import { encryptChannelMessage, ensureChannelKey } from '../../lib/channel-crypto'
 import { MessageList } from './MessageList'
 import { VoiceArea } from './VoiceArea'
 import { MessageInput } from './MessageInput'
@@ -10,6 +11,7 @@ import { useSocketIO } from '../../hooks/useSocketIO'
 interface MainContentProps {
   channel: Channel | null
   voiceConnection: VoiceConnection | null
+  currentDeviceId?: string | null
   onLeaveVoice?: () => void
   onUnreadUpdated?: (channelId: string, unreadCount: number) => void
   onConfigureChannel?: () => void
@@ -23,6 +25,7 @@ interface MainContentProps {
 export function MainContent({
   channel,
   voiceConnection,
+  currentDeviceId,
   onLeaveVoice,
   onUnreadUpdated,
   onConfigureChannel,
@@ -73,6 +76,12 @@ export function MainContent({
     setSocketMessages([])
   }, [channelId])
 
+  // Quan obrim un canal encriptat, intentar obtenir la clau del servidor si no la tenim
+  React.useEffect(() => {
+    if (!channel || channel.encryptionType === 'none' || !currentDeviceId) return
+    ensureChannelKey(channel.channelId, channel.encryptionType, currentDeviceId).catch(() => {})
+  }, [channel?.channelId, channel?.encryptionType, currentDeviceId])
+
   const handleSendMessage = async () => {
     const trimmedMessage = message.trim()
     if (!trimmedMessage || sending || !channel || channel.type === 'voice') {
@@ -83,7 +92,13 @@ export function MainContent({
     setSendError(null)
 
     try {
-      const response = await messagesSend(channel.channelId, trimmedMessage, '')
+      const { encryptedPayload, iv } = await encryptChannelMessage(
+        channel.channelId,
+        channel.encryptionType,
+        trimmedMessage,
+        currentDeviceId ?? undefined
+      )
+      const response = await messagesSend(channel.channelId, encryptedPayload, iv)
       if (response.success) {
         setMessage('')
         setRefreshKey((current) => current + 1)
@@ -145,6 +160,7 @@ export function MainContent({
           <div className="text-panel">
             <MessageList
               channelId={channel.channelId}
+              encryptionType={channel.encryptionType}
               refreshKey={refreshKey}
               socketMessages={socketMessages}
               expiringMessageIds={expiringMessageIds}

@@ -5,13 +5,14 @@ import { Button } from '../shared/Button'
 interface CreateTextChannelModalProps {
   isOpen: boolean
   onClose: () => void
-  onCreate: (name: string, encryptionType: string, messageTTL: number | null) => Promise<void>
+  onCreate: (name: string, encryptionType: string, messageTTL: number | null, isPrivate: boolean) => Promise<void>
 }
 
 export function CreateTextChannelModal({ isOpen, onClose, onCreate }: CreateTextChannelModalProps) {
   const [name, setName] = useState('')
   const [encryptionType, setEncryptionType] = useState<'none' | 'symmetric' | 'asymmetric'>('none')
   const [messageTTL, setMessageTTL] = useState<string>('')
+  const [isPrivate, setIsPrivate] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
 
@@ -31,10 +32,11 @@ export function CreateTextChannelModal({ isOpen, onClose, onCreate }: CreateText
     try {
       const ttl = messageTTL ? parseInt(messageTTL, 10) : null
       const finalTTL = ttl !== null && ttl > 0 ? ttl : null
-      await onCreate(trimmed.toLowerCase(), encryptionType, finalTTL)
+      await onCreate(trimmed.toLowerCase(), encryptionType, finalTTL, isPrivate)
       setName('')
       setMessageTTL('')
       setEncryptionType('none')
+      setIsPrivate(false)
       onClose()
     } catch {
       setError('No s\'ha pogut crear el canal')
@@ -89,6 +91,19 @@ export function CreateTextChannelModal({ isOpen, onClose, onCreate }: CreateText
             min="0"
             disabled={isSubmitting}
           />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="channel-private" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <input
+              id="channel-private"
+              type="checkbox"
+              checked={isPrivate}
+              onChange={(e) => setIsPrivate(e.target.checked)}
+              disabled={isSubmitting}
+            />
+            <span>Canal privat (secret)</span>
+          </label>
         </div>
 
         {error && <div className="modal-error">{error}</div>}

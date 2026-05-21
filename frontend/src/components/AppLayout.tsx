@@ -13,6 +13,7 @@ import { useLiveKit } from '../hooks/useLiveKit'
 import { Channel, Server, ServerFullInfo, VoiceParticipant } from '../types'
 import { getSocket } from '../lib/socket'
 import { hasLocalDeviceKeypair } from '../lib/device-keys'
+import { ensureChannelKey, distributeChannelKey } from '../lib/channel-crypto'
 import {
   serverInviteMember,
   serversCreate,
@@ -349,10 +350,23 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   }
 
   // Crear canal de text
-  const handleCreateTextChannel = async (name: string, encryptionType: string, messageTTL: number | null) => {
+  const handleCreateTextChannel = async (
+    name: string,
+    encryptionType: string,
+    messageTTL: number | null,
+    isPrivate: boolean
+  ) => {
     if (!selectedServer) return
-    const result = await channelsCreate(selectedServer, name, 'text', encryptionType, messageTTL)
+    const result = await channelsCreate(selectedServer, name, 'text', encryptionType, messageTTL, isPrivate)
     if (result.success) {
+      if (result.data.encryptionType !== 'none') {
+        // Generar clau localment i distribuir-la a tots els membres del canal
+        const { generateSymmetricKey } = await import('../lib/crypto')
+        const { storeChannelKey } = await import('../lib/storage')
+        const channelKey = generateSymmetricKey()
+        await storeChannelKey(result.data.channelId, channelKey, result.data.encryptionType)
+        distributeChannelKey(result.data.channelId, channelKey).catch(() => {})
+      }
       await fetchChannels(selectedServer)
       setSelectedChannel(result.data)
       setFeedback(`Canal "${result.data.name}" creat`)
@@ -362,10 +376,17 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   }
 
   // Crear canal de veu
-  const handleCreateVoiceChannel = async (name: string, encryptionType: string) => {
+  const handleCreateVoiceChannel = async (name: string, encryptionType: string, isPrivate: boolean) => {
     if (!selectedServer) return
-    const result = await channelsCreate(selectedServer, name, 'voice', encryptionType)
+    const result = await channelsCreate(selectedServer, name, 'voice', encryptionType, null, isPrivate)
     if (result.success) {
+      if (result.data.encryptionType !== 'none') {
+        const { generateSymmetricKey } = await import('../lib/crypto')
+        const { storeChannelKey } = await import('../lib/storage')
+        const channelKey = generateSymmetricKey()
+        await storeChannelKey(result.data.channelId, channelKey, result.data.encryptionType)
+        distributeChannelKey(result.data.channelId, channelKey).catch(() => {})
+      }
       await fetchChannels(selectedServer)
       setSelectedChannel(result.data)
       setFeedback(`Canal "${result.data.name}" creat`)
@@ -385,6 +406,15 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     if (result.success) {
       setFeedback(`Invitació enviada a ${username}`)
       await fetchServerDetails(selectedServer)
+
+      // Si estem veient un canal xifrat, intentar redistribuir-li la clau al nou membre.
+      if (selectedChannel?.encryptionType !== 'none') {
+        const { getChannelKey } = await import('../lib/storage')
+        const channelKey = await getChannelKey(selectedChannel.channelId)
+        if (channelKey) {
+          distributeChannelKey(selectedChannel.channelId, channelKey).catch(() => {})
+        }
+      }
     } else {
       setFeedback(result.error.message)
     }
@@ -559,6 +589,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
             <MainContent
               channel={selectedChannel}
               voiceConnection={voiceConnection}
+              currentDeviceId={currentDeviceId}
               onLeaveVoice={handleLeaveVoiceChannel}
               onUnreadUpdated={handleUnreadUpdated}
               onConfigureChannel={handleConfigureChannel}
@@ -573,6 +604,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           <MainContent
             channel={null}
             voiceConnection={voiceConnection}
+            currentDeviceId={currentDeviceId}
             onLeaveVoice={handleLeaveVoiceChannel}
             localVideoTrack={localVideoTrack}
             localScreenTrack={localScreenTrack}

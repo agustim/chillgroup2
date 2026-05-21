@@ -109,6 +109,8 @@ pub enum AppError {
     #[error("Ja estàs en un canal de veu: {current_channel}")]
     AlreadyInVoiceChannel { current_channel: String },
     // Sistema (9000-9099)
+    #[error("Petició incorrecta")]
+    BadRequest,
     #[error("Error intern del servidor")]
     InternalError,
     #[error("Base de dades no disponible")]
@@ -180,6 +182,9 @@ impl IntoResponse for AppError {
             AppError::ChannelAccessDenied => (
                 StatusCode::FORBIDDEN, 3002, "No tens accés a aquest canal".to_string(), None,
             ),
+            AppError::ChannelKeyNotFound => (
+                StatusCode::NOT_FOUND, 3007, "No tens la clau de desxifratge per a aquest canal".to_string(), None,
+            ),
             AppError::ChannelNameExists => (
                 StatusCode::CONFLICT, 3004, "Ja existeix un canal amb aquest nom al servidor".to_string(), None,
             ),
@@ -202,6 +207,9 @@ impl IntoResponse for AppError {
             AppError::AlreadyInVoiceChannel { current_channel } => (
                 StatusCode::FORBIDDEN, 6004, "Ja estàs en un canal de veu".to_string(),
                 Some(serde_json::json!({"currentChannel": current_channel})),
+            ),
+            AppError::BadRequest => (
+                StatusCode::BAD_REQUEST, 4000, "Petició incorrecta".to_string(), None,
             ),
             AppError::InternalError | AppError::DatabaseError(_) | AppError::Crypto(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR, 9001, "S'ha produït un error intern".to_string(), None,

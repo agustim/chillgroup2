@@ -425,14 +425,15 @@ export async function channelsCreate(
   name: string,
   type: 'text' | 'voice',
   encryptionType = 'none',
-  messageTTL: number | null = null
+  messageTTL: number | null = null,
+  isPrivate = false
 ): Promise<ApiResult<Channel>> {
   const result = await apiRequest<any>('POST', `/api/servers/${serverId}/channels`, {
     name,
     channel_type: type,
     encryption_type: encryptionType,
     message_ttl: messageTTL,
-    is_private: false,
+    is_private: isPrivate,
   })
   if (!result.success) return result
   return { success: true, data: mapChannelToTypes(result.data) }
@@ -469,6 +470,60 @@ export async function channelInvite(channelId: string, username: string): Promis
 
 export async function channelsGetKeys(channelId: string) {
   return apiRequest<any[]>('GET', `/api/channels/${channelId}/keys`)
+}
+
+export async function channelGetKey(channelId: string): Promise<ApiResult<{
+  deviceId: string
+  encryptedKey: string
+  kemCiphertext: string
+}>> {
+  const result = await apiRequest<any>('GET', `/api/channels/${channelId}/keys`)
+  if (!result.success) return result
+  const d = result.data
+  return {
+    success: true,
+    data: {
+      deviceId: d.deviceId ?? d.device_id,
+      encryptedKey: d.encryptedKey ?? d.encrypted_key,
+      kemCiphertext: d.kemCiphertext ?? d.kem_ciphertext,
+    },
+  }
+}
+
+export async function channelUploadKeys(
+  channelId: string,
+  bundles: Array<{ deviceId: string; encryptedKey: string; kemCiphertext: string }>
+): Promise<ApiResult<void>> {
+  const body = bundles.map((b) => ({
+    device_id: b.deviceId,
+    encrypted_key: b.encryptedKey,
+    kem_ciphertext: b.kemCiphertext,
+  }))
+  const result = await apiRequest<void>('POST', `/api/channels/${channelId}/keys`, body)
+  if (!result.success) return result
+  return { success: true, data: undefined }
+}
+
+export async function channelGetMemberDevices(channelId: string): Promise<ApiResult<Array<{
+  deviceId: string
+  publicKey: string
+}>>> {
+  const result = await apiRequest<any>('GET', `/api/channels/${channelId}/member-devices`)
+  if (!result.success) return result
+  const data = Array.isArray(result.data) ? result.data : (result.data?.data ?? [])
+  return {
+    success: true,
+    data: data.map((d: any) => ({
+      deviceId: d.deviceId ?? d.device_id,
+      publicKey: d.publicKey ?? d.public_key,
+    })),
+  }
+}
+
+export async function deviceUpdatePublicKey(publicKey: string): Promise<ApiResult<void>> {
+  const result = await apiRequest<void>('PUT', '/api/user/me/device/publickey', { public_key: publicKey })
+  if (!result.success) return result
+  return { success: true, data: undefined }
 }
 
 // ── LiveKit ─────────────────────────────────────────────────────

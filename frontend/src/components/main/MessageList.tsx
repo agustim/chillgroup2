@@ -1,17 +1,26 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Message } from '../../types'
+import { EncryptionType, Message } from '../../types'
 import { messagesList } from '../../lib/api'
+import { decryptMessagesForChannel } from '../../lib/channel-crypto'
 import { logger } from '../../lib/logger'
 
 interface MessageListProps {
   channelId: string
+  encryptionType: EncryptionType
   refreshKey?: number
   socketMessages?: Message[]
   expiringMessageIds?: Set<string>
 }
 
-export function MessageList({ channelId, refreshKey, socketMessages = [], expiringMessageIds }: MessageListProps) {
+export function MessageList({
+  channelId,
+  encryptionType,
+  refreshKey,
+  socketMessages = [],
+  expiringMessageIds,
+}: MessageListProps) {
   const [messages, setMessages] = useState<Message[]>([])
+  const [decryptedPayloads, setDecryptedPayloads] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -42,6 +51,8 @@ export function MessageList({ channelId, refreshKey, socketMessages = [], expiri
           ? result.data.data.filter((m) => !expiringMessageIdsRef.current!.has(m.messageId))
           : result.data.data
         setMessages(filtered)
+        const decrypted = await decryptMessagesForChannel(channelId, encryptionType, filtered)
+        setDecryptedPayloads(decrypted)
       } else {
         setError('No es poden carregar els missatges')
       }
@@ -54,7 +65,7 @@ export function MessageList({ channelId, refreshKey, socketMessages = [], expiri
 
   useEffect(() => {
     loadMessages()
-  }, [channelId, refreshKey])
+  }, [channelId, encryptionType, refreshKey])
 
   // Quan arriben missatges expirats, esperem la durada de l'animació i els retirem de l'estat local
   useEffect(() => {
@@ -71,10 +82,46 @@ export function MessageList({ channelId, refreshKey, socketMessages = [], expiri
     setMessages((prev) => prev.filter((m) => !expiringMessageIds.has(m.messageId)))
   }, [expiringMessageIds])
 
+  // Combinar missatges carregats + missatges rebuts via socket (sense duplicats),
+  // i filtrar els que estan a expiringMessageIds per evitar el "flash" després de l'animació.
+  // Cal calcular-ho AQUÍ perquè el useEffect de desxifrat el necessita i tots els hooks
+  // s'han d'invocar abans de qualsevol early return.
+  const loadedIds = new Set(messages.map((m) => m.messageId))
+  const combined = [
+    ...messages,
+    ...socketMessages.filter((m) => !loadedIds.has(m.messageId)),
+  ]
+    .filter((m) => !expiringMessageIds?.has(m.messageId))
+    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+
+  // Desxifrar missatges combinats en temps real (socket + historial)
+  useEffect(() => {
+    if (combined.length === 0) {
+      return
+    }
+
+    let cancelled = false
+    decryptMessagesForChannel(channelId, encryptionType, combined)
+      .then((decrypted) => {
+        if (!cancelled) {
+          setDecryptedPayloads(decrypted)
+        }
+      })
+      .catch(() => {
+        // Best effort: si falta clau, el missatge mostrarà el payload cru.
+      })
+
+    return () => {
+      cancelled = true
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channelId, encryptionType, messages, socketMessages, expiringMessageIds])
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [combined])
 
+  // Early returns SEMPRE després de tots els hooks
   if (loading) {
     return (
       <div className="message-list loading">
@@ -92,7 +139,7 @@ export function MessageList({ channelId, refreshKey, socketMessages = [], expiri
     )
   }
 
-  if (messages.length === 0 && socketMessages.length === 0) {
+  if (combined.length === 0) {
     return (
       <div className="message-list empty">
         <p>Sense missatges encara</p>
@@ -100,16 +147,6 @@ export function MessageList({ channelId, refreshKey, socketMessages = [], expiri
       </div>
     )
   }
-
-  // Combinar missatges carregats + missatges rebuts via socket (sense duplicats),
-  // i filtrar els que estan a expiringMessageIds per evitar el "flash" després de l'animació
-  const loadedIds = new Set(messages.map((m) => m.messageId))
-  const combined = [
-    ...messages,
-    ...socketMessages.filter((m) => !loadedIds.has(m.messageId)),
-  ]
-    .filter((m) => !expiringMessageIds?.has(m.messageId))
-    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
 
   return (
     <div className="message-list">
@@ -139,7 +176,7 @@ export function MessageList({ channelId, refreshKey, socketMessages = [], expiri
               {msg.deletedAt ? (
                 <p className="deleted-message">Missatge eliminat</p>
               ) : (
-                <p>{msg.encryptedPayload}</p>
+                <p>{decryptedPayloads[msg.messageId] ?? msg.encryptedPayload}</p>
               )}
             </div>
             <div className="message-timestamp">

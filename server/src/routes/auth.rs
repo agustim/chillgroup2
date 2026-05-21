@@ -13,7 +13,7 @@ use uuid::Uuid;
 use tracing::{info, error, warn};
 
 use crate::{
-    crypto::{hash, kyber},
+    crypto::hash,
     error::AppError,
     middleware::{AppState, generate_token, generate_claims},
 };
@@ -84,10 +84,6 @@ pub async fn register(
     };
     info!("✅ Password hash generat");
 
-    // Generar device ID
-    let device_id = Uuid::new_v4();
-    let device_label = format!("Device at {}", chrono::Utc::now());
-
     // Crear usuari a DB
     let user_id = match state.db.create_user(&req.username, &password_hash).await {
         Ok(id) => id,
@@ -98,8 +94,15 @@ pub async fn register(
     };
     info!("✅ Usuari creat a DB amb user_id={}", user_id);
 
-    // Generar keypair Kyber-1024 per al dispositiu (placeholder)
-    let (_public_key, _private_key) = kyber::generate_keypair_placeholder();
+    // Crear dispositiu persistent per a l'usuari
+    let device_label = format!("Dispositiu principal");
+    let device_id = match state.db.upsert_device_for_user(user_id, &device_label).await {
+        Ok(id) => id,
+        Err(e) => {
+            error!("❌ Error creant dispositiu a DB: {}", e);
+            return Err(AppError::InternalError);
+        }
+    };
 
     // Generar token JWT
     let claims = generate_claims(user_id, &req.username, device_id, false, &state.config);
@@ -119,7 +122,7 @@ pub async fn register(
             username: req.username,
             token,
             device_id,
-            device_label: Some(device_label),
+            device_label: Some("Dispositiu principal".to_string()),
             is_admin: false,
         }),
     ))
@@ -156,11 +159,19 @@ pub async fn login(
 
             info!("✅ Password correcte, generant token...");
 
-            // Generar device ID
             let user_id = _user_id;
 
+            // Recuperar o crear dispositiu persistent per a l'usuari
+            let device_id = match state.db.upsert_device_for_user(user_id, "Dispositiu principal").await {
+                Ok(id) => id,
+                Err(e) => {
+                    error!("❌ Error obtenint dispositiu a DB: {}", e);
+                    return Err(AppError::InternalError);
+                }
+            };
+
             // Generar token JWT
-            let claims = generate_claims(user_id, &_username, Uuid::new_v4(), false, &state.config);
+            let claims = generate_claims(user_id, &_username, device_id, false, &state.config);
             let token = match generate_token(&claims, &state.config) {
                 Ok(t) => t,
                 Err(e) => {
@@ -169,7 +180,7 @@ pub async fn login(
                 }
             };
 
-            info!("✅ Login exitós: user_id={}, username={}", user_id, _username);
+            info!("✅ Login exitós: user_id={}, device_id={}, username={}", user_id, device_id, _username);
 
             Ok((
                 StatusCode::OK,
@@ -177,8 +188,8 @@ pub async fn login(
                     user_id,
                     username: _username,
                     token,
-                    device_id: Uuid::new_v4(),
-                    device_label: Some("Login Device".to_string()),
+                    device_id,
+                    device_label: Some("Dispositiu principal".to_string()),
                     is_admin: false,
                 }),
             ))

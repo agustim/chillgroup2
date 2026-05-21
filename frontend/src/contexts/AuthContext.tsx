@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react'
 import { User } from '../types'
-import { authLogin, authRegister, authMe, authRefresh } from '../lib/api'
+import { authLogin, authRegister, authMe, authRefresh, deviceUpdatePublicKey } from '../lib/api'
 import { getStoredDeviceId, persistDeviceId } from '../lib/device-identity'
+import { generateAndStoreDeviceKeypair, hasLocalDeviceKeypair } from '../lib/device-keys'
 
 interface AuthContextType {
   user: User | null
@@ -79,6 +80,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // Assegura que el dispositiu té un keypair ML-KEM generat i pujat al servidor.
+  const ensureDeviceKeypairUploaded = useCallback(async (deviceId: string) => {
+    try {
+      const alreadyHas = await hasLocalDeviceKeypair(deviceId)
+      let publicKey: string
+      if (alreadyHas) {
+        // Retrieve existing public key from IndexedDB
+        const { getDevicePublicKey } = await import('../lib/storage')
+        const pkBytes = await getDevicePublicKey(deviceId)
+        if (!pkBytes) return
+        // Convert to base64
+        let binary = ''
+        for (let i = 0; i < pkBytes.length; i++) binary += String.fromCharCode(pkBytes[i])
+        publicKey = btoa(binary)
+      } else {
+        const result = await generateAndStoreDeviceKeypair(deviceId)
+        publicKey = result.publicKey
+      }
+      // Upload public key to server (best effort)
+      await deviceUpdatePublicKey(publicKey)
+    } catch {
+      // Best effort — no bloquejar el login si falla
+    }
+  }, [])
+
   const login = useCallback(async (username: string, password: string) => {
     setIsLoading(true)
     setError(null)
@@ -88,6 +114,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         saveToken(result.data.token)
         saveDeviceId(result.data.deviceId)
         await fetchUser(result.data.token)
+        // Assegurar keypair i pujar clau pública (best effort, no bloquejar)
+        ensureDeviceKeypairUploaded(result.data.deviceId).catch(() => {})
       } else {
         const msg = !result.success ? result.error.message : 'Login failed'
         throw new Error(msg)
@@ -99,7 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false)
     }
-  }, [saveToken, saveDeviceId, fetchUser])
+  }, [saveToken, saveDeviceId, fetchUser, ensureDeviceKeypairUploaded])
 
   const register = useCallback(async (username: string, password: string) => {
     setIsLoading(true)
@@ -110,6 +138,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         saveToken(result.data.token)
         saveDeviceId(result.data.deviceId)
         await fetchUser(result.data.token)
+        // Generar keypair nou i pujar clau pública (best effort)
+        ensureDeviceKeypairUploaded(result.data.deviceId).catch(() => {})
       } else {
         const msg = !result.success ? result.error.message : 'Register failed'
         throw new Error(msg)
@@ -121,7 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false)
     }
-  }, [saveToken, saveDeviceId, fetchUser])
+  }, [saveToken, saveDeviceId, fetchUser, ensureDeviceKeypairUploaded])
 
   const logout = useCallback(() => {
     clearAuth()

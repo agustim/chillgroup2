@@ -5,12 +5,13 @@ import { Button } from '../shared/Button'
 interface CreateVoiceChannelModalProps {
   isOpen: boolean
   onClose: () => void
-  onCreate: (name: string, encryptionType: string) => Promise<void>
+  onCreate: (name: string, encryptionType: string, isPrivate: boolean) => Promise<void>
 }
 
 export function CreateVoiceChannelModal({ isOpen, onClose, onCreate }: CreateVoiceChannelModalProps) {
   const [name, setName] = useState('')
   const [encryptionType, setEncryptionType] = useState<'none' | 'symmetric' | 'asymmetric'>('none')
+  const [isPrivate, setIsPrivate] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
 
@@ -28,9 +29,10 @@ export function CreateVoiceChannelModal({ isOpen, onClose, onCreate }: CreateVoi
     setError('')
     setIsSubmitting(true)
     try {
-      await onCreate(trimmed.toLowerCase(), encryptionType)
+      await onCreate(trimmed.toLowerCase(), encryptionType, isPrivate)
       setName('')
       setEncryptionType('none')
+      setIsPrivate(false)
       onClose()
     } catch {
       setError('No s\'ha pogut crear el canal')
@@ -72,6 +74,19 @@ export function CreateVoiceChannelModal({ isOpen, onClose, onCreate }: CreateVoi
             <option value="symmetric">Simètrica (clau compartida)</option>
             <option value="asymmetric">Asimètrica (clau pública/privada)</option>
           </select>
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="voice-channel-private" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <input
+              id="voice-channel-private"
+              type="checkbox"
+              checked={isPrivate}
+              onChange={(e) => setIsPrivate(e.target.checked)}
+              disabled={isSubmitting}
+            />
+            <span>Canal privat (secret)</span>
+          </label>
         </div>
 
         {error && <div className="modal-error">{error}</div>}

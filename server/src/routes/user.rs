@@ -6,7 +6,9 @@ use axum::{
     extract::State,
     Json,
     Router,
+    http::StatusCode,
 };
+use serde::Deserialize;
 use tracing::info;
 
 use crate::{
@@ -52,9 +54,37 @@ pub async fn get_user_me(
     })))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateDevicePublicKeyRequest {
+    pub public_key: String,
+}
+
+/// Registrar/actualitzar la clau pública ML-KEM del dispositiu actual.
+#[axum::debug_handler]
+pub async fn update_device_public_key(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Json(req): Json<UpdateDevicePublicKeyRequest>,
+) -> Result<StatusCode, AppError> {
+    info!("🔑 Actualitzant clau pública del dispositiu {} per l'usuari {}", claims.device_id, claims.user_id);
+
+    if req.public_key.is_empty() {
+        return Err(AppError::BadRequest);
+    }
+
+    state.db
+        .update_device_public_key(claims.device_id, claims.user_id, &req.public_key)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+    info!("✅ Clau pública actualitzada per device_id={}", claims.device_id);
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Router per a rutes d'usuari
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/user/me", axum::routing::get(get_user_me))
+        .route("/api/user/me/device/publickey", axum::routing::put(update_device_public_key))
         .with_state(state)
 }

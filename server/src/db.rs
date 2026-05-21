@@ -165,6 +165,7 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
             encrypted_key TEXT NOT NULL,
             kem_ciphertext TEXT,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (channel_id, device_id),
             FOREIGN KEY (channel_id) REFERENCES channels(id),
             FOREIGN KEY (device_id) REFERENCES devices(id)
         )
@@ -1426,6 +1427,198 @@ impl DatabasePool {
             }
         }
         Ok(())
+    }
+
+    /// Retorna el primer dispositiu actiu de l'usuari (device_id, public_key).
+    pub async fn get_device_for_user(&self, user_id: Uuid) -> Result<Option<(Uuid, String)>, sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(
+                    "SELECT id, public_key FROM devices WHERE user_id = $1 AND revoked = false ORDER BY created_at ASC LIMIT 1"
+                )
+                .bind(user_id)
+                .fetch_optional(pool)
+                .await?;
+                Ok(row.map(|r| (r.get(0), r.get(1))))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query(
+                    "SELECT id, public_key FROM devices WHERE user_id = ? AND revoked = 0 ORDER BY created_at ASC LIMIT 1"
+                )
+                .bind(user_id)
+                .fetch_optional(pool)
+                .await?;
+                Ok(row.map(|r| (r.get(0), r.get(1))))
+            }
+        }
+    }
+
+    /// Crea un dispositiu per a un usuari (si no en té cap) i retorna el device_id.
+    pub async fn upsert_device_for_user(&self, user_id: Uuid, label: &str) -> Result<Uuid, sqlx::Error> {
+        // Try to find an existing non-revoked device first.
+        if let Some((existing_id, _)) = self.get_device_for_user(user_id).await? {
+            return Ok(existing_id);
+        }
+        let device_id = Uuid::new_v4();
+        let now = chrono::Utc::now().to_rfc3339();
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "INSERT INTO devices (id, user_id, label, public_key, last_seen, revoked, created_at) \
+                     VALUES ($1, $2, $3, '', NOW(), false, NOW()) ON CONFLICT DO NOTHING"
+                )
+                .bind(device_id)
+                .bind(user_id)
+                .bind(label)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "INSERT OR IGNORE INTO devices (id, user_id, label, public_key, last_seen, revoked, created_at) \
+                     VALUES (?, ?, ?, '', ?, 0, ?)"
+                )
+                .bind(device_id)
+                .bind(user_id)
+                .bind(label)
+                .bind(&now)
+                .bind(&now)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(device_id)
+    }
+
+    /// Actualitza la clau pública d'un dispositiu de l'usuari.
+    pub async fn update_device_public_key(&self, device_id: Uuid, user_id: Uuid, public_key: &str) -> Result<(), sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "UPDATE devices SET public_key = $1, last_seen = NOW() WHERE id = $2 AND user_id = $3"
+                )
+                .bind(public_key)
+                .bind(device_id)
+                .bind(user_id)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                let now = chrono::Utc::now().to_rfc3339();
+                sqlx::query(
+                    "UPDATE devices SET public_key = ?, last_seen = ? WHERE id = ? AND user_id = ?"
+                )
+                .bind(public_key)
+                .bind(&now)
+                .bind(device_id)
+                .bind(user_id)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Retorna la clau de canal encriptada per a un dispositiu concret.
+    pub async fn get_channel_key_for_device(&self, channel_id: Uuid, device_id: Uuid) -> Result<Option<(String, String)>, sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(
+                    "SELECT encrypted_key, kem_ciphertext FROM channel_keys WHERE channel_id = $1 AND device_id = $2 LIMIT 1"
+                )
+                .bind(channel_id)
+                .bind(device_id)
+                .fetch_optional(pool)
+                .await?;
+                Ok(row.map(|r| (r.get(0), r.get::<Option<String>, _>(1).unwrap_or_default())))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query(
+                    "SELECT encrypted_key, kem_ciphertext FROM channel_keys WHERE channel_id = ? AND device_id = ? LIMIT 1"
+                )
+                .bind(channel_id)
+                .bind(device_id)
+                .fetch_optional(pool)
+                .await?;
+                Ok(row.map(|r| (r.get(0), r.get::<Option<String>, _>(1).unwrap_or_default())))
+            }
+        }
+    }
+
+    /// Guarda (upsert) una clau de canal encriptada per a un dispositiu.
+    pub async fn store_channel_key_for_device(
+        &self,
+        channel_id: Uuid,
+        device_id: Uuid,
+        encrypted_key: &str,
+        kem_ciphertext: &str,
+    ) -> Result<(), sqlx::Error> {
+        let id = Uuid::new_v4();
+        let now = chrono::Utc::now().to_rfc3339();
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "INSERT INTO channel_keys (id, channel_id, device_id, encrypted_key, kem_ciphertext, created_at) \
+                     VALUES ($1, $2, $3, $4, $5, NOW()) \
+                     ON CONFLICT (channel_id, device_id) DO UPDATE SET encrypted_key = EXCLUDED.encrypted_key, kem_ciphertext = EXCLUDED.kem_ciphertext"
+                )
+                .bind(id)
+                .bind(channel_id)
+                .bind(device_id)
+                .bind(encrypted_key)
+                .bind(kem_ciphertext)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "INSERT INTO channel_keys (id, channel_id, device_id, encrypted_key, kem_ciphertext, created_at) \
+                     VALUES (?, ?, ?, ?, ?, ?) \
+                     ON CONFLICT (channel_id, device_id) DO UPDATE SET encrypted_key = excluded.encrypted_key, kem_ciphertext = excluded.kem_ciphertext"
+                )
+                .bind(id)
+                .bind(channel_id)
+                .bind(device_id)
+                .bind(encrypted_key)
+                .bind(kem_ciphertext)
+                .bind(&now)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Retorna els dispositius dels membres del canal que tenen clau pública registrada.
+    pub async fn get_member_devices_for_channel(&self, channel_id: Uuid) -> Result<Vec<(Uuid, String)>, sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let rows = sqlx::query(
+                    "SELECT DISTINCT d.id, d.public_key \
+                     FROM devices d \
+                     JOIN server_members sm ON sm.user_id = d.user_id \
+                     JOIN channels c ON c.server_id = sm.server_id \
+                     WHERE c.id = $1 AND d.revoked = false AND d.public_key != '' AND d.public_key IS NOT NULL"
+                )
+                .bind(channel_id)
+                .fetch_all(pool)
+                .await?;
+                Ok(rows.iter().map(|r| (r.get(0), r.get(1))).collect())
+            }
+            DatabasePool::Sqlite(pool) => {
+                let rows = sqlx::query(
+                    "SELECT DISTINCT d.id, d.public_key \
+                     FROM devices d \
+                     JOIN server_members sm ON sm.user_id = d.user_id \
+                     JOIN channels c ON c.server_id = sm.server_id \
+                     WHERE c.id = ? AND d.revoked = 0 AND d.public_key != '' AND d.public_key IS NOT NULL"
+                )
+                .bind(channel_id)
+                .fetch_all(pool)
+                .await?;
+                Ok(rows.iter().map(|r| (r.get(0), r.get(1))).collect())
+            }
+        }
     }
 
     pub async fn count_unread_messages_for_user(

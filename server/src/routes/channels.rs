@@ -175,12 +175,99 @@ pub async fn create_channel(
 }
 
 pub async fn get_channel_keys(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
     Path(channel_id): Path<Uuid>,
-) -> Result<Json<Vec<crate::models::ChannelKey>>, AppError> {
-    info!("Endpoint get_channel_keys cridat: channel_id={}, user_id={}", channel_id, claims.user_id);
-    Ok(Json(vec![]))
+) -> Result<Json<serde_json::Value>, AppError> {
+    info!("Endpoint get_channel_keys cridat: channel_id={}, device_id={}", channel_id, claims.device_id);
+
+    // Verificar que el canal existeix i l'usuari és membre
+    let channel = state.db.get_channel(channel_id).await.map_err(AppError::DatabaseError)?;
+    let channel = channel.ok_or(AppError::ChannelNotFound)?;
+    let role = state.db.is_server_member(channel.server_id, claims.user_id).await
+        .map_err(AppError::DatabaseError)?;
+    if role.is_none() {
+        return Err(AppError::Forbidden);
+    }
+
+    // Buscar la clau de canal encriptada per a aquest dispositiu
+    let key_entry = state.db
+        .get_channel_key_for_device(channel_id, claims.device_id)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+    match key_entry {
+        Some((encrypted_key, kem_ciphertext)) => Ok(Json(serde_json::json!({
+            "success": true,
+            "data": {
+                "deviceId": claims.device_id,
+                "encryptedKey": encrypted_key,
+                "kemCiphertext": kem_ciphertext,
+            }
+        }))),
+        None => Err(AppError::ChannelKeyNotFound),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChannelKeyBundle {
+    pub device_id: Uuid,
+    pub encrypted_key: String,
+    pub kem_ciphertext: String,
+}
+
+pub async fn upload_channel_keys(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path(channel_id): Path<Uuid>,
+    Json(bundles): Json<Vec<ChannelKeyBundle>>,
+) -> Result<StatusCode, AppError> {
+    info!("Endpoint upload_channel_keys cridat: channel_id={}, bundles={}", channel_id, bundles.len());
+
+    let channel = state.db.get_channel(channel_id).await.map_err(AppError::DatabaseError)?;
+    let channel = channel.ok_or(AppError::ChannelNotFound)?;
+    let role = state.db.is_server_member(channel.server_id, claims.user_id).await
+        .map_err(AppError::DatabaseError)?;
+    if role.is_none() {
+        return Err(AppError::Forbidden);
+    }
+
+    for bundle in &bundles {
+        state.db
+            .store_channel_key_for_device(channel_id, bundle.device_id, &bundle.encrypted_key, &bundle.kem_ciphertext)
+            .await
+            .map_err(AppError::DatabaseError)?;
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn get_channel_member_devices(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path(channel_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    info!("Endpoint get_channel_member_devices cridat: channel_id={}", channel_id);
+
+    let channel = state.db.get_channel(channel_id).await.map_err(AppError::DatabaseError)?;
+    let channel = channel.ok_or(AppError::ChannelNotFound)?;
+    let role = state.db.is_server_member(channel.server_id, claims.user_id).await
+        .map_err(AppError::DatabaseError)?;
+    if role.is_none() {
+        return Err(AppError::Forbidden);
+    }
+
+    let devices = state.db
+        .get_member_devices_for_channel(channel_id)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+    let data: Vec<serde_json::Value> = devices.iter().map(|(device_id, public_key)| serde_json::json!({
+        "deviceId": device_id,
+        "publicKey": public_key,
+    })).collect();
+
+    Ok(Json(serde_json::json!({ "success": true, "data": data })))
 }
 
 pub async fn invite_to_channel(
@@ -292,7 +379,8 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/servers/{server_id}/channels", get(list_channels).post(create_channel))
         .route("/api/channels/{channel_id}/read", post(mark_channel_read))
-        .route("/api/channels/{channel_id}/keys", get(get_channel_keys))
+        .route("/api/channels/{channel_id}/keys", get(get_channel_keys).post(upload_channel_keys))
+        .route("/api/channels/{channel_id}/member-devices", get(get_channel_member_devices))
         .route("/api/channels/{channel_id}/invite", post(invite_to_channel))
         .route("/api/channels/{channel_id}", put(update_channel).delete(delete_channel))
         .with_state(state)
