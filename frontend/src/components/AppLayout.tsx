@@ -282,7 +282,31 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     setVoiceChannelName(channel.name)
 
     try {
-      await connectLiveKit(channel.channelId, channel.name)
+      let voiceChannelKey: Uint8Array | null = null
+      if (channel.encryptionType !== 'none') {
+        if (!currentDeviceId) {
+          throw new Error('Falta el dispositiu actual per obtenir la clau del canal')
+        }
+
+        voiceChannelKey = await ensureChannelKey(
+          channel.channelId,
+          channel.encryptionType,
+          currentDeviceId
+        )
+
+        if (!voiceChannelKey) {
+          throw new Error('No s\'ha pogut obtenir la clau del canal de veu')
+        }
+
+        if (channel.encryptionType === 'asymmetric') {
+          distributeChannelKey(channel.channelId, voiceChannelKey).catch(() => {})
+        }
+      }
+
+      await connectLiveKit(channel.channelId, channel.name, {
+        encryptionType: channel.encryptionType,
+        channelKey: voiceChannelKey,
+      })
       getSocket().emit('join-voice-channel', { channelId: channel.channelId })
       setFeedback(`T'has unit al canal de veu "${channel.name}"`)
     } catch (e: any) {

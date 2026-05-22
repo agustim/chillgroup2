@@ -13,11 +13,14 @@ import { useRef, useState, useCallback, useEffect } from 'react'
 import {
   Room,
   RoomEvent,
+  ExternalE2EEKeyProvider,
+  isE2EESupported,
   createLocalScreenTracks,
   createLocalVideoTrack,
 } from 'livekit-client'
+import E2EEWorker from 'livekit-client/e2ee-worker?worker'
 import { logger } from '../lib/logger'
-import type { VoiceParticipant } from '../types'
+import type { EncryptionType, VoiceParticipant } from '../types'
 
 const LIVEKIT_ROOM_PREFIX = 'chillgroup-'
 
@@ -43,7 +46,11 @@ interface UseLiveKitResult {
   /** Participants remots a la sala */
   participants: VoiceParticipant[]
   /** Connectar a un canal de veu */
-  connectToChannel: (channelId: string, channelName: string) => Promise<void>
+  connectToChannel: (
+    channelId: string,
+    channelName: string,
+    options?: { encryptionType?: EncryptionType; channelKey?: Uint8Array | null }
+  ) => Promise<void>
   /** Desconnectar del canal */
   disconnect: () => void
   /** Toggle mute/unmute del micròfon */
@@ -68,6 +75,13 @@ function getJwtToken(): string | null {
 }
 
 export function useLiveKit(): UseLiveKitResult {
+    const toArrayBuffer = useCallback((bytes: Uint8Array): ArrayBuffer => {
+      if (bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength) {
+        return bytes.buffer
+      }
+      return bytes.slice().buffer
+    }, [])
+
   const roomRef = useRef<Room | null>(null)
   const localAudioTrackRef = useRef<any>(null)
   const localVideoTrackRef = useRef<any>(null)
@@ -299,7 +313,11 @@ export function useLiveKit(): UseLiveKitResult {
   }, [])
 
   // Connectar a un canal de veu
-  const connectToChannel = useCallback(async (channelId: string, channelName: string) => {
+  const connectToChannel = useCallback(async (
+    channelId: string,
+    channelName: string,
+    options?: { encryptionType?: EncryptionType; channelKey?: Uint8Array | null }
+  ) => {
     try {
       setError(null)
 
@@ -322,11 +340,32 @@ export function useLiveKit(): UseLiveKitResult {
       // Aplicar preferència actual de so abans de subscriure nous tracks
       isDeafenedRef.current = isDeafened
 
+      const shouldEnableE2EE = options?.encryptionType && options.encryptionType !== 'none'
+
       // Crear i connectar a la sala
-      const room = new Room({
+      const roomOptions: any = {
         adaptiveStream: true,
         dynacast: false,
-      })
+      }
+
+      if (shouldEnableE2EE) {
+        if (!options?.channelKey) {
+          throw new Error('Falta la clau E2EE del canal de veu')
+        }
+        if (!isE2EESupported()) {
+          throw new Error('El navegador no suporta E2EE de LiveKit')
+        }
+
+        const keyProvider = new ExternalE2EEKeyProvider()
+        await keyProvider.setKey(toArrayBuffer(options.channelKey))
+
+        roomOptions.encryption = {
+          keyProvider,
+          worker: new E2EEWorker(),
+        }
+      }
+
+      const room = new Room(roomOptions)
 
       roomRef.current = room
 
@@ -449,6 +488,11 @@ export function useLiveKit(): UseLiveKitResult {
       // Connectar a la sala
       logger.info('🔗 Connectant a LiveKit:', room.name, 'a', livekitUrl)
       await room.connect(livekitUrl, token)
+
+      if (shouldEnableE2EE) {
+        await room.setE2EEEnabled(true)
+      }
+
       logger.info('✅ Connectat a LiveKit:', room.name)
 
       // Aplicar estat per defecte/persistit del micro (OFF per defecte)
@@ -495,7 +539,7 @@ export function useLiveKit(): UseLiveKitResult {
       setIsConnected(false)
       setIsPublishing(false)
     }
-  }, [fetchToken, getTrackKey, isCameraOn, isDeafened, isMuted, isScreenSharing, updateParticipants, attachRemoteAudio, detachRemoteAudio])
+  }, [fetchToken, getTrackKey, isCameraOn, isDeafened, isMuted, isScreenSharing, toArrayBuffer, updateParticipants, attachRemoteAudio, detachRemoteAudio])
 
   // Desconnectar
   const disconnect = useCallback(() => {
