@@ -3,12 +3,17 @@
 #![allow(dead_code)]
 
 use axum::{
-    extract::State,
+    extract::{Path, Query, State},
     http::StatusCode,
     Json,
-    routing::{delete, get, post, put},
-    Router, extract::Path,
+    routing::{get, post, put},
+    Router,
 };
+use aes_gcm::{Aes256Gcm, Nonce, aead::{Aead, KeyInit}};
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
+use ml_kem::{Encapsulate, ml_kem_1024};
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use crate::{
@@ -17,6 +22,60 @@ use crate::{
     models::{Channel, ChannelType, EncryptionType},
 };
 use tracing::info;
+
+const AES_GCM_NONCE_SIZE: usize = 12;
+
+#[derive(Debug, Default, Deserialize)]
+pub struct GetChannelKeysQuery {
+    #[serde(default)]
+    pub version: Option<i32>,
+}
+
+fn encrypt_with_aes_gcm(key: &[u8; 32], plaintext: &[u8]) -> Result<(Vec<u8>, [u8; AES_GCM_NONCE_SIZE]), AppError> {
+    let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| AppError::EncapsulationFailed)?;
+    let mut nonce_bytes = [0u8; AES_GCM_NONCE_SIZE];
+    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let encrypted = cipher
+        .encrypt(nonce, plaintext)
+        .map_err(|_| AppError::EncapsulationFailed)?;
+    Ok((encrypted, nonce_bytes))
+}
+
+fn decrypt_with_aes_gcm(key: &[u8; 32], ciphertext: &[u8], nonce: &[u8]) -> Result<Vec<u8>, AppError> {
+    if nonce.len() != AES_GCM_NONCE_SIZE {
+        return Err(AppError::DecryptionFailed);
+    }
+    let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| AppError::DecryptionFailed)?;
+    let nonce = Nonce::from_slice(nonce);
+    cipher.decrypt(nonce, ciphertext).map_err(|_| AppError::DecryptionFailed)
+}
+
+fn wrap_channel_key_for_device(channel_key: &[u8], device_public_key_b64: &str) -> Result<(String, String), AppError> {
+    let public_key_bytes = STANDARD
+        .decode(device_public_key_b64)
+        .map_err(|_| AppError::PublicKeyNotFound)?;
+
+    let key: ml_kem::kem::Key<ml_kem_1024::EncapsulationKey> = public_key_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| AppError::PublicKeyNotFound)?;
+
+    let encapsulation_key = ml_kem_1024::EncapsulationKey::new(&key)
+        .map_err(|_| AppError::PublicKeyNotFound)?;
+
+    let (kem_ciphertext, shared_secret) = encapsulation_key.encapsulate();
+    let mut wrapping_key = [0u8; 32];
+    wrapping_key.copy_from_slice(shared_secret.as_slice());
+
+    let (encrypted_key, nonce) = encrypt_with_aes_gcm(&wrapping_key, channel_key)?;
+
+    let mut wrapped = Vec::with_capacity(AES_GCM_NONCE_SIZE + encrypted_key.len());
+    wrapped.extend_from_slice(&nonce);
+    wrapped.extend_from_slice(&encrypted_key);
+
+    Ok((STANDARD.encode(wrapped), STANDARD.encode(kem_ciphertext.as_slice())))
+}
 
 #[derive(Debug, Deserialize)]
 pub struct CreateChannelRequest {
@@ -157,6 +216,21 @@ pub async fn create_channel(
         req.is_private,
     ).await.map_err(|e| AppError::DatabaseError(e))?;
 
+    if req.encryption_type == EncryptionType::Symmetric {
+        let mut channel_key = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut channel_key);
+
+        let (encrypted_key_bytes, nonce) = encrypt_with_aes_gcm(&state.config.server_master_key, &channel_key)?;
+        let encrypted_key_b64 = STANDARD.encode(encrypted_key_bytes);
+        let nonce_b64 = STANDARD.encode(nonce);
+
+        state
+            .db
+            .create_channel_key_version(channel_id, 1, &encrypted_key_b64, &nonce_b64, claims.user_id)
+            .await
+            .map_err(AppError::DatabaseError)?;
+    }
+
     info!("Canal creat i desat a DB: channel_id={}", channel_id);
     Ok((
         StatusCode::CREATED,
@@ -178,6 +252,7 @@ pub async fn get_channel_keys(
     State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
     Path(channel_id): Path<Uuid>,
+    Query(query): Query<GetChannelKeysQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     info!("Endpoint get_channel_keys cridat: channel_id={}, device_id={}", channel_id, claims.device_id);
 
@@ -190,22 +265,64 @@ pub async fn get_channel_keys(
         return Err(AppError::Forbidden);
     }
 
-    // Buscar la clau de canal encriptada per a aquest dispositiu
-    let key_entry = state.db
-        .get_channel_key_for_device(channel_id, claims.device_id)
-        .await
-        .map_err(AppError::DatabaseError)?;
+    if channel.encryption_type == EncryptionType::Symmetric {
+        let device_public_key = state
+            .db
+            .get_device_public_key_for_user(claims.device_id, claims.user_id)
+            .await
+            .map_err(AppError::DatabaseError)?
+            .filter(|value| !value.trim().is_empty())
+            .ok_or(AppError::DeviceNoPublicKey)?;
 
-    match key_entry {
-        Some((encrypted_key, kem_ciphertext)) => Ok(Json(serde_json::json!({
+        let key_version_row = if let Some(version) = query.version {
+            state
+                .db
+                .get_channel_key_version(channel_id, version)
+                .await
+                .map_err(AppError::DatabaseError)?
+        } else {
+            state
+                .db
+                .get_latest_channel_key_version(channel_id)
+                .await
+                .map_err(AppError::DatabaseError)?
+        }
+        .ok_or(AppError::ChannelKeyNotFound)?;
+
+        let (_, version, encrypted_key_b64, nonce_b64) = key_version_row;
+        let encrypted_key = STANDARD.decode(encrypted_key_b64).map_err(|_| AppError::DecryptionFailed)?;
+        let nonce = STANDARD.decode(nonce_b64).map_err(|_| AppError::DecryptionFailed)?;
+        let channel_key = decrypt_with_aes_gcm(&state.config.server_master_key, &encrypted_key, &nonce)?;
+
+        let (wrapped_key, kem_ciphertext) = wrap_channel_key_for_device(&channel_key, &device_public_key)?;
+
+        Ok(Json(serde_json::json!({
             "success": true,
             "data": {
                 "deviceId": claims.device_id,
-                "encryptedKey": encrypted_key,
+                "encryptedKey": wrapped_key,
                 "kemCiphertext": kem_ciphertext,
+                "keyVersion": version,
             }
-        }))),
-        None => Err(AppError::ChannelKeyNotFound),
+        })))
+    } else {
+        // Nivell 2: recuperar bundle pujat pels clients (zero-knowledge del servidor)
+        let key_entry = state.db
+            .get_channel_key_for_device(channel_id, claims.device_id)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
+        match key_entry {
+            Some((encrypted_key, kem_ciphertext)) => Ok(Json(serde_json::json!({
+                "success": true,
+                "data": {
+                    "deviceId": claims.device_id,
+                    "encryptedKey": encrypted_key,
+                    "kemCiphertext": kem_ciphertext,
+                }
+            }))),
+            None => Err(AppError::ChannelKeyNotFound),
+        }
     }
 }
 

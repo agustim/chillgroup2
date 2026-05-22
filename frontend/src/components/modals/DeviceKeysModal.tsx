@@ -16,6 +16,7 @@ import {
   listSymmetricChannelKeys,
 } from '../../lib/device-keys'
 import { persistDeviceId } from '../../lib/device-identity'
+import { userDevicesList, userDeviceRevoke } from '../../lib/api'
 
 interface DeviceKeysModalProps {
   isOpen: boolean
@@ -49,8 +50,19 @@ export function DeviceKeysModal({
     createdAt: number
     updatedAt: number
   }>>([])
+  const [serverDevices, setServerDevices] = useState<Array<{
+    deviceId: string
+    label: string
+    publicKey: string
+    hasPublicKey: boolean
+    createdAt?: string
+    lastSeen: string
+    revoked: boolean
+    isCurrent: boolean
+  }>>([])
   const [symmetricKeys, setSymmetricKeys] = useState<Array<{
     channelId: string
+    keyVersion: number
     acquiredAt: number
     preview: string
   }>>([])
@@ -64,20 +76,68 @@ export function DeviceKeysModal({
   const [exportedSymmetricBundle, setExportedSymmetricBundle] = useState('')
 
   const activeDevice = useMemo(
-    () => devices.find((item) => item.deviceId === currentDeviceId) ?? null,
-    [devices, currentDeviceId]
+    () => serverDevices.find((item) => item.deviceId === currentDeviceId)
+      ?? devices.find((item) => item.deviceId === currentDeviceId)
+      ?? null,
+    [serverDevices, devices, currentDeviceId]
   )
 
+  const mergedDevices = useMemo(() => {
+    const localMap = new Map(keypairs.map((pair) => [pair.deviceId, pair]))
+    const serverMap = new Map(serverDevices.map((device) => [device.deviceId, device]))
+    const ids = new Set([...localMap.keys(), ...serverMap.keys()])
+
+    return Array.from(ids)
+      .map((deviceId) => {
+        const local = localMap.get(deviceId) ?? null
+        const server = serverMap.get(deviceId) ?? null
+        return {
+          deviceId,
+          label: server?.label ?? (deviceId === currentDeviceId ? 'Dispositiu actual' : 'Dispositiu local'),
+          local,
+          server,
+          isCurrent: server?.isCurrent ?? deviceId === currentDeviceId,
+          hasLocalKeypair: !!local,
+          isRemoteOnly: !local && !!server,
+          isLocalOnly: !!local && !server,
+          hasPublicKey: server?.hasPublicKey ?? false,
+        }
+      })
+      .sort((a, b) => {
+        if (a.isCurrent) return -1
+        if (b.isCurrent) return 1
+        if (a.server && !b.server) return -1
+        if (!a.server && b.server) return 1
+        return a.deviceId.localeCompare(b.deviceId)
+      })
+  }, [keypairs, serverDevices, currentDeviceId])
+
   const refreshState = async () => {
-    const [summary, pairs, symKeys] = await Promise.all([
+    const [summary, pairs, symKeys, devicesResult] = await Promise.all([
       currentDeviceId ? getDeviceKeySummary(currentDeviceId) : Promise.resolve(null),
       listDeviceKeypairs(),
       listSymmetricChannelKeys(),
+      userDevicesList(),
     ])
 
     setDeviceSummary(summary)
     setKeypairs(pairs)
     setSymmetricKeys(symKeys)
+    if (devicesResult.success) {
+      setServerDevices(devicesResult.data.map((device) => ({
+        deviceId: device.deviceId,
+        label: device.label,
+        publicKey: device.publicKey,
+        hasPublicKey: device.hasPublicKey ?? false,
+        createdAt: device.createdAt,
+        lastSeen: device.lastSeen,
+        revoked: device.revoked,
+        isCurrent: device.isCurrent ?? false,
+      })))
+    } else {
+      setServerDevices([])
+      throw new Error(devicesResult.error.message || 'No s\'ha pogut carregar la llista de dispositius del servidor')
+    }
   }
 
   useEffect(() => {
@@ -203,6 +263,25 @@ export function DeviceKeysModal({
     }
   }
 
+  const handleRevokeServerDevice = async (deviceId: string) => {
+    setIsBusy(true)
+    setError(null)
+    setSuccess(null)
+    try {
+      const result = await userDeviceRevoke(deviceId)
+      if (!result.success) {
+        setError(result.error.message)
+        return
+      }
+      await refreshState()
+      setSuccess(`Dispositiu remot "${deviceId}" eliminat del servidor`)
+    } catch {
+      setError('No s\'ha pogut eliminar el dispositiu remot del servidor')
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
   const handleDeleteSymmetric = async (channelId: string) => {
     setIsBusy(true)
     setError(null)
@@ -311,34 +390,63 @@ export function DeviceKeysModal({
         </section>
 
         <section className="device-keys-section">
-          <h4>Parells de claus disponibles</h4>
-          {keypairs.length === 0 ? (
-            <p>Encara no hi ha parells de claus guardats.</p>
+          <h4>Dispositius del compte</h4>
+          {mergedDevices.length === 0 ? (
+            <p>Encara no hi ha dispositius disponibles.</p>
           ) : (
             <ul className="device-keys-list">
-              {keypairs.map((pair) => (
-                <li key={pair.deviceId} className="device-keys-list-item">
+              {mergedDevices.map((device) => (
+                <li key={device.deviceId} className="device-keys-list-item">
                   <div className="device-keys-list-main">
-                    <strong>{pair.deviceId}</strong>
-                    <span>Actualitzat: {new Date(pair.updatedAt).toLocaleString()}</span>
+                    <strong>{device.label} · {device.deviceId}</strong>
+                    <span>
+                      {device.isCurrent ? 'Actual · ' : ''}
+                      {device.isRemoteOnly ? 'Només servidor' : device.isLocalOnly ? 'Només local' : 'Local + servidor'}
+                    </span>
+                    {device.server && (
+                      <span>
+                        Clau pública: {device.hasPublicKey ? 'registrada' : 'pendent'} · 
+                        Estat: {device.server.revoked ? 'revocat' : 'actiu'}
+                      </span>
+                    )}
+                    {device.server?.lastSeen && (
+                      <span>Darrer accés: {new Date(device.server.lastSeen).toLocaleString()}</span>
+                    )}
+                    {device.local && (
+                      <span>Keypair local actualitzat: {new Date(device.local.updatedAt).toLocaleString()}</span>
+                    )}
                   </div>
                   <div className="device-keys-list-actions">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => void handleExportDeviceKeys(pair.deviceId)}
-                      disabled={isBusy}
-                    >
-                      Backup
-                    </Button>
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      onClick={() => void handleDeleteKeypair(pair.deviceId)}
-                      disabled={isBusy}
-                    >
-                      Esborrar
-                    </Button>
+                    {device.local && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => void handleExportDeviceKeys(device.deviceId)}
+                        disabled={isBusy}
+                      >
+                        Backup local
+                      </Button>
+                    )}
+                    {device.local && (
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        onClick={() => void handleDeleteKeypair(device.deviceId)}
+                        disabled={isBusy}
+                      >
+                        Esborrar local
+                      </Button>
+                    )}
+                    {device.server && !device.isCurrent && !device.server.revoked && (
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        onClick={() => void handleRevokeServerDevice(device.deviceId)}
+                        disabled={isBusy}
+                      >
+                        Eliminar del servidor
+                      </Button>
+                    )}
                   </div>
                 </li>
               ))}
@@ -395,9 +503,9 @@ export function DeviceKeysModal({
           {symmetricKeys.length > 0 && (
             <ul className="device-keys-list">
               {symmetricKeys.map((key) => (
-                <li key={key.channelId} className="device-keys-list-item">
+                <li key={`${key.channelId}-${key.keyVersion}`} className="device-keys-list-item">
                   <div className="device-keys-list-main">
-                    <strong>Canal {key.channelId}</strong>
+                    <strong>Canal {key.channelId} · v{key.keyVersion}</strong>
                     <span>Clau: {key.preview}</span>
                     <span>Guardada: {new Date(key.acquiredAt).toLocaleString()}</span>
                   </div>

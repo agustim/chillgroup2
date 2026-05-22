@@ -3,7 +3,7 @@
 //! Gestiona l'emmagatzematge local de claus criptogràfiques i dades de sessió.
 
 const DB_NAME = 'chillgroup-store'
-const DB_VERSION = 2
+const DB_VERSION = 3
 
 /**
  * Obtenir la base de dades IndexedDB.
@@ -33,6 +33,15 @@ function getDB(): Promise<IDBDatabase> {
       // Object store per a claus de canal (bytes)
       if (!db.objectStoreNames.contains('channelKeysBytes')) {
         const store = db.createObjectStore('channelKeysBytes', { keyPath: 'channelId' })
+        store.createIndex('type', 'type', { unique: false })
+        store.createIndex('expiresAt', 'expiresAt', { unique: false })
+      }
+
+      // Object store V3 per a claus de canal versionades
+      if (!db.objectStoreNames.contains('channelKeysByVersion')) {
+        const store = db.createObjectStore('channelKeysByVersion', { keyPath: 'compoundId' })
+        store.createIndex('channelId', 'channelId', { unique: false })
+        store.createIndex('channelAndVersion', ['channelId', 'keyVersion'], { unique: true })
         store.createIndex('type', 'type', { unique: false })
         store.createIndex('expiresAt', 'expiresAt', { unique: false })
       }
@@ -330,14 +339,157 @@ export async function deleteNamedKeypair(name: string): Promise<void> {
 
 // ── Channel Keys (Bytes) ──────────────────────────────────────
 
+function normalizeKeyVersion(keyVersion: number | undefined): number {
+  return Number.isInteger(keyVersion) && (keyVersion as number) > 0 ? (keyVersion as number) : 1
+}
+
+function makeChannelVersionId(channelId: string, keyVersion: number): string {
+  return `${channelId}::${keyVersion}`
+}
+
+/**
+ * Guardar una clau de canal versionada.
+ */
+export async function storeChannelKeyVersion(
+  channelId: string,
+  keyVersion: number,
+  keyBytes: Uint8Array,
+  type: 'symmetric' | 'asymmetric'
+): Promise<void> {
+  const normalizedVersion = normalizeKeyVersion(keyVersion)
+  const db = await getDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('channelKeysByVersion', 'readwrite')
+    const store = tx.objectStore('channelKeysByVersion')
+    store.put({
+      compoundId: makeChannelVersionId(channelId, normalizedVersion),
+      channelId,
+      keyVersion: normalizedVersion,
+      keyBytes: uint8ArrayToBase64(keyBytes),
+      type,
+      acquiredAt: Date.now(),
+      expiresAt: null,
+    })
+    tx.oncomplete = () => {
+      db.close()
+      resolve()
+    }
+    tx.onerror = () => {
+      db.close()
+      reject(tx.error)
+    }
+  })
+}
+
+/**
+ * Obtenir una clau de canal per versió exacta.
+ */
+export async function getChannelKeyVersion(channelId: string, keyVersion: number): Promise<Uint8Array | null> {
+  const normalizedVersion = normalizeKeyVersion(keyVersion)
+  const db = await getDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('channelKeysByVersion', 'readonly')
+    const store = tx.objectStore('channelKeysByVersion')
+    const request = store.get(makeChannelVersionId(channelId, normalizedVersion))
+    request.onsuccess = () => {
+      const result = request.result
+      if (!result) {
+        db.close()
+        resolve(null)
+        return
+      }
+      db.close()
+      resolve(base64ToUint8Array(result.keyBytes))
+    }
+    request.onerror = () => {
+      db.close()
+      reject(request.error)
+    }
+  })
+}
+
+/**
+ * Obtenir la darrera clau disponible d'un canal (major keyVersion).
+ */
+export async function getLatestChannelKey(channelId: string): Promise<{
+  keyBytes: Uint8Array
+  keyVersion: number
+} | null> {
+  const db = await getDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('channelKeysByVersion', 'readonly')
+    const store = tx.objectStore('channelKeysByVersion')
+    const index = store.index('channelId')
+    const request = index.getAll()
+
+    request.onsuccess = () => {
+      const records = (request.result as Array<{ channelId: string; keyBytes: string; keyVersion: number }>)
+        .filter((item) => item.channelId === channelId)
+      if (!records || records.length === 0) {
+        db.close()
+        resolve(null)
+        return
+      }
+
+      const latest = records.reduce((acc, cur) =>
+        normalizeKeyVersion(cur.keyVersion) > normalizeKeyVersion(acc.keyVersion) ? cur : acc
+      )
+
+      db.close()
+      resolve({
+        keyBytes: base64ToUint8Array(latest.keyBytes),
+        keyVersion: normalizeKeyVersion(latest.keyVersion),
+      })
+    }
+
+    request.onerror = () => {
+      db.close()
+      reject(request.error)
+    }
+  })
+}
+
+/**
+ * Llistar versions disponibles d'un canal.
+ */
+export async function listChannelKeyVersions(channelId: string): Promise<number[]> {
+  const db = await getDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('channelKeysByVersion', 'readonly')
+    const store = tx.objectStore('channelKeysByVersion')
+    const index = store.index('channelId')
+    const request = index.getAll()
+
+    request.onsuccess = () => {
+      const versions = Array.from(
+        new Set(
+          (request.result as Array<{ channelId: string; keyVersion?: number }>)
+            .filter((r) => r.channelId === channelId)
+            .map((r) => normalizeKeyVersion(r.keyVersion))
+        )
+      ).sort((a, b) => a - b)
+      db.close()
+      resolve(versions)
+    }
+
+    request.onerror = () => {
+      db.close()
+      reject(request.error)
+    }
+  })
+}
+
 /**
  * Guardar una clau de canal (bytes) a IndexedDB.
  */
 export async function storeChannelKey(
   channelId: string,
   keyBytes: Uint8Array,
-  type: 'symmetric' | 'asymmetric'
+  type: 'symmetric' | 'asymmetric',
+  keyVersion = 1
 ): Promise<void> {
+  await storeChannelKeyVersion(channelId, keyVersion, keyBytes, type)
+
   const db = await getDB()
   return new Promise((resolve, reject) => {
     const tx = db.transaction('channelKeysBytes', 'readwrite')
@@ -364,6 +516,11 @@ export async function storeChannelKey(
  * Obtenir una clau de canal des de IndexedDB.
  */
 export async function getChannelKey(channelId: string): Promise<Uint8Array | null> {
+  const latest = await getLatestChannelKey(channelId)
+  if (latest) {
+    return latest.keyBytes
+  }
+
   const db = await getDB()
   return new Promise((resolve, reject) => {
     const tx = db.transaction('channelKeysBytes', 'readonly')
@@ -390,6 +547,7 @@ export async function getChannelKey(channelId: string): Promise<Uint8Array | nul
 export interface StoredChannelKeyRecord {
   channelId: string
   keyBytes: Uint8Array
+  keyVersion: number
   type: 'symmetric' | 'asymmetric'
   acquiredAt: number
   expiresAt: number | null
@@ -401,6 +559,7 @@ export interface StoredChannelKeyRecord {
 export async function listChannelKeys(): Promise<
   Array<{
     channelId: string
+    keyVersion: number
     type: 'symmetric' | 'asymmetric'
     acquiredAt: number
     expiresAt: number | null
@@ -408,12 +567,13 @@ export async function listChannelKeys(): Promise<
 > {
   const db = await getDB()
   return new Promise((resolve, reject) => {
-    const tx = db.transaction('channelKeysBytes', 'readonly')
-    const store = tx.objectStore('channelKeysBytes')
+    const tx = db.transaction('channelKeysByVersion', 'readonly')
+    const store = tx.objectStore('channelKeysByVersion')
     const request = store.getAll()
     request.onsuccess = () => {
       const items = request.result.map((item: any) => ({
         channelId: item.channelId,
+        keyVersion: normalizeKeyVersion(item.keyVersion),
         type: item.type as 'symmetric' | 'asymmetric',
         acquiredAt: item.acquiredAt,
         expiresAt: item.expiresAt ?? null,
@@ -434,12 +594,13 @@ export async function listChannelKeys(): Promise<
 export async function getAllChannelKeys(): Promise<StoredChannelKeyRecord[]> {
   const db = await getDB()
   return new Promise((resolve, reject) => {
-    const tx = db.transaction('channelKeysBytes', 'readonly')
-    const store = tx.objectStore('channelKeysBytes')
+    const tx = db.transaction('channelKeysByVersion', 'readonly')
+    const store = tx.objectStore('channelKeysByVersion')
     const request = store.getAll()
     request.onsuccess = () => {
       const items = request.result.map((item: any) => ({
         channelId: item.channelId,
+        keyVersion: normalizeKeyVersion(item.keyVersion),
         keyBytes: base64ToUint8Array(item.keyBytes),
         type: item.type as 'symmetric' | 'asymmetric',
         acquiredAt: item.acquiredAt,
@@ -461,9 +622,23 @@ export async function getAllChannelKeys(): Promise<StoredChannelKeyRecord[]> {
 export async function deleteChannelKey(channelId: string): Promise<void> {
   const db = await getDB()
   return new Promise((resolve, reject) => {
-    const tx = db.transaction('channelKeysBytes', 'readwrite')
-    const store = tx.objectStore('channelKeysBytes')
-    store.delete(channelId)
+    const tx = db.transaction(['channelKeysBytes', 'channelKeysByVersion'], 'readwrite')
+    const legacyStore = tx.objectStore('channelKeysBytes')
+    const versionedStore = tx.objectStore('channelKeysByVersion')
+    const index = versionedStore.index('channelId')
+
+    legacyStore.delete(channelId)
+
+    const cursorRequest = index.openCursor()
+    cursorRequest.onsuccess = () => {
+      const cursor = cursorRequest.result
+      if (cursor) {
+        if ((cursor.value as { channelId?: string }).channelId === channelId) {
+          versionedStore.delete(cursor.primaryKey)
+        }
+        cursor.continue()
+      }
+    }
     tx.oncomplete = () => {
       db.close()
       resolve()
@@ -482,38 +657,20 @@ export async function cleanupExpiredKeys(): Promise<number> {
   const db = await getDB()
   const now = Date.now()
   return new Promise((resolve, reject) => {
-    const tx = db.transaction('channelKeysBytes', 'readwrite')
-    const store = tx.objectStore('channelKeysBytes')
+    const tx = db.transaction('channelKeysByVersion', 'readwrite')
+    const store = tx.objectStore('channelKeysByVersion')
     const request = store.getAll()
-    let count = 0
     request.onsuccess = () => {
       const items = request.result
-      const deleteRequests: IDBRequest[] = []
+      let count = 0
       for (const item of items) {
         if (item.expiresAt && item.expiresAt < now) {
-          deleteRequests.push(store.delete(item.channelId))
+          store.delete(item.compoundId)
           count++
         }
       }
-      if (deleteRequests.length > 0) {
-        const tx2 = db.transaction('channelKeysBytes', 'readwrite')
-        const store2 = tx2.objectStore('channelKeysBytes')
-        deleteRequests.forEach((req) => {
-          const idx = req.result
-          store2.delete(idx)
-        })
-        tx2.oncomplete = () => {
-          db.close()
-          resolve(count)
-        }
-        tx2.onerror = () => {
-          db.close()
-          reject(tx2.error)
-        }
-      } else {
-        db.close()
-        resolve(0)
-      }
+      db.close()
+      resolve(count)
     }
     request.onerror = () => {
       db.close()
@@ -645,13 +802,14 @@ export async function clearAll(): Promise<void> {
   const db = await getDB()
   return new Promise((resolve, reject) => {
     const tx = db.transaction(
-      ['keypairs', 'keypairsV2', 'channelKeysBytes', 'channelKeys', 'devicePublicKeys', 'livekitSessionKeys'],
+      ['keypairs', 'keypairsV2', 'channelKeysBytes', 'channelKeysByVersion', 'channelKeys', 'devicePublicKeys', 'livekitSessionKeys'],
       'readwrite'
     )
     const stores = [
       tx.objectStore('keypairs'),
       tx.objectStore('keypairsV2'),
       tx.objectStore('channelKeysBytes'),
+      tx.objectStore('channelKeysByVersion'),
       tx.objectStore('channelKeys'),
       tx.objectStore('devicePublicKeys'),
       tx.objectStore('livekitSessionKeys'),

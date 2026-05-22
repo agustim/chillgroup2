@@ -359,8 +359,9 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     if (!selectedServer) return
     const result = await channelsCreate(selectedServer, name, 'text', encryptionType, messageTTL, isPrivate)
     if (result.success) {
-      if (result.data.encryptionType !== 'none') {
-        // Generar clau localment i distribuir-la a tots els membres del canal
+      if (result.data.encryptionType === 'asymmetric') {
+        // Nivell 2: generar clau localment i distribuir-la a tots els membres.
+        // Nivell 1 (symmetric) es genera al servidor.
         const { generateSymmetricKey } = await import('../lib/crypto')
         const { storeChannelKey } = await import('../lib/storage')
         const channelKey = generateSymmetricKey()
@@ -380,7 +381,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     if (!selectedServer) return
     const result = await channelsCreate(selectedServer, name, 'voice', encryptionType, null, isPrivate)
     if (result.success) {
-      if (result.data.encryptionType !== 'none') {
+      if (result.data.encryptionType === 'asymmetric') {
         const { generateSymmetricKey } = await import('../lib/crypto')
         const { storeChannelKey } = await import('../lib/storage')
         const channelKey = generateSymmetricKey()
@@ -407,13 +408,19 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
       setFeedback(`Invitació enviada a ${username}`)
       await fetchServerDetails(selectedServer)
 
-      // Si estem veient un canal xifrat, intentar redistribuir-li la clau al nou membre.
-      if (selectedChannel?.encryptionType !== 'none') {
+      // Redistribuir claus de canals asimètrics on tenim clau local.
+      // Evita deixar el nou membre sense bundle si no estàvem en el canal concret.
+      if (channels.some((channel) => channel.encryptionType === 'asymmetric')) {
         const { getChannelKey } = await import('../lib/storage')
-        const channelKey = await getChannelKey(selectedChannel.channelId)
-        if (channelKey) {
-          distributeChannelKey(selectedChannel.channelId, channelKey).catch(() => {})
-        }
+        await Promise.allSettled(
+          channels
+            .filter((channel) => channel.encryptionType === 'asymmetric')
+            .map(async (channel) => {
+              const channelKey = await getChannelKey(channel.channelId)
+              if (!channelKey) return
+              await distributeChannelKey(channel.channelId, channelKey)
+            })
+        )
       }
     } else {
       setFeedback(result.error.message)

@@ -82,26 +82,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Assegura que el dispositiu té un keypair ML-KEM generat i pujat al servidor.
   const ensureDeviceKeypairUploaded = useCallback(async (deviceId: string) => {
-    try {
-      const alreadyHas = await hasLocalDeviceKeypair(deviceId)
-      let publicKey: string
-      if (alreadyHas) {
-        // Retrieve existing public key from IndexedDB
-        const { getDevicePublicKey } = await import('../lib/storage')
-        const pkBytes = await getDevicePublicKey(deviceId)
-        if (!pkBytes) return
-        // Convert to base64
-        let binary = ''
-        for (let i = 0; i < pkBytes.length; i++) binary += String.fromCharCode(pkBytes[i])
-        publicKey = btoa(binary)
-      } else {
-        const result = await generateAndStoreDeviceKeypair(deviceId)
-        publicKey = result.publicKey
+    const alreadyHas = await hasLocalDeviceKeypair(deviceId)
+    let publicKey: string
+    if (alreadyHas) {
+      // Retrieve existing public key from IndexedDB
+      const { getDevicePublicKey } = await import('../lib/storage')
+      const pkBytes = await getDevicePublicKey(deviceId)
+      if (!pkBytes) {
+        throw new Error('No s\'ha trobat la clau pública local del dispositiu')
       }
-      // Upload public key to server (best effort)
-      await deviceUpdatePublicKey(publicKey)
-    } catch {
-      // Best effort — no bloquejar el login si falla
+      // Convert to base64
+      let binary = ''
+      for (let i = 0; i < pkBytes.length; i++) binary += String.fromCharCode(pkBytes[i])
+      publicKey = btoa(binary)
+    } else {
+      const result = await generateAndStoreDeviceKeypair(deviceId)
+      publicKey = result.publicKey
+    }
+
+    const uploadResult = await deviceUpdatePublicKey(publicKey)
+    if (!uploadResult.success) {
+      throw new Error(uploadResult.error.message || 'No s\'ha pogut registrar la clau pública del dispositiu')
     }
   }, [])
 
@@ -113,9 +114,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (result.success && result.data) {
         saveToken(result.data.token)
         saveDeviceId(result.data.deviceId)
+        await ensureDeviceKeypairUploaded(result.data.deviceId)
         await fetchUser(result.data.token)
-        // Assegurar keypair i pujar clau pública (best effort, no bloquejar)
-        ensureDeviceKeypairUploaded(result.data.deviceId).catch(() => {})
       } else {
         const msg = !result.success ? result.error.message : 'Login failed'
         throw new Error(msg)
@@ -137,9 +137,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (result.success && result.data) {
         saveToken(result.data.token)
         saveDeviceId(result.data.deviceId)
+        await ensureDeviceKeypairUploaded(result.data.deviceId)
         await fetchUser(result.data.token)
-        // Generar keypair nou i pujar clau pública (best effort)
-        ensureDeviceKeypairUploaded(result.data.deviceId).catch(() => {})
       } else {
         const msg = !result.success ? result.error.message : 'Register failed'
         throw new Error(msg)

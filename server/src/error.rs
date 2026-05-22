@@ -198,8 +198,14 @@ impl IntoResponse for AppError {
             AppError::PublicKeyNotFound => (
                 StatusCode::BAD_REQUEST, 5001, "Aquest dispositiu no té una clau pública registrada".to_string(), None,
             ),
+            AppError::DeviceNoPublicKey => (
+                StatusCode::FORBIDDEN, 5002, "El dispositiu actual encara no té clau pública registrada".to_string(), None,
+            ),
             AppError::DecryptionFailed => (
                 StatusCode::BAD_REQUEST, 5003, "No s'ha pogut desencriptar el missatge".to_string(), None,
+            ),
+            AppError::EncapsulationFailed => (
+                StatusCode::BAD_REQUEST, 5004, "No s'ha pogut encapsular la clau del canal per aquest dispositiu".to_string(), None,
             ),
             AppError::LiveKitUnavailable => (
                 StatusCode::BAD_GATEWAY, 6003, "El servei de veu no està disponible ara mateix".to_string(), None,

@@ -4,13 +4,15 @@
 
 ChillGroup suporta tres nivells de seguretat per canal. L'usuari tria el nivell en crear el canal:
 
-| Nivell | Nom | Xifratge missatges | Xifratge clau de canal | Zero-knowledge |
-|--------|-----|---------------------|------------------------|----------------|
-| 0 | Sense | ❌ No | — | ❌ No |
-| 1 | Simètric | ✅ AES-GCM-256 | ✅ AES-256-GCM (clau servidor) | ❌ No (servidor pot llegir) |
-| 2 | Asimètric | ✅ AES-GCM-256 | ✅ Kyber-1024 (ML-KEM-1024) + AES-GCM | ✅ Sí |
+| Nivell | Nom | Xifratge missatges | On viu la clau de canal | Zero-knowledge | Versioning |
+|--------|-----|---------------------|-------------------------|----------------|------------|
+| 0 | Sense | ❌ No | — | ❌ No | ❌ No |
+| 1 | Simètric | ✅ AES-GCM-256 | ✅ Servidor (xifrada amb master key) | ❌ No (servidor pot desxifrar) | ✅ Sí |
+| 2 | Asimètric | ✅ AES-GCM-256 | ❌ Mai al servidor | ✅ Sí (100%) | ✅ Sí |
 
 Àudio i vídeo fan servir **LiveKit E2EE** amb session keys independents del xat.
+
+---
 
 ## Nivell 0 — Sense Criptografia
 
@@ -31,647 +33,428 @@ Canals públics, announcements, mems, qualsevol espai on la privadesa no importa
 - Ideal per a comunicació oberta
 - Encara es beneficia de TLS en transport
 
-### Base de Dades
-
-```sql
-INSERT INTO messages (channel_id, sender_user_id, sender_device_id,
-                      encrypted_payload, iv, timestamp)
-VALUES ($1, $2, $3, $4, $5, now());
-```
-
-`encrypted_payload` conté el text literal. `iv` és NULL.
+---
 
 ## Nivell 1 — Clau Simètrica (AES-GCM-256)
 
 ### Concepte
 
-Un sol **canal key** (AES-256) es compartit per tots els membres del canal. La clau es guarda al servidor **xifrada amb una clau mestra del servidor**.
+Cada canal té una o més **versions de clau** (AES-256). La clau viu al servidor, xifrada amb la master key del servidor. El servidor actua com a dipositari de confiança: pot desxifrar la clau de canal si cal, per lliurar-la als dispositius autoritzats.
+
+Quan un client necessita la clau (primer accés o clau perduda), la sol·licita al servidor presentant la seva clau pública ML-KEM. El servidor comprova que el dispositiu té accés, encripta la clau de canal "al vol" amb la clau pública del dispositiu, i la retorna. El client la desencripta localment i la guarda a IndexedDB.
+
+### Versioning de Claus
+
+Cada canal simètric pot tenir múltiples versions de clau al llarg del temps. Quan la clau canvia (rotació manual o expulsió de membre), els missatges anteriors queden vinculats a la versió antiga i els nous a la nova versió.
+
+**Esquema de taules:**
+
+```sql
+channel_key_versions
+  id              UUID PRIMARY KEY
+  channel_id      UUID NOT NULL REFERENCES channels(id)
+  version         INTEGER NOT NULL
+  encrypted_key   TEXT NOT NULL      -- AES-256-GCM(master_key, channel_key_plaintext)
+  nonce           TEXT NOT NULL      -- nonce per desxifrar encrypted_key
+  created_at      TIMESTAMP NOT NULL
+  created_by      UUID REFERENCES users(id)
+  deprecated_at   TIMESTAMP          -- NULL = versió activa
+  UNIQUE (channel_id, version)
+
+messages
+  id              UUID PRIMARY KEY
+  channel_id      UUID NOT NULL
+  key_version_id  UUID REFERENCES channel_key_versions(id)  -- quin versió s'ha usat
+  encrypted_payload TEXT NOT NULL
+  iv              TEXT NOT NULL
+  ...
+```
+
+> **Regla**: quan el client rep un missatge, usa `key_version_id` per saber quina versió de clau necessita. Si no la té localment, la demana al servidor indicant el `key_version_id`.
 
 ### Generació de Clau Mestra del Servidor
 
-```rust
-// Server master key es genera una vegada i es guarda en:
-// 1. Variable d'entorn SERVER_MASTER_KEY (hex, 64 bytes = 256 bits)
-// 2. O en un fitxer local: ~/.chillgroup/master_key.hex
-// 3. O en AWS Secrets Manager / HashiCorp Vault (prod)
+La server master key es configura una sola vegada i mai canvia (o molt rarament):
 
-pub struct ServerMasterKey {
-    key: Aes256Key,  // 32 bytes
-}
-
-impl ServerMasterKey {
-    pub fn from_env() -> Result<Self> {
-        let hex_str = std::env::var("SERVER_MASTER_KEY")?;
-        let key = hex::decode(&hex_str)?.try_into()?;
-        Ok(Self { key })
-    }
-
-    pub fn encrypt(&self, data: &[u8]) -> Result<(Vec<u8>, AesGcmNonce)> {
-        let nonce = AesGcmNonce::generate();
-        let cipher = Aes256Gcm::new(&self.key);
-        let ciphertext = cipher.encrypt(&nonce, data)?;
-        Ok((ciphertext, nonce))
-    }
-
-    pub fn decrypt(&self, ciphertext: &[u8], nonce: &AesGcmNonce) -> Result<Vec<u8>> {
-        let cipher = Aes256Gcm::new(&self.key);
-        cipher.decrypt(nonce, ciphertext)
-    }
-}
+```
+1. Variable d'entorn: SERVER_MASTER_KEY (hex, 64 caràcters = 32 bytes = 256 bits)
+2. O fitxer local: ~/.chillgroup/master_key.hex
+3. O Vault (producció): HashiCorp Vault / AWS Secrets Manager / Azure Key Vault
 ```
 
 ### Flux de Creació de Canal
 
-```rust
-pub async fn create_symmetric_channel(
-    channel_id: Uuid,
-    creator_device_id: Uuid,
-    master_key: &ServerMasterKey,
-) -> Result<ChannelKeyRecord> {
-    // 1. Generar clau aleatòria de canal
-    let channel_key = Aes256Key::generate();  // 32 bytes aleatoris
-    let channel_key_bytes = channel_key.as_ref();
-
-    // 2. Encriptar amb la clau mestra del servidor
-    let (encrypted_key, nonce) = master_key.encrypt(channel_key_bytes)?;
-
-    // 3. Guardar al servidor
-    db.channel_keys().insert(ChannelKeyRecord {
-        channel_id,
-        device_id: creator_device_id,
-        encrypted_key: base64_encode(&encrypted_key),
-        nonce: base64_encode(nonce.as_ref()),
-        encryption_type: "symmetric",
-    }).await?;
-
-    // 4. Retornar al client (el creador guarda la clau en clar a IndexedDB)
-    Ok(ChannelKeyResponse { channel_key })
-}
+```
+CLIENT (creador)                        SERVIDOR
+  │                                       │
+  │ POST /api/servers/{id}/channels       │
+  │ { name, encryptionType: "symmetric" } ▶│
+  │                                       │── Generar AES-256 channel_key (aleatori)
+  │                                       │── AES-GCM.Encrypt(master_key, channel_key) → encrypted_key + nonce
+  │                                       │── INSERT channel_key_versions (version=1, encrypted_key, nonce)
+  │                                       │── INSERT channels (key_version_id = versió 1)
+  │◀── { channelId, keyVersionId: "v1" } ─│
 ```
 
-### Flux d'Accés (Membre)
+El servidor genera la clau. El creador no necessita descarregar-la fins que vol enviar o llegir missatges.
 
-```rust
-pub async fn get_channel_key(
-    channel_id: Uuid,
-    device_id: Uuid,
-    master_key: &ServerMasterKey,
-) -> Result<Aes256Key> {
-    // 1. Obtenir la clau encriptada del servidor
-    let record = db.channel_keys().get_for_device(channel_id, device_id).await?;
+### Flux d'Accés a la Clau (Client sense clau local)
 
-    // 2. Desencriptar amb la clau mestra
-    let encrypted = base64_decode(&record.encrypted_key)?;
-    let nonce = AesGcmNonce::from_slice(&base64_decode(&record.nonce)?);
-    let decrypted = master_key.decrypt(&encrypted, &nonce)?;
+Quan un client obre un canal simètric i no té la clau (o la versió correcta) a IndexedDB:
 
-    // 3. Retornar la clau en clar (només per breus segons)
-    Ok(Aes256Key::try_from(decrypted.as_slice())?)
-}
+```
+CLIENT                                  SERVIDOR
+  │                                       │
+  │ GET /api/channels/{id}/keys           │
+  │   ?version={key_version_id}           │
+  │ Header: Authorization: Bearer JWT ───▶│
+  │                                       │── Extreure user_id i device_id del JWT
+  │                                       │── Comprovar que user_id és membre del servidor
+  │                                       │── Buscar device.public_key a devices
+  │                                       │   Si public_key és buida → 403 DeviceNoPublicKey
+  │                                       │── Buscar channel_key_versions per version_id
+  │                                       │── AES-GCM.Decrypt(master_key, encrypted_key) → channel_key
+  │                                       │── ML-KEM.Encapsulate(device.public_key)
+  │                                       │     → (kem_ciphertext, shared_secret)
+  │                                       │── AES-GCM.Encrypt(shared_secret[0..32], channel_key) → wrapped_key
+  │                                       │
+  │◀── { keyVersionId, version,           │
+  │      wrappedKey, kemCiphertext } ─────│
+  │                                       │
+  │── ML-KEM.Decapsulate(local_sk, kem_ciphertext) → shared_secret
+  │── AES-GCM.Decrypt(shared_secret, wrappedKey) → channel_key
+  │── IndexedDB.store(channelId, keyVersionId, channel_key)
+  │── Desxifrar missatges
 ```
 
-### Xifratge de Missatges
+**Errors possibles:**
+- `403 Forbidden` — el dispositiu no és membre del servidor
+- `403 DeviceNoPublicKey` — el dispositiu no té clau pública ML-KEM registrada (cal fer login amb keypair)
+- `404 KeyVersionNotFound` — la versió de clau sol·licitada no existeix
 
-```rust
-pub fn encrypt_message(key: &Aes256Key, plaintext: &str) -> Result<MessagePayload> {
-    let plaintext_bytes = plaintext.as_bytes();
-    let iv = AesGcmNonce::generate();
-    let cipher = Aes256Gcm::new(key);
-    let ciphertext = cipher.encrypt(&iv, plaintext_bytes)?;
+### Flux de Rotació de Clau
 
-    Ok(MessagePayload {
-        encrypted_data: base64_encode(&ciphertext),
-        iv: base64_encode(iv.as_ref()),
-    })
-}
+Quan un admin vol revocar l'accés a futurs missatges (p.ex. expulsar membre):
 
-pub fn decrypt_message(key: &Aes256Key, payload: &MessagePayload) -> Result<String> {
-    let ciphertext = base64_decode(&payload.encrypted_data)?;
-    let iv = AesGcmNonce::from_slice(&base64_decode(&payload.iv)?);
-    let cipher = Aes256Gcm::new(key);
-    let plaintext = cipher.decrypt(&iv, &ciphertext)?;
-    Ok(String::from_utf8(plaintext)?)
-}
+```
+CLIENT (admin)                          SERVIDOR
+  │                                       │
+  │ POST /api/channels/{id}/keys/rotate ─▶│
+  │                                       │── Generar nova AES-256 channel_key
+  │                                       │── AES-GCM.Encrypt(master_key, nova_key)
+  │                                       │── INSERT channel_key_versions (version=N+1)
+  │                                       │── Marcar versió anterior com deprecated_at = NOW()
+  │◀── { keyVersionId, version: N+1 } ───│
 ```
 
-### Limitacions
-- ⚠️ **Servidor pot llegir missatges** (té la master key)
-- ⚠️ Si es compromet la master key, **tots els missatges de tots els canals es comprometen**
-- ⚠️ No hi ha **forward secrecy** — la mateixa clau dura tot el temps de vida del canal
-- ✅ Simple i eficient — cap cost addicional per membre
-- ✅ Ideal per equips petits que confien en el servidor
+Els clients detecten el canvi quan reben un missatge amb un `key_version_id` desconegut i tornen a demanar-la al servidor.
 
-## Nivell 2 — Clau Asimètrica (Kyber-1024 + AES-GCM)
+### Limitacions del Nivell 1
+
+- ⚠️ **Servidor pot llegir missatges** — té la master key i pot desxifrar qualsevol canal
+- ⚠️ Si la master key es compromet, tot queda compromès
+- ⚠️ No hi ha perfect forward secrecy per missatge
+- ✅ Simple — no cal gestió de keypairs als clients (tot automàtic)
+- ✅ Recuperació fàcil — el servidor sempre pot lliurar la clau
+- ✅ Versioning — rotació de clau possible sense perdre accés a l'historial
+- ✅ Multi-dispositiu transparent — qualsevol dispositiu membre pot obtenir la clau
+
+---
+
+## Nivell 2 — Clau Asimètrica (ML-KEM-1024 + ML-DSA-87 + AES-GCM)
 
 ### Concepte
 
-Cada membre rep la seva pròpia còpia de la clau de canal encriptada amb la seva **clau pública Kyber-1024**. El servidor guarda les còpies encriptades però **no pot desxifrar-les**.
+La clau de canal **mai existeix al servidor en cap forma desxifrable**. El servidor només emmagatzema còpies xifrades per a cada dispositiu, signades pel dispositiu que les ha generat. El servidor no pot desxifrar-les ni en teoria.
+
+Quan un membre convida algú, **és el client convidant** qui fa tot el treball criptogràfic: obté les claus públiques del convidat, encripta la channel key per a cada dispositiu del convidat, **signa els bundles amb ML-DSA-87**, i els puja al servidor. El servidor els guarda i els lliura quan el convidat els demana.
 
 ### Criptografia Utilitzada
 
-#### Kyber-1024 (ML-KEM-1024)
+| Algorisme | Estàndard | Ús | Nivell NIST |
+|-----------|-----------|-----|-------------|
+| **ML-KEM-1024** | FIPS 203 | Encapsulació de claus (rebre channel key) | Level 5 |
+| **ML-DSA-87** | FIPS 204 | Signatures digitals (autenticar bundles) | Level 5 |
+| **AES-GCM-256** | FIPS 197 | Xifratge simètric de missatges i wrapping de claus | — |
 
-- **NIVEL DE SEGUREtat**: NIST Level 5 (el més alt)
-- **Clau pública**: 1568 bytes
-- **Clau privada**: 3168 bytes
-- **Ciphertext KEM**: 1088 bytes
-- **Shared secret**: 32 bytes (256 bits)
-- **Resistent a**: Atacs clàssics i quàntics
+ML-KEM i ML-DSA no comparteixen format de clau, per tant cada dispositiu manté **dos keypairs separats**:
 
-```rust
-// Dependències de RustCrypto
-use x25519_dilithium::{KeyPair, EncapsulationKey, DecapsulationKey};
-use rand::rngs::OsRng;
+### Keypairs de Dispositiu
 
-// Generar parella de claus (un cop per dispositiu)
-let keypair = KeyPair::generate(&mut OsRng);
-let encapsulating = keypair.encapsulating_key();
-let decapsulating = keypair.decapsulating_key();
+Cada dispositiu genera dos keypairs independents:
 
-// Public key es guarda al servidor (devices.public_key)
-let public_key_bytes: Vec<u8> = (&encapsulating).into();
-// 1568 bytes → Base64
+**1. ML-KEM-1024** — per rebre claus de canal (encapsulació):
+- Clau pública: 1568 bytes → `devices.kem_public_key` al servidor
+- Clau secreta: 3168 bytes → IndexedDB local, mai surt del dispositiu
 
-// Secret key es guarda LOCALMENT (IndexedDB al frontend)
-let secret_key: KeyPair = keypair;
-// MAI surt del dispositiu
-```
+**2. ML-DSA-87** — per signar bundles (autenticitat):
+- Clau pública: 2592 bytes → `devices.dsa_public_key` al servidor
+- Clau secreta: 4896 bytes → IndexedDB local, mai surt del dispositiu
 
-#### Derivació de Claus (HKDF)
+```typescript
+import { ml_kem1024 } from '@noble/post-quantum/ml-kem.js'
+import { ml_dsa87 }   from '@noble/post-quantum/ml-dsa.js'
 
-```rust
-use hkdf::Hkdf;
-use hmac::Hmac;
-use sha2::Sha256;
+// Generació (una vegada per dispositiu)
+const kem = ml_kem1024.keygen()
+const dsa = ml_dsa87.keygen()
 
-type HmacSha256 = Hkdf<Hmac<Sha256>>;
-
-fn derive_kek(shared_secret: &[u8], channel_id: Uuid) -> Aes256Key {
-    let hkdf = HmacSha256::new(b"chillgroup-channel-key");
-    let mut kek = [0u8; 32];
-    hkdf.expand(&channel_id.as_bytes().to_vec(), &mut kek)
-        .expect("HKDF should never fail with 32-byte output");
-    Aes256Key::from(kek)
-}
-```
-
-### Flux Complet
-
-#### 1. Registre de Dispositiu (única vegada)
-
-```rust
-// Frontend TypeScript
-import { MLKEM1024 } from '@noble/post-quantum'
-
-// Generar claus Kyber-1024
-const keypair = await MLKEM1024.keygen()
-
-// Guardar secretKey a IndexedDB
+// Guardar secret keys localment
 await indexedDB.put('keypairs', {
-    deviceId: currentDeviceId,
-    type: 'kyber',
-    secretKey: keypair.secretKey,
-    createdAt: Date.now()
+  deviceId,
+  kemSecretKey: toBase64(kem.secretKey),
+  dsaSecretKey: toBase64(dsa.secretKey),
 })
 
-// Enviar publicKey al servidor
-await fetch('/api/user/me/devices/' + deviceId + '/publicKey', {
-    method: 'PUT',
-    headers: { 'Authorization': 'Bearer ' + token },
-    body: JSON.stringify({
-        publicKey: btoa(keypair.publicKey)
-    })
+// Pujar public keys al servidor
+await fetch('/api/user/me/device/publickeys', {
+  method: 'PUT',
+  body: JSON.stringify({
+    kemPublicKey: toBase64(kem.publicKey),   // per rebre claus
+    dsaPublicKey: toBase64(dsa.publicKey),   // per verificar signatures
+  })
 })
 ```
 
-#### 2. Creació de Canal Asimètric
-
-```rust
-pub async fn create_asymmetric_channel(
-    channel_id: Uuid,
-    creator_device_id: Uuid,
-) -> Result<CreateChannelResult> {
-    // 1. Generar clau AES-256 aleatòria per al canal
-    let channel_key = Aes256Key::generate();
-
-    // 2. Encapsular amb la pròpia clau Kyber del creador
-    let creator_device = db.devices().get(creator_device_id).await?;
-    let creator_public_key = decode_base64(&creator_device.public_key)?;
-
-    // KEM encapsulation
-    let (shared_secret, ciphertext) = kem_encapsulate(&creator_public_key)?;
-    let kek = derive_kek(&shared_secret, channel_id);
-    let encrypted_key = aes_gcm_encrypt(&kek, channel_key.as_ref())?;
-
-    // 3. Guardar al servidor
-    db.channel_keys().insert(ChannelKeyRecord {
-        channel_id,
-        device_id: creator_device_id,
-        encrypted_key: base64_encode(&encrypted_key),
-        kem_ciphertext: base64_encode(&ciphertext),
-        encryption_type: "asymmetric",
-    }).await?;
-
-    // 4. Retornar clau en clar al creador (per encriptar missatges)
-    Ok(CreateChannelResult { channel_key })
-}
+**Payload que es signa** (tot concatenat en bytes):
 ```
-
-#### 3. Convidar Membre
-
-```rust
-pub async fn invite_member_asymmetric(
-    channel_id: Uuid,
-    target_device_ids: Vec<Uuid>,
-) -> Result<Vec<EncryptedChannelKey>> {
-    // 1. Obtenir channel_key en clar (del creador, de la memòria o IndexedDB)
-    // En producció, això s'hauria de fer al client, no al servidor
-    // El servidor només guarda les còpies encriptades
-
-    // 2. Per cada dispositiu objectiu
-    let mut results = Vec::new();
-    for device_id in target_device_ids {
-        let target_device = db.devices().get(device_id).await?;
-        let target_public_key = decode_base64(&target_device.public_key)?;
-
-        // KEM encapsulate amb la publicKey del destinataris
-        let (shared_secret, ciphertext) = kem_encapsulate(&target_public_key)?;
-        let kek = derive_kek(&shared_secret, channel_id);
-        let encrypted_key = aes_gcm_encrypt(&kek, channel_key.as_ref())?;
-
-        // Guardar al servidor
-        db.channel_keys().upsert(ChannelKeyRecord {
-            channel_id,
-            device_id,
-            encrypted_key: base64_encode(&encrypted_key),
-            kem_ciphertext: base64_encode(&ciphertext),
-            encryption_type: "asymmetric",
-        }).await?;
-
-        results.push(EncryptedChannelKey {
-            device_id,
-            encrypted_key: base64_encode(&encrypted_key),
-            kem_ciphertext: base64_encode(&ciphertext),
-        });
-    }
-
-    Ok(results)
-}
+SIGN_PAYLOAD = key_version_id || device_id || kem_ciphertext || encrypted_key
 ```
-
-**Nota important**: En una implementació real, aquest pas es fa **al client** (frontend), no al servidor. El servidor només rep i guarda les còpies encriptades.
-
 ```typescript
-// Frontend TypeScript — Convidar membre
-async function inviteMember(channelId: string, targetDeviceIds: string[]) {
-    // Obtenir channelKey de IndexedDB (el creador la té)
-    const channelKey = await indexedDB.getKey('channelKeys', channelId)
-
-    const encryptedKeys = []
-    for (const deviceId of targetDeviceIds) {
-        // Obtenir publicKey del dispositiu target
-        const device = await getDevicePublicKeys(deviceId)
-        const publicKey = base64Decode(device.publicKey)
-
-        // KEM encapsulate
-        const { sharedSecret, ciphertext } = await kemEncapsulate(publicKey)
-
-        // Derivar KEK
-        const kek = await deriveKek(sharedSecret, channelId)
-
-        // Encriptar channelKey amb KEK
-        const encryptedKey = await aesGcmEncrypt(kek, channelKey)
-
-        encryptedKeys.push({
-            deviceId,
-            encryptedKey: btoa(encryptedKey),
-            ciphertext: btoa(ciphertext)
-        })
-    }
-
-    // Enviar al servidor (només dades encriptades)
-    await fetch('/api/channels/' + channelId + '/invite', {
-        method: 'POST',
-        body: JSON.stringify({ encryptedKeys })
-    })
-}
+const payload = concat(uuidToBytes(keyVersionId), uuidToBytes(deviceId), kemCiphertext, encryptedKey)
+const signature = ml_dsa87.sign(my_dsa_secret_key, payload)
 ```
 
-#### 4. Membre Accedeix al Canal (Desencripta)
+El servidor guarda la `dsa_public_key` de cada dispositiu i permet als clients descarregar-la per verificar signatures rebudes.
 
-```typescript
-// Frontend TypeScript — Recuperar clau de canal
-async function getChannelKey(channelId: string): Promise<CryptoKey> {
-    // 1. Obtenir còpia encriptada del servidor
-    const records = await fetch('/api/channels/' + channelId + '/keys')
+### Versioning de Claus
 
-    // 2. Per cada dispositiu, intentar desencriptar
-    for (const record of records) {
-        const secretKey = await indexedDB.getKey('keypairs', record.deviceId)
-        if (!secretKey) continue
+Les claus asimètriques també tenen versions. Cada versió té un conjunt de bundles (un per dispositiu amb accés).
 
-        // KEM decapsulate
-        const sharedSecret = await kemDecapsulate(
-            secretKey,
-            base64Decode(record.kemCiphertext)
-        )
+**Esquema de taules:**
 
-        // Derivar KEK
-        const kek = await deriveKek(sharedSecret, channelId)
+```sql
+channel_key_versions
+  id              UUID PRIMARY KEY
+  channel_id      UUID NOT NULL REFERENCES channels(id)
+  version         INTEGER NOT NULL
+  created_at      TIMESTAMP NOT NULL
+  created_by      UUID REFERENCES users(id)
+  deprecated_at   TIMESTAMP
+  UNIQUE (channel_id, version)
 
-        // Desencriptar channelKey
-        try {
-            const channelKeyBytes = await aesGcmDecrypt(kek, base64Decode(record.encryptedKey))
-            // Guardar a IndexedDB per ús futur
-            await indexedDB.put('channelKeys', {
-                channelId,
-                key: channelKeyBytes,
-                acquiredAt: Date.now()
-            })
-            return channelKeyBytes
-        } catch {
-            continue // Provar següent dispositiu
-        }
-    }
+channel_key_device_bundles
+  id                  UUID PRIMARY KEY
+  key_version_id      UUID NOT NULL REFERENCES channel_key_versions(id)
+  device_id           UUID NOT NULL REFERENCES devices(id)
+  encrypted_key       TEXT NOT NULL    -- AES-GCM(shared_secret, channel_key)
+  kem_ciphertext      TEXT NOT NULL    -- output ML-KEM.Encapsulate(device.public_key)
+  signature           TEXT             -- ML-DSA-87.sign(signed_by_dsa_sk, payload)
+  signed_by_device_id UUID             -- qui ha signat
+  created_at          TIMESTAMP NOT NULL
+  UNIQUE (key_version_id, device_id)
 
-    throw new Error('No es pot obtenir la clau del canal')
-}
+messages
+  id              UUID PRIMARY KEY
+  channel_id      UUID NOT NULL
+  key_version_id  UUID REFERENCES channel_key_versions(id)
+  ...
 ```
 
-#### 5. Enviar Missatge
-
-```typescript
-async function sendMessage(channelId: string, text: string) {
-    // 1. Obtenir clau del canal
-    const channelKey = await getChannelKey(channelId)
-
-    // 2. Encriptar amb AES-GCM
-    const iv = crypto.getRandomValues(new Uint8Array(12))
-    const encoder = new TextEncoder()
-    const encrypted = await crypto.subtle.encrypt(
-        { name: 'AES-GCM', iv },
-        channelKey,
-        encoder.encode(text)
-    )
-
-    // 3. Enviar al servidor
-    await fetch('/api/channels/' + channelId + '/messages', {
-        method: 'POST',
-        body: JSON.stringify({
-            encryptedPayload: btoa(new Uint8Array(encrypted)),
-            iv: btoa(new Uint8Array(iv)),
-        })
-    })
-}
-```
-
-### Diagrama de Flux Complet
+### Flux de Creació de Canal Asimètric
 
 ```
-CREADOR                                  SERVIDOR                              DESTINATARI
-  │                                       │                                     │
-  │──[1] Genera AES-256 channelKey ───────│                                     │
-  │──[2] KEM.Encrypt(creator.pk) ────────│                                     │
-  │       → (sharedSecret, ciphertext)    │                                     │
-  │──[3] KEK = HKDF(sharedSecret)        │                                     │
-  │──[4] AES.Encrypt(KEK, channelKey)    │                                     │
-  │──[5] POST {encryptedKey, ciphertext}─▶│                                     │
-  │                                       │──[6] INSERT channel_keys────────    │
-  │──[7] POST invite(member.pk) ─────────▶│                                     │
-  │                                       │──[8] KEM.Encrypt(member.pk)      │
-  │                                       │       → (sharedSecret, ciphertext)│
-  │                                       │──[9] AES.Encrypt(KEK, channelKey) │
-  │                                       │──[10] INSERT channel_keys────────│
-  │                                       │                                     │
-  │                                       │  ←────[11] Socket.IO join channel──│
-  │                                       │                                     │──[12] GET /keys
-  │                                       │──[13] {encryptedKey, ciphertext}──▶│
-  │                                       │                                     │──[14] KEM.Decrypt(sk)
-  │                                       │                                             → sharedSecret
-  │                                       │                                     │──[15] KEK = HKDF(sharedSecret)
-  │                                       │                                     │──[16] AES.Decrypt(KEK, encryptedKey)
-  │                                       │                                             → channelKey!
-  │                                       │                                     │
-  │──[17] AES.Encrypt(channelKey, msg)──▶│                                     │
-  │                                       │──[18] INSERT message (xifrat)─────│
-  │                                       │  ←────[19] Socket.IO message──────│
-  │                                       │                                     │──[20] AES.Decrypt(channelKey, msg)
-  │                                       │                                             → Text pla!
+CLIENT (creador)                              SERVIDOR
+  │                                             │
+  │── Generar AES-256 channel_key (local)       │
+  │── GET /api/channels/{id}/member-devices ───▶│
+  │◀── [{ deviceId, publicKey }] ───────────────│
+  │                                             │
+  │ Per cada dispositiu (incl. els propis):     │
+  │── ML-KEM.Encapsulate(device.publicKey)      │
+  │     → (shared_secret, kem_ciphertext)       │
+  │── AES-GCM.Encrypt(shared_secret, channel_key) → encrypted_key
+  │── Sign(my_secret_key, keyVersionId + deviceId + encrypted_key + kem_ciphertext)
+  │                                             │
+  │ POST /api/channels/{id}/keys               ▶│
+  │ [{ deviceId, encryptedKey, kemCiphertext,   │
+  │    signature, signedByDeviceId,             │
+  │    keyVersion: 1 }]                         │
+  │                                             │── INSERT channel_key_versions (version=1)
+  │                                             │── INSERT bundles per device
+  │◀── { keyVersionId, version: 1 } ───────────│
+  │                                             │
+  │── IndexedDB.store(channelId, version=1, channel_key)
 ```
 
-### Limitacions
+### Flux de Convit (Invitar Membre)
 
-- ⚠️ **No perfect forward secrecy per missatge** — la mateixa channelKey dura tot el temps de vida del canal
-- ⚠️ Si el creador revoca un dispositiu, aquest no pot accedir a nous missatges però sí als històrics (ja encriptats)
-- ✅ **Servidor zero-knowledge** — mai pot desxifrar missatges
-- ✅ **Per dispositiu** — cada dispositiu té el seu propi keypair Kyber
-- ✅ **Quantum-resistant** — Kyber-1024 és ML-KEM-1024 (NIST Level 5)
+El client convidant ha de tenir la `channel_key` localment. Si no la té, no pot convidar ningú (limitació del model zero-knowledge).
+
+```
+CLIENT (convidant, té channel_key)            SERVIDOR
+  │                                             │
+  │── GET /api/users/{username}/devices ───────▶│
+  │◀── [{ deviceId, publicKey, label }] ────────│
+  │                                             │
+  │ Per cada dispositiu del convidat:           │
+  │── Validar publicKey (mida correcta ML-KEM-1024)
+  │── ML-KEM.Encapsulate(device.publicKey)      │
+  │── AES-GCM.Encrypt(shared_secret, channel_key) → encrypted_key
+  │── Sign(my_secret_key, ...)                  │
+  │                                             │
+  │ POST /api/channels/{id}/keys ──────────────▶│
+  │ [{ deviceId, encryptedKey, kemCiphertext,   │
+  │    signature, signedByDeviceId }]           │
+  │                                             │── Verificar que signed_by_device_id és membre del canal
+  │                                             │── INSERT bundles
+  │◀── { bundlesAdded: N } ─────────────────────│
+```
+
+### Flux d'Accés al Canal (Membre Convidat)
+
+```
+CLIENT (convidat)                             SERVIDOR
+  │                                             │
+  │ GET /api/channels/{id}/keys ───────────────▶│
+  │                                             │── Buscar bundle per device_id del JWT
+  │                                             │── Si no existeix → 404 ChannelKeyNotFound
+  │◀── { keyVersionId, encryptedKey,            │
+  │      kemCiphertext, signature,              │
+  │      signedByDeviceId } ────────────────────│
+  │                                             │
+  │── GET /api/devices/{signedByDeviceId}/publickey (caché o nou request)
+  │── Verificar signatura sobre el bundle
+  │── Si signatura KO → Rebutjar. Mostrar avís: "Bundle no verificat"
+  │── ML-KEM.Decapsulate(my_secret_key, kem_ciphertext) → shared_secret
+  │── AES-GCM.Decrypt(shared_secret, encrypted_key) → channel_key
+  │── IndexedDB.store(channelId, keyVersionId, channel_key)
+  │── Desxifrar missatges amb channel_key
+```
+
+### Multi-Dispositiu: Distribució als Propis Dispositius
+
+Quan un usuari obté la clau d'un canal asimètric (via convit o backup), pot distribuir-la als seus altres dispositius sense dependre de ningú extern:
+
+```
+CLIENT (dispositiu A, té channel_key)         SERVIDOR
+  │                                             │
+  │── GET /api/user/me/devices ───────────────▶│
+  │◀── [{ deviceId, publicKey, label,           │
+  │       isCurrent, hasPublicKey }] ───────────│
+  │                                             │
+  │ Per cada dispositiu propi (excl. dispositiu A):
+  │── ML-KEM.Encapsulate(device.publicKey)      │
+  │── AES-GCM.Encrypt(shared_secret, channel_key)
+  │── Sign(my_secret_key, ...)                  │
+  │                                             │
+  │ POST /api/channels/{id}/keys ──────────────▶│
+  │◀── { bundlesAdded: N } ─────────────────────│
+```
+
+Quan el dispositiu B obre el canal, trobarà el seu bundle i podrà desencriptar automàticament.
+
+### Rotació de Clau Asimètrica (Revocació de Membre)
+
+Quan cal revocar un membre (o dispositiu):
+
+1. Admin genera nova `channel_key` (nova versió)
+2. Distribueix la nova clau a tots els dispositius **excepte** el revocat — seguint el flux de convit
+3. Missatges nous s'encripten amb la nova versió
+4. L'expulsat no obté bundle per a la nova versió → no pot llegir missatges nous
+
+Els missatges anteriors a la rotació que el revocat té en caché local no es poden eliminar retroactivament (limitació acceptada del model E2EE).
+
+### Gestió de Dispositius
+
+Cada usuari pot veure i gestionar els seus dispositius des de la UI:
+
+**GET /api/user/me/devices** retorna:
+```json
+[
+  {
+    "deviceId": "uuid",
+    "label": "MacBook Pro",
+    "publicKey": "base64...",
+    "hasPublicKey": true,
+    "createdAt": "2026-01-01T00:00:00Z",
+    "lastSeen": "2026-05-22T10:00:00Z",
+    "isCurrent": true
+  }
+]
+```
+
+**Accions disponibles per dispositiu:**
+
+| Acció | Descripció |
+|-------|------------|
+| Revocar | Elimina el dispositiu del servidor. Perd accés a futurs canals asimètrics |
+| Canviar etiqueta | Reanomenar el dispositiu |
+| Regenerar keypair | Genera nou keypair ML-KEM. Bundles antics queden obsolets. Cal redistribuir claus |
+| Distribuir claus | Des del dispositiu actual, envia channel keys a un dispositiu propi seleccionat |
+
+**La pantalla de gestió de dispositius ha de mostrar:**
+- Llistat de dispositius amb etiqueta, data de creació, darrer accés
+- Indicador "Dispositiu actual"
+- Avís si un dispositiu no té clau pública registrada (no pot rebre claus asimètriques)
+- Botó per revocar dispositius aliens
+- Botó per distribuir les claus dels canals als dispositius que les necessiten
+
+### Limitacions del Nivell 2
+
+- ⚠️ Si perds la clau secreta sense backup ni altres dispositius → **pèrdua permanent** d'accés als missatges asimètrics
+- ⚠️ La distribució de claus requereix que el convidant estigui en línia i tingui la clau localment
+- ⚠️ No hi ha perfect forward secrecy per missatge (mateixa channel_key durant tota la versió)
+- ✅ **Servidor zero-knowledge** — mai pot desxifrar res
+- ✅ **Per dispositiu** — cada dispositiu té el seu keypair independent
+- ✅ **Signatures** — el client verifica qui ha generat els bundles
+- ✅ **Multi-dispositiu** — distribució de clau entre els propis dispositius
+- ✅ **Quantum-resistant** — ML-KEM-1024 és NIST Level 5
+
+---
+
+## Gestió de Keypairs de Dispositiu
+
+### Creació (Registre o Primer Login)
+
+En el moment que un usuari s'autentica i el seu dispositiu no té keypair local:
+
+1. Frontend genera keypair ML-KEM-1024
+2. Guarda `secretKey` a IndexedDB (clau: `deviceId`)
+3. Puja `publicKey` al servidor via `PUT /api/user/me/device/publickey`
+
+Això succeeix automàticament en background, de forma transparent per a l'usuari.
+
+### Pèrdua de Keypair (Neteja de Navegador, Canvi de Dispositiu)
+
+Si l'usuari perd la clau secreta local (neteja de dades, nou navegador, etc.):
+
+- **Canals simètrics (N1)**: el servidor torna a lliurar la clau de canal amb el nou keypair → recuperació automàtica
+- **Canals asimètrics (N2)**: cal que un altre dispositiu propi o un membre que tingui la clau redistribueixi els bundles → recuperació manual
+
+Per això és important tenir múltiples dispositius registrats o fer backup de la clau secreta.
+
+---
 
 ## Àudio/Vídeo E2EE (LiveKit)
 
 ### Session Keys
 
-LiveKit suporta E2EE nativa amb **session keys** independents del sistema de xat:
+LiveKit suporta E2EE nativa amb **session keys** independents del xat. La distribució de la session key es fa a través del canal de xat xifrat del canal de veu (si n'hi ha), o via handshake manual.
 
-```typescript
-// Frontend — Configurar E2EE a LiveKit
-import { Room } from 'livekit-client'
+---
 
-const room = new Room()
+## Comparació de Nivells
 
-// Session key per canal de veu
-const sessionKey = await crypto.subtle.generateKey(
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt']
-)
-
-await room.setE2EE(true, {
-    key: sessionKey,
-    keyStore: new DefaultKeyStore(),  // IndexedDB
-})
-
-room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
-    // Desxifratge automàtic amb la session key
-})
-```
-
-### Distribució de Session Key
-
-```
-Opció A: Via canal de text encriptat (recomanat)
-1. Creator genera session key
-2. Enviar via canal de text (ja encriptat amb AES o Kyber)
-3. Membros desencripten del canal de text → configuren LiveKit E2EE
-
-Opció B: Via handshake manual
-1. Creator exporta key como QR code
-2. Membre escaneja i introdueix manualment
-```
-
-### Servidor Rust — LiveKit Integration
-
-```rust
-pub struct LiveKitService {
-    client: livekit_server_sdk::Client,
-    api_key: String,
-    api_secret: String,
-}
-
-impl LiveKitService {
-    /// Crea una sala de veu i retorna el token per al participant
-    pub async fn create_room_and_token(
-        &self,
-        channel_id: Uuid,
-        server_id: Uuid,
-        user_id: Uuid,
-        display_name: &str,
-    ) -> Result<LiveKitToken> {
-        let room_name = format!("chill-{}-{}", server_id, channel_id);
-
-        // Verificar permisos
-        self.verify_channel_access(channel_id, user_id).await?;
-
-        // Crear sala a LiveKit si no existeix
-        self.client.create_room(livekit_server_sdk::CreateRoomRequest {
-            name: room_name.clone(),
-            max_participants: 50,
-            empty_timeout: 900,  // 15 min sense participants
-            max_disconnection: 120,
-        }).await?;
-
-        // Generar token d'accés
-        let token = self.client.create_token()
-            .room_name(&room_name)
-            .identity(user_id.to_string())
-            .display_name(display_name)
-            .can_publish(true)
-            .can_subscribe(true)
-            .can_publish_data(true)
-            .sign(&self.api_key, &self.api_secret)?;
-
-        Ok(LiveKitToken {
-            token: token.claims().clone().jwt,
-            room: room_name,
-            e2ee_enabled: true,
-        })
-    }
-}
-```
-
-## Detall Tècnic: ML-KEM-1024 (Kyber-1024)
-
-### Paràmetres
-
-| Paràmetre | Valor |
-|-----------|-------|
-| Nom oficial | ML-KEM-1024 |
-| NIVEL NIST | Level 5 (màxim) |
-| Seguretat CPI | 256 bits |
-| Seguretat CCA2 | 256 bits |
-| Clau pública | 1568 bytes |
-| Clau privada | 3168 bytes |
-| Ciphertext KEM | 1088 bytes |
-| Shared secret | 32 bytes (256 bits) |
-
-### Operacions
-
-```rust
-// Generació de claus
-fn keygen() -> (PublicKey, SecretKey)
-
-// Encapsulació (xifrar una clau compartida)
-fn encapsulate(public_key: &PublicKey) -> (SharedSecret, Ciphertext)
-
-// Desencapsulació (recuperar la clau compartida)
-fn decapsulate(secret_key: &SecretKey, ciphertext: &Ciphertext) -> SharedSecret
-
-// Verificació (opcional)
-fn verify_encapsulation(public_key: &PublicKey, shared_secret: &SharedSecret, ciphertext: &Ciphertext) -> bool
-```
-
-### Interoperabilitat
-
-```rust
-// El mateix algoritme a Rust i TypeScript
-// Rust: x25519-dilithium (RustCrypto)
-// TypeScript: @noble/post-quantum o @oasis-protocol/p256
-
-// Les claus es serialitzen a Base64 per transmissió
-let pk_base64 = base64_encode(pk_bytes)   // Rust → servidor
-let pk_bytes = base64_decode(pk_base64)    // servidor → TypeScript
-```
-
-## Rotació de Claus
-
-### Rotació de Clau de Canal
-
-Per millorar la seguretat, es pot implementar la rotació periòdica:
-
-```rust
-pub async fn rotate_channel_key(
-    channel_id: Uuid,
-    old_channel_key: &Aes256Key,
-    devices: Vec<Uuid>,
-) -> Result<()> {
-    // 1. Generar nova clau de canal
-    let new_channel_key = Aes256Key::generate();
-
-    // 2. Per cada dispositiu, reencapsular amb la nova clau
-    for device_id in devices {
-        let device = db.devices().get(device_id).await?;
-        let pk = decode_base64(&device.public_key)?;
-        let (shared_secret, ciphertext) = kem_encapsulate(&pk)?;
-        let kek = derive_kek(&shared_secret, channel_id);
-        let encrypted_new_key = aes_gcm_encrypt(&kek, new_channel_key.as_ref())?;
-
-        db.channel_keys().upsert(ChannelKeyRecord {
-            channel_id,
-            device_id,
-            encrypted_key: base64_encode(&encrypted_new_key),
-            kem_ciphertext: base64_encode(&ciphertext),
-            encryption_type: "asymmetric",
-        }).await?;
-    }
-
-    // 3. Invalidar canals de missatges anteriors (opcional)
-    // Aquesta és la part complexa: cal reenviar tot l'historial amb la nova clau
-    // O bé acceptar que l'historial anterior queda amb la clau antiga
-}
-```
-
-### Rotació de Dispositiu
-
-Quan un dispositiu es perd o es compromèt:
-
-```rust
-pub async fn revoke_device(
-    device_id: Uuid,
-    channel_keys: Vec<Uuid>,
-) -> Result<()> {
-    // 1. Marcar dispositiu com a revocat
-    db.devices().revoke(device_id).await?;
-
-    // 2. Per cada canal amb accesse, reenviar la clau amb un altre dispositiu
-    for channel_id in channel_keys {
-        let other_devices = db.devices().get_active_for_user(device_id).await?;
-        if let Some(replacement_device) = other_devices.first() {
-            // Re-encapsular amb el dispositiu de reemplaçament
-            self.invite_member_asymmetric(channel_id, vec![replacement_device.id]).await?;
-        }
-    }
-}
-```
-
-## Resum de Seguretat
-
-| Amenaça | Nivell 0 | Nivell 1 | Nivell 2 |
-|---------|----------|----------|----------|
-| Eavesdropper de xarxa | ❌ Llegeix | ❌ Llegeix | ✅ No pot llegir |
-| Servidor compromès | ❌ Llegeix | ❌ Llegeix | ✅ No pot llegir |
-| Atac quàntic | ❌ Vulnerable | ❌ Vulnerable (AES) | ✅ Resistent (Kyber) |
-| AES trencat | ❌ Vulnerable | ❌ Vulnerable | ⚠️ Canal vulnerable, clau segura |
-| Forward secrecy | ❌ No | ❌ No | ⚠️ Per dispositiu |
-| Compromís d'un membre | ⚠️ Total | ⚠️ Total | ⚠️ Total (sense rotació) |
-
-> **Nota**: AES-256 és considerat segur contra atacs quàntics (Grover's algoritme redueix a 128 bits efectius, que és segur). El Kyber-1024 protegeix el procés de negociació de claus.
+| Característica | Nivell 0 | Nivell 1 (Simètric) | Nivell 2 (Asimètric) |
+|---|---|---|---|
+| Missatges xifrats | ❌ | ✅ | ✅ |
+| Servidor pot llegir | ✅ | ✅ (master key) | ❌ |
+| Recuperació de clau perduda | — | ✅ Automàtic (servidor) | ⚠️ Requereix backup o redistribució |
+| Versioning de clau | ❌ | ✅ | ✅ |
+| Rotació de clau | ❌ | ✅ | ✅ (revoca exmembre) |
+| Multi-dispositiu | — | ✅ Automàtic | ✅ Manual (distribució) |
+| Signatures de bundles | ❌ | ❌ | ✅ |
+| Quantum-resistant | ❌ | Parcialment (transport) | ✅ ML-KEM-1024 |
+| Complexitat client | Baixa | Baixa | Alta |
+| Gestió de dispositius | — | Opcional | Necessari |

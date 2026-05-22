@@ -3,6 +3,7 @@
 //! Retorna la informació de l'usuari autenticat extreta del JWT.
 
 use axum::{
+    extract::Path,
     extract::State,
     Json,
     Router,
@@ -10,6 +11,7 @@ use axum::{
 };
 use serde::Deserialize;
 use tracing::info;
+use uuid::Uuid;
 
 use crate::{
     middleware::{AppState, AuthClaims},
@@ -59,6 +61,19 @@ pub struct UpdateDevicePublicKeyRequest {
     pub public_key: String,
 }
 
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserDeviceResponse {
+    pub device_id: Uuid,
+    pub label: String,
+    pub public_key: String,
+    pub has_public_key: bool,
+    pub created_at: String,
+    pub last_seen: String,
+    pub revoked: bool,
+    pub is_current: bool,
+}
+
 /// Registrar/actualitzar la clau pública ML-KEM del dispositiu actual.
 #[axum::debug_handler]
 pub async fn update_device_public_key(
@@ -81,10 +96,66 @@ pub async fn update_device_public_key(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[axum::debug_handler]
+pub async fn list_my_devices(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let devices = state
+        .db
+        .list_devices_for_user(claims.user_id)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+    let data: Vec<UserDeviceResponse> = devices
+        .into_iter()
+        .map(|(device_id, label, public_key, created_at, last_seen, revoked)| UserDeviceResponse {
+            device_id,
+            label: label.unwrap_or_else(|| "Dispositiu".to_string()),
+            has_public_key: !public_key.trim().is_empty(),
+            public_key,
+            created_at,
+            last_seen,
+            revoked,
+            is_current: device_id == claims.device_id,
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "data": data,
+    })))
+}
+
+#[axum::debug_handler]
+pub async fn revoke_my_device(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path(device_id): Path<Uuid>,
+) -> Result<StatusCode, AppError> {
+    if device_id == claims.device_id {
+        return Err(AppError::Forbidden);
+    }
+
+    let updated = state
+        .db
+        .revoke_device_for_user(device_id, claims.user_id)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+    if !updated {
+        return Err(AppError::UserNotFound);
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Router per a rutes d'usuari
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/user/me", axum::routing::get(get_user_me))
+        .route("/api/user/me/devices", axum::routing::get(list_my_devices))
+        .route("/api/user/me/devices/{device_id}", axum::routing::delete(revoke_my_device))
         .route("/api/user/me/device/publickey", axum::routing::put(update_device_public_key))
         .with_state(state)
 }

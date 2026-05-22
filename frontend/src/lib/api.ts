@@ -67,17 +67,27 @@ async function apiRequest<T>(
 
   const response = await fetch(`${API_BASE}${path}`, options)
 
+  if (response.status === 204) {
+    return { success: true, data: undefined as T } as ApiResponse<T>
+  }
+
   let data: any = {}
-  try {
-    data = await response.json()
-  } catch {
-    // If JSON parsing fails, create a generic error
-    data = { success: false, error: { code: response.status, message: 'Network error' } }
+  const responseText = await response.text()
+  if (responseText.trim()) {
+    try {
+      data = JSON.parse(responseText)
+    } catch {
+      data = { success: false, error: { code: response.status, message: 'Network error' } }
+    }
   }
 
   if (response.ok) {
     if (data?.success === true) {
       return { success: true, data: data.data ?? data } as ApiResponse<T>
+    }
+
+    if (!responseText.trim()) {
+      return { success: true, data: undefined as T } as ApiResponse<T>
     }
 
     if (data?.success === false) {
@@ -116,8 +126,11 @@ export interface DeviceInfo {
   deviceId: string
   label: string
   publicKey: string
+  hasPublicKey?: boolean
+  createdAt?: string
   lastSeen: string
   revoked: boolean
+  isCurrent?: boolean
 }
 
 export interface Quotas {
@@ -144,6 +157,7 @@ export interface Message {
   senderDeviceId: string
   encryptedPayload: string
   iv: string
+  keyVersion?: number | null
   timestamp: string
   expiresAt: string | null
   editedAt: string | null
@@ -236,24 +250,47 @@ function mapInviteResponse(response: any) {
 // ── API Functions ─────────────────────────────────────────────
 
 export async function authRegister(username: string, password: string) {
-  return apiRequest<{
+  const result = await apiRequest<any>('POST', '/api/auth/register', { username, password })
+  if (!result.success) return result
+  return {
+    success: true,
+    data: {
+      userId: result.data.user_id ?? result.data.userId,
+      username: result.data.username,
+      token: result.data.token,
+      deviceId: result.data.device_id ?? result.data.deviceId,
+      deviceLabel: result.data.device_label ?? result.data.deviceLabel,
+    },
+  } as ApiResponse<{
     userId: string
     username: string
     token: string
     deviceId: string
     deviceLabel: string
-  }>('POST', '/api/auth/register', { username, password })
+  }>
 }
 
 export async function authLogin(username: string, password: string) {
-  return apiRequest<{
+  const result = await apiRequest<any>('POST', '/api/auth/login', { username, password })
+  if (!result.success) return result
+  return {
+    success: true,
+    data: {
+      userId: result.data.user_id ?? result.data.userId,
+      username: result.data.username,
+      token: result.data.token,
+      deviceId: result.data.device_id ?? result.data.deviceId,
+      deviceLabel: result.data.device_label ?? result.data.deviceLabel,
+      isAdmin: result.data.is_admin ?? result.data.isAdmin ?? false,
+    },
+  } as ApiResponse<{
     userId: string
     username: string
     token: string
     deviceId: string
     deviceLabel: string
     isAdmin: boolean
-  }>('POST', '/api/auth/login', { username, password })
+  }>
 }
 
 export async function authRefresh() {
@@ -262,6 +299,31 @@ export async function authRefresh() {
 
 export async function authMe() {
   return apiRequest<UserInfo>('GET', '/api/user/me')
+}
+
+export async function userDevicesList(): Promise<ApiResult<DeviceInfo[]>> {
+  const result = await apiRequest<any[]>('GET', '/api/user/me/devices')
+  if (!result.success) return result
+  const data = Array.isArray(result.data) ? result.data : []
+  return {
+    success: true,
+    data: data.map((device: any) => ({
+      deviceId: device.device_id ?? device.deviceId,
+      label: device.label ?? 'Dispositiu',
+      publicKey: device.public_key ?? device.publicKey ?? '',
+      hasPublicKey: device.has_public_key ?? device.hasPublicKey ?? false,
+      createdAt: device.created_at ?? device.createdAt ?? null,
+      lastSeen: device.last_seen ?? device.lastSeen ?? '',
+      revoked: device.revoked ?? false,
+      isCurrent: device.is_current ?? device.isCurrent ?? false,
+    })),
+  }
+}
+
+export async function userDeviceRevoke(deviceId: string): Promise<ApiResult<void>> {
+  const result = await apiRequest<void>('DELETE', `/api/user/me/devices/${deviceId}`)
+  if (!result.success) return result
+  return { success: true, data: undefined }
 }
 
 export async function serversList(): Promise<ApiResult<Server[]>> {
@@ -321,11 +383,13 @@ export async function messagesSend(
   channelId: string,
   encryptedPayload: string,
   iv: string,
+  keyVersion?: number,
   expiresAt?: string
 ) {
   const result = await apiRequest<any>('POST', `/api/channels/${channelId}/messages`, {
     encrypted_payload: encryptedPayload,
     iv,
+    key_version: keyVersion,
     expires_at: expiresAt,
   })
   if (!result.success || !result.data) return result
@@ -413,6 +477,7 @@ function mapMessageToTypes(msg: any): Message {
     senderDeviceId: msg.sender_device_id ?? msg.senderDeviceId,
     encryptedPayload: msg.encrypted_payload ?? msg.encryptedPayload,
     iv: msg.iv,
+    keyVersion: msg.key_version ?? msg.keyVersion ?? null,
     timestamp: msg.timestamp,
     expiresAt: msg.expires_at ?? msg.expiresAt ?? null,
     editedAt: msg.edited_at ?? msg.editedAt ?? null,
@@ -476,6 +541,7 @@ export async function channelGetKey(channelId: string): Promise<ApiResult<{
   deviceId: string
   encryptedKey: string
   kemCiphertext: string
+  keyVersion?: number | null
 }>> {
   const result = await apiRequest<any>('GET', `/api/channels/${channelId}/keys`)
   if (!result.success) return result
@@ -486,18 +552,20 @@ export async function channelGetKey(channelId: string): Promise<ApiResult<{
       deviceId: d.deviceId ?? d.device_id,
       encryptedKey: d.encryptedKey ?? d.encrypted_key,
       kemCiphertext: d.kemCiphertext ?? d.kem_ciphertext,
+      keyVersion: d.keyVersion ?? d.key_version ?? null,
     },
   }
 }
 
 export async function channelUploadKeys(
   channelId: string,
-  bundles: Array<{ deviceId: string; encryptedKey: string; kemCiphertext: string }>
+  bundles: Array<{ deviceId: string; encryptedKey: string; kemCiphertext: string; keyVersion?: number }>
 ): Promise<ApiResult<void>> {
   const body = bundles.map((b) => ({
     device_id: b.deviceId,
     encrypted_key: b.encryptedKey,
     kem_ciphertext: b.kemCiphertext,
+    key_version: b.keyVersion,
   }))
   const result = await apiRequest<void>('POST', `/api/channels/${channelId}/keys`, body)
   if (!result.success) return result

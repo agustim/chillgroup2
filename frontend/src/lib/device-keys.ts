@@ -49,6 +49,7 @@ export interface SymmetricChannelsBundle {
   exportedAt: number
   channels: Array<{
     channelId: string
+    keyVersion: number
     key: string
     acquiredAt: number
   }>
@@ -206,6 +207,7 @@ export async function getSymmetricChannelKeyCount(): Promise<number> {
 export async function listSymmetricChannelKeys(): Promise<
   Array<{
     channelId: string
+    keyVersion: number
     acquiredAt: number
     preview: string
   }>
@@ -217,6 +219,7 @@ export async function listSymmetricChannelKeys(): Promise<
       const encoded = uint8ArrayToBase64(entry.keyBytes)
       return {
         channelId: entry.channelId,
+        keyVersion: entry.keyVersion,
         acquiredAt: entry.acquiredAt,
         preview: `${encoded.slice(0, 10)}...${encoded.slice(-8)}`,
       }
@@ -234,6 +237,7 @@ export async function exportSymmetricChannelKeys(): Promise<string> {
     .filter((entry) => entry.type === 'symmetric')
     .map((entry) => ({
       channelId: entry.channelId,
+      keyVersion: entry.keyVersion,
       key: uint8ArrayToBase64(entry.keyBytes),
       acquiredAt: entry.acquiredAt,
     }))
@@ -265,7 +269,7 @@ export async function importSymmetricChannelKeys(bundleText: string): Promise<nu
       continue
     }
     const keyBytes = base64ToUint8Array(item.key)
-    await storeChannelKey(item.channelId, keyBytes, 'symmetric')
+    await storeChannelKey(item.channelId, keyBytes, 'symmetric', item.keyVersion ?? 1)
     imported++
   }
 

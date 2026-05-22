@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react'
 import { Channel, Message, VoiceConnection } from '../../types'
 import { messagesSend } from '../../lib/api'
-import { encryptChannelMessage, ensureChannelKey } from '../../lib/channel-crypto'
+import { encryptChannelMessage, ensureChannelKey, distributeChannelKey } from '../../lib/channel-crypto'
 import { MessageList } from './MessageList'
 import { VoiceArea } from './VoiceArea'
 import { MessageInput } from './MessageInput'
@@ -79,7 +79,22 @@ export function MainContent({
   // Quan obrim un canal encriptat, intentar obtenir la clau del servidor si no la tenim
   React.useEffect(() => {
     if (!channel || channel.encryptionType === 'none' || !currentDeviceId) return
-    ensureChannelKey(channel.channelId, channel.encryptionType, currentDeviceId).catch(() => {})
+
+    let cancelled = false
+
+    ensureChannelKey(channel.channelId, channel.encryptionType, currentDeviceId)
+      .then((channelKey) => {
+        if (cancelled || !channelKey || channel.encryptionType !== 'asymmetric') return
+
+        // Si tenim la clau local, tornem a distribuir-la als dispositius membres.
+        // Això cobreix membres/dispositius nous que encara no tenien bundle.
+        distributeChannelKey(channel.channelId, channelKey).catch(() => {})
+      })
+      .catch(() => {})
+
+    return () => {
+      cancelled = true
+    }
   }, [channel?.channelId, channel?.encryptionType, currentDeviceId])
 
   const handleSendMessage = async () => {
@@ -92,13 +107,13 @@ export function MainContent({
     setSendError(null)
 
     try {
-      const { encryptedPayload, iv } = await encryptChannelMessage(
+      const { encryptedPayload, iv, keyVersion } = await encryptChannelMessage(
         channel.channelId,
         channel.encryptionType,
         trimmedMessage,
         currentDeviceId ?? undefined
       )
-      const response = await messagesSend(channel.channelId, encryptedPayload, iv)
+      const response = await messagesSend(channel.channelId, encryptedPayload, iv, keyVersion ?? undefined)
       if (response.success) {
         setMessage('')
         setRefreshKey((current) => current + 1)

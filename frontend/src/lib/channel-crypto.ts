@@ -1,7 +1,7 @@
 import { ml_kem1024 } from '@noble/post-quantum/ml-kem.js'
 import type { EncryptionType, Message } from '../types'
 import { decryptWithBytes, encryptWithBytes, generateSymmetricKey } from './crypto'
-import { getChannelKey, getKeypair, storeChannelKey } from './storage'
+import { getChannelKey, getChannelKeyVersion, getKeypair, getLatestChannelKey, storeChannelKey } from './storage'
 import { channelGetKey, channelUploadKeys, channelGetMemberDevices } from './api'
 
 // ── Helpers base64 ───────────────────────────────────────────────
@@ -71,19 +71,20 @@ async function unwrapKeyWithKem(
 
 export async function distributeChannelKey(
   channelId: string,
-  channelKey: Uint8Array
+  channelKey: Uint8Array,
+  keyVersion = 1
 ): Promise<void> {
   const devicesResult = await channelGetMemberDevices(channelId)
   if (!devicesResult.success || !devicesResult.data.length) return
 
-  const bundles: Array<{ deviceId: string; encryptedKey: string; kemCiphertext: string }> = []
+  const bundles: Array<{ deviceId: string; encryptedKey: string; kemCiphertext: string; keyVersion?: number }> = []
 
   for (const { deviceId, publicKey } of devicesResult.data) {
     if (!publicKey) continue
     try {
       const pubKeyBytes = base64ToUint8Array(publicKey)
       const { encryptedKey, kemCiphertext } = await wrapKeyWithKem(channelKey, pubKeyBytes)
-      bundles.push({ deviceId, encryptedKey, kemCiphertext })
+      bundles.push({ deviceId, encryptedKey, kemCiphertext, keyVersion })
     } catch {
       // Saltar dispositius amb clau pública no vàlida
     }
@@ -110,7 +111,7 @@ async function fetchAndStoreChannelKey(
 
   try {
     const channelKey = await unwrapKeyWithKem(result.data.encryptedKey, result.data.kemCiphertext, secretKey)
-    await storeChannelKey(channelId, channelKey, encryptionType)
+    await storeChannelKey(channelId, channelKey, encryptionType, result.data.keyVersion ?? 1)
     return channelKey
   } catch {
     return null
@@ -149,15 +150,26 @@ export async function encryptChannelMessage(
   encryptionType: EncryptionType,
   plaintext: string,
   myDeviceId?: string
-): Promise<{ encryptedPayload: string; iv: string }> {
+): Promise<{ encryptedPayload: string; iv: string; keyVersion?: number | null }> {
   if (encryptionType === 'none') {
-    return { encryptedPayload: plaintext, iv: '' }
+    return { encryptedPayload: plaintext, iv: '', keyVersion: null }
   }
 
-  let key = await getChannelKey(channelId)
+  let latest = await getLatestChannelKey(channelId)
+  let key = latest?.keyBytes ?? null
+  let keyVersion = latest?.keyVersion ?? 1
+
+  if (!key) {
+    key = await getChannelKey(channelId)
+  }
+
   if (!key) {
     if (myDeviceId) {
-      key = await fetchAndStoreChannelKey(channelId, encryptionType, myDeviceId) ?? undefined
+      key = await fetchAndStoreChannelKey(channelId, encryptionType, myDeviceId) ?? null
+      if (key) {
+        latest = await getLatestChannelKey(channelId)
+        keyVersion = latest?.keyVersion ?? 1
+      }
     }
   }
 
@@ -166,20 +178,24 @@ export async function encryptChannelMessage(
   }
 
   const { encrypted, iv } = await encryptWithBytes(key, plaintext)
-  return { encryptedPayload: encrypted, iv }
+  return { encryptedPayload: encrypted, iv, keyVersion }
 }
 
 export async function decryptChannelMessage(
   channelId: string,
   encryptionType: EncryptionType,
   encryptedPayload: string,
-  iv: string
+  iv: string,
+  keyVersion?: number | null
 ): Promise<string> {
   if (encryptionType === 'none') {
     return encryptedPayload
   }
 
-  const key = await getChannelKey(channelId)
+  const key = keyVersion
+    ? await getChannelKeyVersion(channelId, keyVersion)
+    : await getChannelKey(channelId)
+
   if (!key) {
     throw new Error('Falta la clau local del canal')
   }
@@ -203,7 +219,8 @@ export async function decryptMessagesForChannel(
           channelId,
           encryptionType,
           message.encryptedPayload,
-          message.iv
+          message.iv,
+          message.keyVersion
         )
         return [message.messageId, decrypted] as const
       } catch {

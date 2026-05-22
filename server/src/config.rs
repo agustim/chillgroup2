@@ -53,6 +53,22 @@ pub struct Config {
     pub livekit_api_secret: String,
     pub jwt_secret: String,
     pub jwt_expiration_days: u32,
+    pub server_master_key: [u8; 32],
+}
+
+fn decode_hex_key_32(value: &str) -> Result<[u8; 32], String> {
+    let trimmed = value.trim();
+    if trimmed.len() != 64 {
+        return Err("SERVER_MASTER_KEY ha de tenir 64 caracters hex (32 bytes)".to_string());
+    }
+
+    let mut out = [0u8; 32];
+    for (i, chunk) in trimmed.as_bytes().chunks(2).enumerate() {
+        let hex = std::str::from_utf8(chunk).map_err(|_| "SERVER_MASTER_KEY conté bytes invàlids")?;
+        out[i] = u8::from_str_radix(hex, 16)
+            .map_err(|_| "SERVER_MASTER_KEY no és hex vàlid")?;
+    }
+    Ok(out)
 }
 
 impl Config {
@@ -100,6 +116,7 @@ impl Config {
                 .ok()
                 .and_then(|d| d.parse().ok())
                 .unwrap_or(7),
+            server_master_key: decode_hex_key_32(&get_var("SERVER_MASTER_KEY")?)?,
         }, env_path))
     }
 
