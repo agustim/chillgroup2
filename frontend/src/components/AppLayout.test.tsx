@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { AppLayout } from './AppLayout'
 
@@ -61,7 +61,17 @@ vi.mock('./sidebar/ChannelList', () => ({
 }))
 
 vi.mock('./main/MainContent', () => ({
-  MainContent: () => <div data-testid="main-content">Main Content</div>,
+  MainContent: ({ channel, onInviteChannel, onConfigureChannel, canManageChannel }: any) => (
+    <div data-testid="main-content">
+      Main Content
+      {channel && canManageChannel && onInviteChannel && (
+        <button data-testid="btn-invite-channel" onClick={onInviteChannel}>Convidar canal</button>
+      )}
+      {channel && canManageChannel && onConfigureChannel && (
+        <button data-testid="btn-configure-channel" onClick={onConfigureChannel}>Configurar canal</button>
+      )}
+    </div>
+  ),
 }))
 
 // Fix 2: The real ChannelHeader uses canManageChannel + onInviteChannel / onConfigureChannel props.
@@ -147,6 +157,7 @@ vi.mock('../lib/api', () => ({
   channelsList: vi.fn(),
   channelsCreate: vi.fn(),
   channelsUpdate: vi.fn(),
+  channelsMarkRead: vi.fn(),
   serverInviteMember: vi.fn(),
   channelInvite: vi.fn(),
 }))
@@ -158,6 +169,7 @@ import {
   channelsList,
   channelsCreate,
   channelsUpdate,
+  channelsMarkRead,
   serverInviteMember,
   channelInvite,
 } from '../lib/api'
@@ -168,6 +180,7 @@ const mockServersGet = vi.mocked(serversGet)
 const mockChannelsList = vi.mocked(channelsList)
 const mockChannelsCreate = vi.mocked(channelsCreate)
 const mockChannelsUpdate = vi.mocked(channelsUpdate)
+const mockChannelsMarkRead = vi.mocked(channelsMarkRead)
 const mockServerInviteMember = vi.mocked(serverInviteMember)
 const mockChannelInvite = vi.mocked(channelInvite)
 
@@ -203,6 +216,7 @@ describe('AppLayout', () => {
     mockChannelsList.mockResolvedValue({ success: true, data: [testChannel] })
     mockChannelsCreate.mockResolvedValue({ success: true, data: testChannel })
     mockChannelsUpdate.mockResolvedValue({ success: true, data: { ...testChannel, name: 'general-modificat' } })
+    mockChannelsMarkRead.mockResolvedValue({ success: true, data: undefined })
     mockServerInviteMember.mockResolvedValue({ success: true, data: { invitedUser: 'x' } })
     mockChannelInvite.mockResolvedValue({ success: true, data: { invitedUser: 'x' } })
   })
@@ -243,7 +257,7 @@ describe('AppLayout', () => {
     it('mostra canals del servidor', async () => {
       renderApp()
       await waitFor(() => {
-        expect(screen.getByText('general')).toBeTruthy()
+        expect(screen.getByRole('button', { name: /general/i })).toBeTruthy()
       })
     })
   })
@@ -284,22 +298,23 @@ describe('AppLayout', () => {
 
     it('InviteMemberModal canal es obre amb el botó del header', async () => {
       renderApp()
-      await waitFor(async () => {
-        fireEvent.click(screen.getByTestId('btn-invite-channel'))
-        await waitFor(() => {
-          expect(screen.getByRole('dialog')).toBeTruthy()
-        })
+      const channelButton = await screen.findByRole('button', { name: /general/i })
+      fireEvent.click(channelButton)
+      const inviteButton = await screen.findByTestId('btn-invite-channel')
+      fireEvent.click(inviteButton)
+      await waitFor(() => {
+        expect(screen.getByRole('dialog')).toBeTruthy()
       })
     })
 
     it('ConfigureChannelModal es obre amb el botó Configurar canal', async () => {
       renderApp()
-      await waitFor(async () => {
-        fireEvent.click(screen.getByTestId('btn-configure-channel'))
-        await waitFor(() => {
-          expect(screen.getByRole('dialog')).toBeTruthy()
-          expect(screen.getByText((c) => c.includes('Configuració del canal'))).toBeTruthy()
-        })
+      const channelButton = await screen.findByRole('button', { name: /general/i })
+      fireEvent.click(channelButton)
+      const configureButton = await screen.findByTestId('btn-configure-channel')
+      fireEvent.click(configureButton)
+      await waitFor(() => {
+        expect(screen.getByRole('dialog', { name: 'Configuració del canal' })).toBeTruthy()
       })
     })
   })
@@ -317,13 +332,13 @@ describe('AppLayout', () => {
 
     it('CreateChannelModal té el camp de nom i selector de tipus', async () => {
       renderApp()
-      await waitFor(async () => {
-        fireEvent.click(screen.getByTestId('btn-create-channel'))
-        await waitFor(() => {
-          expect(screen.getByLabelText('Nom del canal')).toBeTruthy()
-          expect(screen.getByText('# Text')).toBeTruthy()
-          expect(screen.getByText('🔊 Veu')).toBeTruthy()
-        })
+      const createButton = await screen.findByTestId('btn-create-channel')
+      fireEvent.click(createButton)
+      await waitFor(() => {
+        expect(screen.getByLabelText('Nom del canal')).toBeTruthy()
+        const options = within(screen.getByTestId('channel-type-options'))
+        expect(options.getByText('# Text')).toBeTruthy()
+        expect(options.getByText('🔊 Veu')).toBeTruthy()
       })
     })
 

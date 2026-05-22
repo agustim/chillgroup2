@@ -144,6 +144,7 @@ pub async fn extract_claims(
 mod tests {
     use super::*;
     use std::env;
+    use crate::config::LogLevel;
 
     fn test_config() -> Config {
         env::set_var("JWT_SECRET", "test-secret-key-for-unit-tests-only");
@@ -157,6 +158,8 @@ mod tests {
             livekit_api_secret: "test-secret".to_string(),
             jwt_secret: "test-secret-key-for-unit-tests-only".to_string(),
             jwt_expiration_days: 7,
+            backend_debug: LogLevel::Info,
+            server_master_key: [7u8; 32],
         }
     }
 

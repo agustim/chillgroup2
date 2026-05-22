@@ -72,10 +72,20 @@ async function apiRequest<T>(
   }
 
   let data: any = {}
-  const responseText = await response.text()
-  if (responseText.trim()) {
+  let responseText = ''
+  if (typeof (response as Response & { text?: () => Promise<string> }).text === 'function') {
+    responseText = await response.text()
+    if (responseText.trim()) {
+      try {
+        data = JSON.parse(responseText)
+      } catch {
+        data = { success: false, error: { code: response.status, message: 'Network error' } }
+      }
+    }
+  } else if (typeof (response as Response & { json?: () => Promise<unknown> }).json === 'function') {
     try {
-      data = JSON.parse(responseText)
+      data = await response.json()
+      responseText = JSON.stringify(data)
     } catch {
       data = { success: false, error: { code: response.status, message: 'Network error' } }
     }
@@ -451,14 +461,14 @@ export async function channelsList(serverId: string): Promise<ApiResult<Channel[
 
 function mapChannelToTypes(channel: any): Channel {
   return {
-    channelId: channel.id,
+    channelId: channel.channel_id ?? channel.channelId ?? channel.id,
     name: channel.name,
-    type: channel.channel_type,
-    encryptionType: channel.encryption_type,
-    messageTTL: channel.message_ttl,
-    isPrivate: channel.is_private,
+    type: channel.channel_type ?? channel.type,
+    encryptionType: channel.encryption_type ?? channel.encryptionType,
+    messageTTL: channel.message_ttl ?? channel.messageTTL ?? null,
+    isPrivate: channel.is_private ?? channel.isPrivate ?? false,
     unreadCount: channel.unread_count ?? channel.unreadCount ?? 0,
-    createdAt: channel.created_at,
+    createdAt: channel.created_at ?? channel.createdAt,
   }
 }
 

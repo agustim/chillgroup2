@@ -21,7 +21,9 @@ function normalizeLevel(value: string | undefined): LogLevel {
   }
 }
 
-const currentLevel = normalizeLevel(__FRONTEND_DEBUG__)
+const currentLevel = normalizeLevel(
+  typeof __FRONTEND_DEBUG__ === 'undefined' ? undefined : __FRONTEND_DEBUG__
+)
 
 function shouldLog(level: LogLevel): boolean {
   return LOG_PRIORITY[level] >= LOG_PRIORITY[currentLevel]

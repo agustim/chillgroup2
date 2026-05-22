@@ -120,7 +120,7 @@ describe('API Client', () => {
 
       const result = await authLogin('testuser', 'password123')
 
-      expect(mockFetch).toHaveBeenCalledWith('http://localhost:8080/api/auth/login', {
+      expect(mockFetch).toHaveBeenCalledWith('/api/auth/login', {
         method: 'POST',
         headers: expect.objectContaining({
           'Content-Type': 'application/json',
