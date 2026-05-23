@@ -12,7 +12,22 @@ vi.mock('../contexts/AuthContext', () => ({
       devices: [],
       quotas: { maxServers: 10, maxChannelsPerServer: 50, maxMessagesPerMinute: 30 },
     },
+    currentDeviceId: 'dev-1',
   }),
+}))
+
+vi.mock('../lib/storage', () => ({
+  getLatestChannelKey: vi.fn(),
+  getChannelKey: vi.fn(),
+}))
+
+vi.mock('../lib/channel-crypto', () => ({
+  ensureChannelKey: vi.fn(),
+  distributeChannelKey: vi.fn(),
+}))
+
+vi.mock('../lib/device-keys', () => ({
+  hasLocalDeviceKeypair: vi.fn(async () => true),
 }))
 
 vi.mock('./sidebar/ServerBar', () => ({
@@ -129,13 +144,14 @@ vi.mock('./modals/CreateServerModal', () => ({
 }))
 
 vi.mock('./modals/InviteMemberModal', () => ({
-  InviteMemberModal: ({ isOpen, inviteType, targetName }: any) =>
+  InviteMemberModal: ({ isOpen, inviteType, targetName, onInvite }: any) =>
     isOpen ? (
       <div role="dialog" aria-label={`Convidar al ${inviteType}`}>
         <h2>Convidar al {inviteType}</h2>
         <p>Convida un usuari a <strong>{targetName}</strong></p>
         <label htmlFor="invite-username">Nom d'usuari</label>
         <input id="invite-username" type="text" placeholder="Nom d'usuari" />
+        <button data-testid="submit-invite" onClick={() => onInvite('pop')}>Convidar</button>
       </div>
     ) : null,
 }))
@@ -173,6 +189,8 @@ import {
   serverInviteMember,
   channelInvite,
 } from '../lib/api'
+import { getLatestChannelKey, getChannelKey } from '../lib/storage'
+import { distributeChannelKey } from '../lib/channel-crypto'
 
 const mockServersList = vi.mocked(serversList)
 const mockServersCreate = vi.mocked(serversCreate)
@@ -183,6 +201,9 @@ const mockChannelsUpdate = vi.mocked(channelsUpdate)
 const mockChannelsMarkRead = vi.mocked(channelsMarkRead)
 const mockServerInviteMember = vi.mocked(serverInviteMember)
 const mockChannelInvite = vi.mocked(channelInvite)
+const mockGetLatestChannelKey = vi.mocked(getLatestChannelKey)
+const mockGetChannelKey = vi.mocked(getChannelKey)
+const mockDistributeChannelKey = vi.mocked(distributeChannelKey)
 
 const testServer: any = {
   serverId: 'srv-1',
@@ -219,6 +240,9 @@ describe('AppLayout', () => {
     mockChannelsMarkRead.mockResolvedValue({ success: true, data: undefined })
     mockServerInviteMember.mockResolvedValue({ success: true, data: { invitedUser: 'x' } })
     mockChannelInvite.mockResolvedValue({ success: true, data: { invitedUser: 'x' } })
+    mockGetLatestChannelKey.mockResolvedValue(null)
+    mockGetChannelKey.mockResolvedValue(null)
+    mockDistributeChannelKey.mockResolvedValue(undefined)
   })
 
   afterEach(() => {
@@ -304,6 +328,43 @@ describe('AppLayout', () => {
       fireEvent.click(inviteButton)
       await waitFor(() => {
         expect(screen.getByRole('dialog')).toBeTruthy()
+      })
+    })
+
+    it('redistribueix la clau d un canal asimetric despres de convidar', async () => {
+      mockChannelsList.mockResolvedValueOnce({
+        success: true,
+        data: [{
+          ...testChannel,
+          encryptionType: 'asymmetric',
+          keyVersionId: 'kv-1',
+          keyVersion: 1,
+        }],
+      })
+      mockGetLatestChannelKey.mockResolvedValueOnce({
+        keyBytes: new Uint8Array([1, 2, 3]),
+        keyVersion: 1,
+        keyVersionId: 'kv-1',
+      })
+      mockGetChannelKey.mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
+
+      renderApp()
+      const channelButton = await screen.findByRole('button', { name: /general/i })
+      fireEvent.click(channelButton)
+      const inviteButton = await screen.findByTestId('btn-invite-channel')
+      fireEvent.click(inviteButton)
+
+      const submitButton = await screen.findByTestId('submit-invite')
+      fireEvent.click(submitButton)
+
+      await waitFor(() => {
+        expect(mockDistributeChannelKey).toHaveBeenCalledWith(
+          'ch-1',
+          expect.any(Uint8Array),
+          1,
+          'kv-1',
+          'dev-1',
+        )
       })
     })
 

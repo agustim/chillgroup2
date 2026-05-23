@@ -32,5 +32,11 @@ pub struct Channel {
     pub is_private: bool,
     #[serde(default)]
     pub unread_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub key_version_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub key_version: Option<i32>,
     pub created_at: DateTime<Utc>,
 }

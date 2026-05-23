@@ -83,7 +83,19 @@ pub async fn get_message(
         })?;
 
     match msg {
-        Some(message) => Ok(Json(message)),
+        Some(message) => {
+            if message.channel_id != Uuid::nil() {
+                let can_access = state
+                    .db
+                    .user_can_access_channel(message.channel_id, claims.user_id)
+                    .await
+                    .map_err(|_| AppError::InternalError)?;
+                if !can_access {
+                    return Err(AppError::Forbidden);
+                }
+            }
+            Ok(Json(message))
+        }
         None => Err(AppError::MessageNotFound),
     }
 }
@@ -99,6 +111,15 @@ pub async fn list_messages(
         "Endpoint list_messages cridat: channel_id={}, user_id={}, limit={}, after={:?}, before={:?}, since={:?}",
         channel_id, claims.user_id, query.limit, query.after, query.before, query.since
     );
+
+    let can_access = state
+        .db
+        .user_can_access_channel(channel_id, claims.user_id)
+        .await
+        .map_err(|_| AppError::InternalError)?;
+    if !can_access {
+        return Err(AppError::Forbidden);
+    }
 
     // Parse 'since' parameter if provided
     let since_dt = query.since
@@ -167,6 +188,15 @@ pub async fn check_new_messages(
         channel_id, claims.user_id, query.last_seen
     );
 
+    let can_access = state
+        .db
+        .user_can_access_channel(channel_id, claims.user_id)
+        .await
+        .map_err(|_| AppError::InternalError)?;
+    if !can_access {
+        return Err(AppError::Forbidden);
+    }
+
     let (count, first_id) = state.db.count_new_messages(channel_id, claims.user_id, &query.last_seen)
         .await
         .map_err(|e| {
@@ -214,6 +244,15 @@ pub async fn send_message(
             AppError::InternalError
         })?
         .ok_or(AppError::ChannelNotFound)?;
+
+    let can_access = state
+        .db
+        .user_can_access_channel(channel_id, claims.user_id)
+        .await
+        .map_err(|_| AppError::InternalError)?;
+    if !can_access {
+        return Err(AppError::Forbidden);
+    }
 
     let message_id = Uuid::new_v4();
     let timestamp = chrono::Utc::now();

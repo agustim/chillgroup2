@@ -1,20 +1,23 @@
 import { ml_kem1024 } from '@noble/post-quantum/ml-kem.js'
+import { ml_dsa87 } from '@noble/post-quantum/ml-dsa.js'
 
 import {
   deleteChannelKey,
   deleteNamedKeypair,
   getAllChannelKeys,
   getChannelKey,
+  getDevicePublicKeys,
+  getDeviceSecretKeys,
   getNamedKeypair,
-  getDevicePublicKey,
-  getKeypair,
   listNamedKeypairs,
   listChannelKeys,
   storeChannelKey,
   storeDevicePublicKey,
-  storeKeypair,
+  storeDeviceSecretKeys,
   upsertNamedKeypair,
 } from './storage'
+
+export { listChannelKeys } from './storage'
 
 function uint8ArrayToBase64(data: Uint8Array): string {
   let binary = ''
@@ -37,11 +40,14 @@ function base64ToUint8Array(value: string): Uint8Array {
 
 export interface DeviceKeypairBundle {
   version: 1
-  algorithm: 'ML-KEM-1024'
+  kemAlgorithm: 'ML-KEM-1024'
+  dsaAlgorithm: 'ML-DSA-87'
   deviceId: string
   createdAt: number
-  publicKey: string
-  secretKey: string
+  kemPublicKey: string
+  kemSecretKey: string
+  dsaPublicKey: string
+  dsaSecretKey: string
 }
 
 export interface SymmetricChannelsBundle {
@@ -50,6 +56,18 @@ export interface SymmetricChannelsBundle {
   channels: Array<{
     channelId: string
     keyVersion: number
+    key: string
+    acquiredAt: number
+  }>
+}
+
+export interface AsymmetricChannelsBundle {
+  version: 1
+  exportedAt: number
+  channels: Array<{
+    channelId: string
+    keyVersion: number
+    keyVersionId?: string | null
     key: string
     acquiredAt: number
   }>
@@ -73,23 +91,23 @@ function normalizeDeviceId(deviceId: string): string {
 }
 
 export async function hasLocalDeviceKeypair(deviceId: string): Promise<boolean> {
-  const secretKey = await getKeypair(deviceId)
-  if (secretKey) {
+  const secretKeys = await getDeviceSecretKeys(deviceId)
+  if (secretKeys?.kemSecretKey && secretKeys.dsaSecretKey) {
     return true
   }
 
-  const named = await listNamedKeypairs()
-  if (named.some((item) => item.deviceId === deviceId)) {
+  const named = await getNamedKeypair(deviceId)
+  if (named?.secretKey && named.publicKey && named.dsaSecretKey && named.dsaPublicKey) {
     return true
   }
 
-  return !!secretKey
+  return false
 }
 
 export async function generateAndStoreDeviceKeypair(
   deviceId: string,
   overwrite = false
-): Promise<{ publicKey: string }> {
+): Promise<{ kemPublicKey: string; dsaPublicKey: string }> {
   const safeDeviceId = deviceId.trim()
   if (!safeDeviceId) {
     throw new Error('Has d\'indicar un deviceId pel parell de claus')
@@ -102,11 +120,15 @@ export async function generateAndStoreDeviceKeypair(
   }
 
   const { secretKey, publicKey } = ml_kem1024.keygen()
-  await upsertNamedKeypair(safeDeviceId, safeDeviceId, secretKey, publicKey)
-  await storeKeypair(safeDeviceId, secretKey)
-  await storeDevicePublicKey(safeDeviceId, publicKey)
+  const dsa = ml_dsa87.keygen()
+  await upsertNamedKeypair(safeDeviceId, safeDeviceId, secretKey, publicKey, dsa.secretKey, dsa.publicKey)
+  await storeDeviceSecretKeys(safeDeviceId, secretKey, dsa.secretKey)
+  await storeDevicePublicKey(safeDeviceId, publicKey, dsa.publicKey)
 
-  return { publicKey: uint8ArrayToBase64(publicKey) }
+  return {
+    kemPublicKey: uint8ArrayToBase64(publicKey),
+    dsaPublicKey: uint8ArrayToBase64(dsa.publicKey),
+  }
 }
 
 export async function importAndStoreDeviceKeypair(
@@ -120,12 +142,23 @@ export async function importAndStoreDeviceKeypair(
     throw new Error('Format JSON invàlid per importar clau de dispositiu')
   }
 
-  if (parsed.version !== 1 || parsed.algorithm !== 'ML-KEM-1024' || !parsed.deviceId || !parsed.publicKey || !parsed.secretKey) {
+  if (
+    parsed.version !== 1 ||
+    parsed.kemAlgorithm !== 'ML-KEM-1024' ||
+    parsed.dsaAlgorithm !== 'ML-DSA-87' ||
+    !parsed.deviceId ||
+    !parsed.kemPublicKey ||
+    !parsed.kemSecretKey ||
+    !parsed.dsaPublicKey ||
+    !parsed.dsaSecretKey
+  ) {
     throw new Error('El fitxer importat no té el format de backup esperat')
   }
 
-  const publicKey = base64ToUint8Array(parsed.publicKey)
-  const secretKey = base64ToUint8Array(parsed.secretKey)
+  const publicKey = base64ToUint8Array(parsed.kemPublicKey)
+  const secretKey = base64ToUint8Array(parsed.kemSecretKey)
+  const dsaPublicKey = base64ToUint8Array(parsed.dsaPublicKey)
+  const dsaSecretKey = base64ToUint8Array(parsed.dsaSecretKey)
   const safeDeviceId = parsed.deviceId.trim()
 
   const existing = await listNamedKeypairs()
@@ -134,10 +167,9 @@ export async function importAndStoreDeviceKeypair(
     throw new KeypairDeviceIdExistsError(safeDeviceId)
   }
 
-  await upsertNamedKeypair(safeDeviceId, safeDeviceId, secretKey, publicKey)
-
-  await storeKeypair(safeDeviceId, secretKey)
-  await storeDevicePublicKey(safeDeviceId, publicKey)
+  await upsertNamedKeypair(safeDeviceId, safeDeviceId, secretKey, publicKey, dsaSecretKey, dsaPublicKey)
+  await storeDeviceSecretKeys(safeDeviceId, secretKey, dsaSecretKey)
+  await storeDevicePublicKey(safeDeviceId, publicKey, dsaPublicKey)
 
   return {
     ...parsed,
@@ -158,11 +190,14 @@ export async function exportDeviceKeypair(deviceId: string): Promise<string> {
 
   const bundle: DeviceKeypairBundle = {
     version: 1,
-    algorithm: 'ML-KEM-1024',
+    kemAlgorithm: 'ML-KEM-1024',
+    dsaAlgorithm: 'ML-DSA-87',
     deviceId: resolvedDeviceId,
     createdAt: Date.now(),
-    publicKey: uint8ArrayToBase64(publicKey),
-    secretKey: uint8ArrayToBase64(secretKey),
+    kemPublicKey: uint8ArrayToBase64(publicKey),
+    kemSecretKey: uint8ArrayToBase64(secretKey),
+    dsaPublicKey: uint8ArrayToBase64(found.dsaPublicKey ?? new Uint8Array()),
+    dsaSecretKey: uint8ArrayToBase64(found.dsaSecretKey ?? new Uint8Array()),
   }
 
   return JSON.stringify(bundle, null, 2)
@@ -183,19 +218,24 @@ export async function listDeviceKeypairs(): Promise<NamedKeypairItem[]> {
 
 export async function getDeviceKeySummary(deviceId: string): Promise<{
   hasKeypair: boolean
-  publicKeyPreview: string | null
+  kemPublicKeyPreview: string | null
+  dsaPublicKeyPreview: string | null
+  hasSigningKeypair: boolean
 }> {
-  const secretKey = await getKeypair(deviceId)
-  const publicKey = await getDevicePublicKey(deviceId)
+  const secretKeys = await getDeviceSecretKeys(deviceId)
+  const publicKeys = await getDevicePublicKeys(deviceId)
 
-  if (!secretKey || !publicKey) {
-    return { hasKeypair: false, publicKeyPreview: null }
+  if (!secretKeys?.kemSecretKey || !publicKeys?.kemPublicKey) {
+    return { hasKeypair: false, kemPublicKeyPreview: null, dsaPublicKeyPreview: null, hasSigningKeypair: false }
   }
 
-  const encoded = uint8ArrayToBase64(publicKey)
+  const kemEncoded = uint8ArrayToBase64(publicKeys.kemPublicKey)
+  const dsaEncoded = publicKeys.dsaPublicKey ? uint8ArrayToBase64(publicKeys.dsaPublicKey) : null
   return {
     hasKeypair: true,
-    publicKeyPreview: `${encoded.slice(0, 16)}...${encoded.slice(-12)}`,
+    kemPublicKeyPreview: `${kemEncoded.slice(0, 16)}...${kemEncoded.slice(-12)}`,
+    dsaPublicKeyPreview: dsaEncoded ? `${dsaEncoded.slice(0, 16)}...${dsaEncoded.slice(-12)}` : null,
+    hasSigningKeypair: !!secretKeys.dsaSecretKey,
   }
 }
 
@@ -251,6 +291,27 @@ export async function exportSymmetricChannelKeys(): Promise<string> {
   return JSON.stringify(bundle, null, 2)
 }
 
+export async function exportAsymmetricChannelKeys(): Promise<string> {
+  const keys = await getAllChannelKeys()
+  const channels = keys
+    .filter((entry) => entry.type === 'asymmetric')
+    .map((entry) => ({
+      channelId: entry.channelId,
+      keyVersion: entry.keyVersion,
+      keyVersionId: entry.keyVersionId ?? null,
+      key: uint8ArrayToBase64(entry.keyBytes),
+      acquiredAt: entry.acquiredAt,
+    }))
+
+  const bundle: AsymmetricChannelsBundle = {
+    version: 1,
+    exportedAt: Date.now(),
+    channels,
+  }
+
+  return JSON.stringify(bundle, null, 2)
+}
+
 export async function importSymmetricChannelKeys(bundleText: string): Promise<number> {
   let parsed: SymmetricChannelsBundle
   try {
@@ -270,6 +331,31 @@ export async function importSymmetricChannelKeys(bundleText: string): Promise<nu
     }
     const keyBytes = base64ToUint8Array(item.key)
     await storeChannelKey(item.channelId, keyBytes, 'symmetric', item.keyVersion ?? 1)
+    imported++
+  }
+
+  return imported
+}
+
+export async function importAsymmetricChannelKeys(bundleText: string): Promise<number> {
+  let parsed: AsymmetricChannelsBundle
+  try {
+    parsed = JSON.parse(bundleText) as AsymmetricChannelsBundle
+  } catch {
+    throw new Error('Format JSON invàlid per importar claus asimètriques')
+  }
+
+  if (parsed.version !== 1 || !Array.isArray(parsed.channels)) {
+    throw new Error('El fitxer de claus asimètriques no és compatible')
+  }
+
+  let imported = 0
+  for (const item of parsed.channels) {
+    if (!item.channelId || !item.key) {
+      continue
+    }
+    const keyBytes = base64ToUint8Array(item.key)
+    await storeChannelKey(item.channelId, keyBytes, 'asymmetric', item.keyVersion ?? 1, item.keyVersionId ?? null)
     imported++
   }
 

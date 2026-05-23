@@ -92,6 +92,8 @@ export interface NamedKeypairRecord {
   deviceId: string | null
   kyberSecretKey: string
   kyberPublicKey: string
+  dsaSecretKey?: string
+  dsaPublicKey?: string
   createdAt: number
   updatedAt: number
 }
@@ -110,14 +112,27 @@ function normalizeKeypairName(name: string): string {
 /**
  * Guardar el keypair del dispositiu a IndexedDB.
  */
-export async function storeKeypair(deviceId: string, secretKey: Uint8Array): Promise<void> {
+export async function storeKeypair(
+  deviceId: string,
+  secretKey: Uint8Array,
+  dsaSecretKey?: Uint8Array
+): Promise<void> {
+  return storeDeviceSecretKeys(deviceId, secretKey, dsaSecretKey)
+}
+
+export async function storeDeviceSecretKeys(
+  deviceId: string,
+  kemSecretKey: Uint8Array,
+  dsaSecretKey?: Uint8Array
+): Promise<void> {
   const db = await getDB()
   return new Promise((resolve, reject) => {
     const tx = db.transaction('keypairs', 'readwrite')
     const store = tx.objectStore('keypairs')
     store.put({
       deviceId,
-      kyberSecretKey: uint8ArrayToBase64(secretKey),
+      kyberSecretKey: uint8ArrayToBase64(kemSecretKey),
+      dsaSecretKey: dsaSecretKey ? uint8ArrayToBase64(dsaSecretKey) : undefined,
       createdAt: Date.now(),
     })
     tx.oncomplete = () => {
@@ -135,6 +150,14 @@ export async function storeKeypair(deviceId: string, secretKey: Uint8Array): Pro
  * Obtenir el keypair del dispositiu des de IndexedDB.
  */
 export async function getKeypair(deviceId: string): Promise<Uint8Array | null> {
+  const keypair = await getDeviceSecretKeys(deviceId)
+  return keypair?.kemSecretKey ?? null
+}
+
+export async function getDeviceSecretKeys(deviceId: string): Promise<{
+  kemSecretKey: Uint8Array
+  dsaSecretKey: Uint8Array | null
+} | null> {
   const db = await getDB()
   return new Promise((resolve, reject) => {
     const tx = db.transaction('keypairs', 'readonly')
@@ -148,8 +171,14 @@ export async function getKeypair(deviceId: string): Promise<Uint8Array | null> {
         return
       }
       const keyBytes = base64ToUint8Array(result.kyberSecretKey)
+      const signingKeyBytes = typeof result.dsaSecretKey === 'string'
+        ? base64ToUint8Array(result.dsaSecretKey)
+        : null
       db.close()
-      resolve(keyBytes)
+      resolve({
+        kemSecretKey: keyBytes,
+        dsaSecretKey: signingKeyBytes,
+      })
     }
     request.onerror = () => {
       db.close()
@@ -209,7 +238,9 @@ export async function upsertNamedKeypair(
   name: string,
   deviceId: string | null,
   secretKey: Uint8Array,
-  publicKey: Uint8Array
+  publicKey: Uint8Array,
+  dsaSecretKey?: Uint8Array,
+  dsaPublicKey?: Uint8Array
 ): Promise<void> {
   const normalized = normalizeKeypairName(name)
   const db = await getDB()
@@ -227,6 +258,8 @@ export async function upsertNamedKeypair(
         deviceId,
         kyberSecretKey: uint8ArrayToBase64(secretKey),
         kyberPublicKey: uint8ArrayToBase64(publicKey),
+        dsaSecretKey: dsaSecretKey ? uint8ArrayToBase64(dsaSecretKey) : prev?.dsaSecretKey,
+        dsaPublicKey: dsaPublicKey ? uint8ArrayToBase64(dsaPublicKey) : prev?.dsaPublicKey,
         createdAt: prev?.createdAt ?? now,
         updatedAt: now,
       })
@@ -254,6 +287,8 @@ export async function getNamedKeypair(name: string): Promise<{
   summary: NamedKeypairSummary
   secretKey: Uint8Array
   publicKey: Uint8Array
+  dsaSecretKey: Uint8Array | null
+  dsaPublicKey: Uint8Array | null
 } | null> {
   const normalized = normalizeKeypairName(name)
   const db = await getDB()
@@ -279,6 +314,8 @@ export async function getNamedKeypair(name: string): Promise<{
         },
         secretKey: base64ToUint8Array(result.kyberSecretKey),
         publicKey: base64ToUint8Array(result.kyberPublicKey),
+        dsaSecretKey: result.dsaSecretKey ? base64ToUint8Array(result.dsaSecretKey) : null,
+        dsaPublicKey: result.dsaPublicKey ? base64ToUint8Array(result.dsaPublicKey) : null,
       })
     }
     request.onerror = () => {
@@ -354,7 +391,8 @@ export async function storeChannelKeyVersion(
   channelId: string,
   keyVersion: number,
   keyBytes: Uint8Array,
-  type: 'symmetric' | 'asymmetric'
+  type: 'symmetric' | 'asymmetric',
+  keyVersionId?: string | null
 ): Promise<void> {
   const normalizedVersion = normalizeKeyVersion(keyVersion)
   const db = await getDB()
@@ -365,6 +403,7 @@ export async function storeChannelKeyVersion(
       compoundId: makeChannelVersionId(channelId, normalizedVersion),
       channelId,
       keyVersion: normalizedVersion,
+      keyVersionId: keyVersionId ?? null,
       keyBytes: uint8ArrayToBase64(keyBytes),
       type,
       acquiredAt: Date.now(),
@@ -414,6 +453,7 @@ export async function getChannelKeyVersion(channelId: string, keyVersion: number
 export async function getLatestChannelKey(channelId: string): Promise<{
   keyBytes: Uint8Array
   keyVersion: number
+  keyVersionId?: string | null
 } | null> {
   const db = await getDB()
   return new Promise((resolve, reject) => {
@@ -423,7 +463,7 @@ export async function getLatestChannelKey(channelId: string): Promise<{
     const request = index.getAll()
 
     request.onsuccess = () => {
-      const records = (request.result as Array<{ channelId: string; keyBytes: string; keyVersion: number }>)
+      const records = (request.result as Array<{ channelId: string; keyBytes: string; keyVersion: number; keyVersionId?: string | null }>)
         .filter((item) => item.channelId === channelId)
       if (!records || records.length === 0) {
         db.close()
@@ -439,6 +479,7 @@ export async function getLatestChannelKey(channelId: string): Promise<{
       resolve({
         keyBytes: base64ToUint8Array(latest.keyBytes),
         keyVersion: normalizeKeyVersion(latest.keyVersion),
+        keyVersionId: latest.keyVersionId ?? null,
       })
     }
 
@@ -486,9 +527,10 @@ export async function storeChannelKey(
   channelId: string,
   keyBytes: Uint8Array,
   type: 'symmetric' | 'asymmetric',
-  keyVersion = 1
+  keyVersion = 1,
+  keyVersionId?: string | null
 ): Promise<void> {
-  await storeChannelKeyVersion(channelId, keyVersion, keyBytes, type)
+  await storeChannelKeyVersion(channelId, keyVersion, keyBytes, type, keyVersionId)
 
   const db = await getDB()
   return new Promise((resolve, reject) => {
@@ -548,6 +590,7 @@ export interface StoredChannelKeyRecord {
   channelId: string
   keyBytes: Uint8Array
   keyVersion: number
+  keyVersionId?: string | null
   type: 'symmetric' | 'asymmetric'
   acquiredAt: number
   expiresAt: number | null
@@ -574,6 +617,7 @@ export async function listChannelKeys(): Promise<
       const items = request.result.map((item: any) => ({
         channelId: item.channelId,
         keyVersion: normalizeKeyVersion(item.keyVersion),
+        keyVersionId: item.keyVersionId ?? null,
         type: item.type as 'symmetric' | 'asymmetric',
         acquiredAt: item.acquiredAt,
         expiresAt: item.expiresAt ?? null,
@@ -601,6 +645,7 @@ export async function getAllChannelKeys(): Promise<StoredChannelKeyRecord[]> {
       const items = request.result.map((item: any) => ({
         channelId: item.channelId,
         keyVersion: normalizeKeyVersion(item.keyVersion),
+        keyVersionId: item.keyVersionId ?? null,
         keyBytes: base64ToUint8Array(item.keyBytes),
         type: item.type as 'symmetric' | 'asymmetric',
         acquiredAt: item.acquiredAt,
@@ -686,7 +731,8 @@ export async function cleanupExpiredKeys(): Promise<number> {
  */
 export async function storeDevicePublicKey(
   deviceId: string,
-  publicKey: Uint8Array
+  publicKey: Uint8Array,
+  dsaPublicKey?: Uint8Array
 ): Promise<void> {
   const db = await getDB()
   return new Promise((resolve, reject) => {
@@ -695,6 +741,8 @@ export async function storeDevicePublicKey(
     store.put({
       deviceId,
       publicKey: uint8ArrayToBase64(publicKey),
+      kemPublicKey: uint8ArrayToBase64(publicKey),
+      dsaPublicKey: dsaPublicKey ? uint8ArrayToBase64(dsaPublicKey) : undefined,
       algorithm: 'Kyber-1024',
     })
     tx.oncomplete = () => {
@@ -712,6 +760,14 @@ export async function storeDevicePublicKey(
  * Obtenir la clau pública del dispositiu.
  */
 export async function getDevicePublicKey(deviceId: string): Promise<Uint8Array | null> {
+  const result = await getDevicePublicKeys(deviceId)
+  return result?.kemPublicKey ?? null
+}
+
+export async function getDevicePublicKeys(deviceId: string): Promise<{
+  kemPublicKey: Uint8Array
+  dsaPublicKey: Uint8Array | null
+} | null> {
   const db = await getDB()
   return new Promise((resolve, reject) => {
     const tx = db.transaction('devicePublicKeys', 'readonly')
@@ -724,9 +780,15 @@ export async function getDevicePublicKey(deviceId: string): Promise<Uint8Array |
         resolve(null)
         return
       }
-      const publicKey = base64ToUint8Array(result.publicKey)
+      const kemPublicKey = base64ToUint8Array(result.kemPublicKey ?? result.publicKey)
+      const signingPublicKey = typeof result.dsaPublicKey === 'string'
+        ? base64ToUint8Array(result.dsaPublicKey)
+        : null
       db.close()
-      resolve(publicKey)
+      resolve({
+        kemPublicKey,
+        dsaPublicKey: signingPublicKey,
+      })
     }
     request.onerror = () => {
       db.close()

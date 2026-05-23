@@ -136,7 +136,11 @@ export interface DeviceInfo {
   deviceId: string
   label: string
   publicKey: string
+  kemPublicKey: string
+  dsaPublicKey: string
   hasPublicKey?: boolean
+  hasKemPublicKey?: boolean
+  hasDsaPublicKey?: boolean
   createdAt?: string
   lastSeen: string
   revoked: boolean
@@ -202,6 +206,8 @@ export interface ChannelInfo {
   encryptionType: 'none' | 'symmetric' | 'asymmetric'
   messageTTL: number | null
   isPrivate: boolean
+  keyVersionId?: string | null
+  keyVersion?: number | null
   createdAt: string
 }
 
@@ -320,8 +326,12 @@ export async function userDevicesList(): Promise<ApiResult<DeviceInfo[]>> {
     data: data.map((device: any) => ({
       deviceId: device.device_id ?? device.deviceId,
       label: device.label ?? 'Dispositiu',
-      publicKey: device.public_key ?? device.publicKey ?? '',
-      hasPublicKey: device.has_public_key ?? device.hasPublicKey ?? false,
+      publicKey: device.kem_public_key ?? device.kemPublicKey ?? device.public_key ?? device.publicKey ?? '',
+      kemPublicKey: device.kem_public_key ?? device.kemPublicKey ?? device.public_key ?? device.publicKey ?? '',
+      dsaPublicKey: device.dsa_public_key ?? device.dsaPublicKey ?? '',
+      hasPublicKey: device.has_kem_public_key ?? device.hasKemPublicKey ?? device.has_public_key ?? device.hasPublicKey ?? false,
+      hasKemPublicKey: device.has_kem_public_key ?? device.hasKemPublicKey ?? device.has_public_key ?? device.hasPublicKey ?? false,
+      hasDsaPublicKey: device.has_dsa_public_key ?? device.hasDsaPublicKey ?? false,
       createdAt: device.created_at ?? device.createdAt ?? null,
       lastSeen: device.last_seen ?? device.lastSeen ?? '',
       revoked: device.revoked ?? false,
@@ -468,6 +478,8 @@ function mapChannelToTypes(channel: any): Channel {
     messageTTL: channel.message_ttl ?? channel.messageTTL ?? null,
     isPrivate: channel.is_private ?? channel.isPrivate ?? false,
     unreadCount: channel.unread_count ?? channel.unreadCount ?? 0,
+    keyVersionId: channel.key_version_id ?? channel.keyVersionId ?? null,
+    keyVersion: channel.key_version ?? channel.keyVersion ?? null,
     createdAt: channel.created_at ?? channel.createdAt,
   }
 }
@@ -549,8 +561,11 @@ export async function channelsGetKeys(channelId: string) {
 
 export async function channelGetKey(channelId: string): Promise<ApiResult<{
   deviceId: string
+  keyVersionId?: string | null
   encryptedKey: string
   kemCiphertext: string
+  signature?: string | null
+  signedByDeviceId?: string | null
   keyVersion?: number | null
 }>> {
   const result = await apiRequest<any>('GET', `/api/channels/${channelId}/keys`)
@@ -560,8 +575,11 @@ export async function channelGetKey(channelId: string): Promise<ApiResult<{
     success: true,
     data: {
       deviceId: d.deviceId ?? d.device_id,
+      keyVersionId: d.keyVersionId ?? d.key_version_id ?? null,
       encryptedKey: d.encryptedKey ?? d.encrypted_key,
       kemCiphertext: d.kemCiphertext ?? d.kem_ciphertext,
+      signature: d.signature ?? null,
+      signedByDeviceId: d.signedByDeviceId ?? d.signed_by_device_id ?? null,
       keyVersion: d.keyVersion ?? d.key_version ?? null,
     },
   }
@@ -569,13 +587,22 @@ export async function channelGetKey(channelId: string): Promise<ApiResult<{
 
 export async function channelUploadKeys(
   channelId: string,
-  bundles: Array<{ deviceId: string; encryptedKey: string; kemCiphertext: string; keyVersion?: number }>
+  bundles: Array<{
+    deviceId: string
+    encryptedKey: string
+    kemCiphertext: string
+    keyVersion?: number
+    signature?: string
+    signedByDeviceId?: string
+  }>
 ): Promise<ApiResult<void>> {
   const body = bundles.map((b) => ({
     device_id: b.deviceId,
     encrypted_key: b.encryptedKey,
     kem_ciphertext: b.kemCiphertext,
     key_version: b.keyVersion,
+    signature: b.signature,
+    signed_by_device_id: b.signedByDeviceId,
   }))
   const result = await apiRequest<void>('POST', `/api/channels/${channelId}/keys`, body)
   if (!result.success) return result
@@ -585,6 +612,8 @@ export async function channelUploadKeys(
 export async function channelGetMemberDevices(channelId: string): Promise<ApiResult<Array<{
   deviceId: string
   publicKey: string
+  kemPublicKey: string
+  dsaPublicKey: string
 }>>> {
   const result = await apiRequest<any>('GET', `/api/channels/${channelId}/member-devices`)
   if (!result.success) return result
@@ -593,13 +622,18 @@ export async function channelGetMemberDevices(channelId: string): Promise<ApiRes
     success: true,
     data: data.map((d: any) => ({
       deviceId: d.deviceId ?? d.device_id,
-      publicKey: d.publicKey ?? d.public_key,
+      publicKey: d.kemPublicKey ?? d.kem_public_key ?? d.publicKey ?? d.public_key,
+      kemPublicKey: d.kemPublicKey ?? d.kem_public_key ?? d.publicKey ?? d.public_key,
+      dsaPublicKey: d.dsaPublicKey ?? d.dsa_public_key ?? '',
     })),
   }
 }
 
-export async function deviceUpdatePublicKey(publicKey: string): Promise<ApiResult<void>> {
-  const result = await apiRequest<void>('PUT', '/api/user/me/device/publickey', { public_key: publicKey })
+export async function deviceUpdatePublicKey(kemPublicKey: string, dsaPublicKey: string): Promise<ApiResult<void>> {
+  const result = await apiRequest<void>('PUT', '/api/user/me/device/publickey', {
+    kem_public_key: kemPublicKey,
+    dsa_public_key: dsaPublicKey,
+  })
   if (!result.success) return result
   return { success: true, data: undefined }
 }

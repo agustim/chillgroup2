@@ -1,8 +1,18 @@
 import { ml_kem1024 } from '@noble/post-quantum/ml-kem.js'
+import { ml_dsa87 } from '@noble/post-quantum/ml-dsa.js'
 import type { EncryptionType, Message } from '../types'
 import { decryptWithBytes, encryptWithBytes, generateSymmetricKey } from './crypto'
-import { getChannelKey, getChannelKeyVersion, getKeypair, getLatestChannelKey, storeChannelKey } from './storage'
-import { channelGetKey, channelUploadKeys, channelGetMemberDevices } from './api'
+import {
+  getChannelKey,
+  getChannelKeyVersion,
+  getDevicePublicKeys,
+  getDeviceSecretKeys,
+  getLatestChannelKey,
+  storeChannelKey,
+  storeDevicePublicKey,
+} from './storage'
+import { channelGetKey, channelUploadKeys, channelGetMemberDevices, deviceUpdatePublicKey } from './api'
+import { generateAndStoreDeviceKeypair } from './device-keys'
 
 // ── Helpers base64 ───────────────────────────────────────────────
 
@@ -16,7 +26,12 @@ function uint8ArrayToBase64(data: Uint8Array): string {
 }
 
 function base64ToUint8Array(value: string): Uint8Array {
-  const binary = atob(value)
+  const cleaned = value.trim().replace(/\s+/g, '')
+  const normalized = cleaned
+    .replace(/-/g, '+')
+    .replace(/_/g, '/')
+    .padEnd(Math.ceil(cleaned.length / 4) * 4, '=')
+  const binary = atob(normalized)
   const out = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i)
   return out
@@ -67,31 +82,213 @@ async function unwrapKeyWithKem(
   return new Uint8Array(channelKeyBytes)
 }
 
+function buildSignaturePayload(
+  keyVersionId: string,
+  deviceId: string,
+  kemCiphertext: string,
+  encryptedKey: string
+): Uint8Array {
+  return new TextEncoder().encode(`${keyVersionId}:${deviceId}:${kemCiphertext}:${encryptedKey}`)
+}
+
+const SIGN_TEST_PAYLOAD = new TextEncoder().encode('chillgroup-e2ee-signing-check')
+
+async function syncCurrentDevicePublicKeys(deviceId: string): Promise<void> {
+  let publicKeys = await getDevicePublicKeys(deviceId)
+  let secretKeys = await getDeviceSecretKeys(deviceId)
+  let needsRepair = !publicKeys?.kemPublicKey || !publicKeys.dsaPublicKey || !secretKeys?.kemSecretKey || !secretKeys.dsaSecretKey
+
+  if (!needsRepair && publicKeys && secretKeys?.dsaSecretKey) {
+    try {
+      ml_kem1024.encapsulate(publicKeys.kemPublicKey)
+      const signature = ml_dsa87.sign(SIGN_TEST_PAYLOAD, secretKeys.dsaSecretKey)
+      const signatureOk = ml_dsa87.verify(signature, SIGN_TEST_PAYLOAD, publicKeys.dsaPublicKey!)
+      if (!signatureOk) {
+        needsRepair = true
+      }
+    } catch {
+      needsRepair = true
+    }
+  }
+
+  if (needsRepair) {
+    const generated = await generateAndStoreDeviceKeypair(deviceId, true)
+    const upload = await deviceUpdatePublicKey(generated.kemPublicKey, generated.dsaPublicKey)
+    if (!upload.success) {
+      throw new Error(upload.error.message || 'No s\'ha pogut regenerar i sincronitzar la clau pública del dispositiu actual')
+    }
+    return
+  }
+
+  const kemPublicKey = uint8ArrayToBase64(publicKeys.kemPublicKey)
+  const dsaPublicKey = uint8ArrayToBase64(publicKeys.dsaPublicKey)
+  const upload = await deviceUpdatePublicKey(kemPublicKey, dsaPublicKey)
+  if (!upload.success) {
+    throw new Error(upload.error.message || 'No s\'ha pogut sincronitzar la clau pública del dispositiu actual')
+  }
+}
+
+async function cacheChannelMemberPublicKeys(channelId: string): Promise<Map<string, Uint8Array | null>> {
+  const devicesResult = await channelGetMemberDevices(channelId)
+  const signerKeys = new Map<string, Uint8Array | null>()
+  if (!devicesResult.success) return signerKeys
+
+  for (const device of devicesResult.data) {
+    try {
+      const kemKey = base64ToUint8Array(device.kemPublicKey)
+      const dsaKey = device.dsaPublicKey ? base64ToUint8Array(device.dsaPublicKey) : undefined
+      await storeDevicePublicKey(device.deviceId, kemKey, dsaKey)
+      signerKeys.set(device.deviceId, dsaKey ?? null)
+    } catch {
+      signerKeys.set(device.deviceId, null)
+    }
+  }
+
+  return signerKeys
+}
+
+async function verifyBundleSignature(
+  channelId: string,
+  keyVersionId: string,
+  deviceId: string,
+  encryptedKey: string,
+  kemCiphertext: string,
+  signature: string,
+  signedByDeviceId: string
+): Promise<boolean> {
+  let signerKeys = await getDevicePublicKeys(signedByDeviceId)
+  if (!signerKeys?.dsaPublicKey) {
+    const refreshed = await cacheChannelMemberPublicKeys(channelId)
+    const refreshedKey = refreshed.get(signedByDeviceId)
+    if (refreshedKey) {
+      signerKeys = { kemPublicKey: new Uint8Array(), dsaPublicKey: refreshedKey }
+    }
+  }
+
+  if (!signerKeys?.dsaPublicKey) {
+    return false
+  }
+
+  const payload = buildSignaturePayload(keyVersionId, deviceId, kemCiphertext, encryptedKey)
+  return ml_dsa87.verify(base64ToUint8Array(signature), payload, signerKeys.dsaPublicKey)
+}
+
 // ── Distribuir clau de canal a tots els membres ──────────────────
 
 export async function distributeChannelKey(
   channelId: string,
   channelKey: Uint8Array,
-  keyVersion = 1
+  keyVersion = 1,
+  keyVersionId?: string | null,
+  signerDeviceId?: string
 ): Promise<void> {
+  if (signerDeviceId) {
+    try {
+      await syncCurrentDevicePublicKeys(signerDeviceId)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Error sincronitzant la clau pública local'
+      console.error('[E2EE] No s\'ha pogut sincronitzar la clau pública del dispositiu actual abans de redistribuir', {
+        channelId,
+        signerDeviceId,
+        error: msg,
+      })
+    }
+  }
+
   const devicesResult = await channelGetMemberDevices(channelId)
   if (!devicesResult.success || !devicesResult.data.length) return
 
-  const bundles: Array<{ deviceId: string; encryptedKey: string; kemCiphertext: string; keyVersion?: number }> = []
+  let signerSecretKey: Uint8Array | null = null
+  if (signerDeviceId && keyVersionId) {
+    const deviceSecrets = await getDeviceSecretKeys(signerDeviceId)
+    signerSecretKey = deviceSecrets?.dsaSecretKey ?? null
+    if (!signerSecretKey) {
+      throw new Error('No hi ha clau de signatura local vàlida per redistribuir (ML-DSA)')
+    }
+  }
 
-  for (const { deviceId, publicKey } of devicesResult.data) {
-    if (!publicKey) continue
+  const bundles: Array<{
+    deviceId: string
+    encryptedKey: string
+    kemCiphertext: string
+    keyVersion?: number
+    signature?: string
+    signedByDeviceId?: string
+  }> = []
+  const failedDevices: string[] = []
+  const failureDetails: Array<{ deviceId: string; kemPublicKeyLength: number; decodedLength?: number; reason: string }> = []
+
+  for (const { deviceId, kemPublicKey, dsaPublicKey } of devicesResult.data) {
+    if (signerDeviceId && deviceId === signerDeviceId) {
+      continue
+    }
+    if (!kemPublicKey) continue
     try {
-      const pubKeyBytes = base64ToUint8Array(publicKey)
+      const pubKeyBytes = base64ToUint8Array(kemPublicKey)
+      const dsaKeyBytes = dsaPublicKey ? base64ToUint8Array(dsaPublicKey) : undefined
+      await storeDevicePublicKey(deviceId, pubKeyBytes, dsaKeyBytes)
       const { encryptedKey, kemCiphertext } = await wrapKeyWithKem(channelKey, pubKeyBytes)
-      bundles.push({ deviceId, encryptedKey, kemCiphertext, keyVersion })
-    } catch {
-      // Saltar dispositius amb clau pública no vàlida
+      const payload = keyVersionId
+        ? buildSignaturePayload(keyVersionId, deviceId, kemCiphertext, encryptedKey)
+        : null
+      const signature = payload && signerSecretKey
+        ? uint8ArrayToBase64(ml_dsa87.sign(payload, signerSecretKey))
+        : undefined
+      bundles.push({
+        deviceId,
+        encryptedKey,
+        kemCiphertext,
+        keyVersion,
+        signature,
+        signedByDeviceId: signature && signerDeviceId ? signerDeviceId : undefined,
+      })
+    } catch (err) {
+      failedDevices.push(deviceId)
+      const reason = err instanceof Error ? err.message : 'Error desconegut encapsulant KEM'
+      let decodedLength: number | undefined
+      try {
+        decodedLength = base64ToUint8Array(kemPublicKey).length
+      } catch {
+        decodedLength = undefined
+      }
+      failureDetails.push({
+        deviceId,
+        kemPublicKeyLength: kemPublicKey.length,
+        decodedLength,
+        reason,
+      })
     }
   }
 
   if (bundles.length > 0) {
-    await channelUploadKeys(channelId, bundles)
+    const uploadResult = await channelUploadKeys(channelId, bundles)
+    if (!uploadResult.success) {
+      throw new Error(uploadResult.error.message || 'No s\'ha pogut pujar el bundle de clau de canal')
+    }
+  }
+
+  if (failedDevices.length > 0) {
+    const reasonSummary = failureDetails
+      .map((d) => `${d.deviceId}(${d.decodedLength ?? 'n/a'} bytes: ${d.reason})`)
+      .join('; ')
+    const logPayload = {
+      channelId,
+      keyVersion,
+      keyVersionId,
+      signerDeviceId,
+      failedDevices,
+      failureDetails,
+    }
+
+    if (bundles.length === 0) {
+      console.error('[E2EE] Error redistribuint clau de canal (cap bundle vàlid)', logPayload)
+      throw new Error(`No s'ha pogut xifrar la clau per ${failedDevices.length} dispositiu(s): ${reasonSummary}`)
+    }
+
+    console.warn('[E2EE] Redistribució parcial: alguns dispositius no han rebut la clau', {
+      ...logPayload,
+      uploadedBundles: bundles.length,
+    })
   }
 }
 
@@ -106,12 +303,37 @@ async function fetchAndStoreChannelKey(
   if (!result.success || !result.data) return null
 
   // Buscar clau privada local
-  const secretKey = await getKeypair(myDeviceId)
-  if (!secretKey) return null
+  const secretKeys = await getDeviceSecretKeys(myDeviceId)
+  if (!secretKeys?.kemSecretKey) return null
 
   try {
-    const channelKey = await unwrapKeyWithKem(result.data.encryptedKey, result.data.kemCiphertext, secretKey)
-    await storeChannelKey(channelId, channelKey, encryptionType, result.data.keyVersion ?? 1)
+    if (
+      encryptionType === 'asymmetric' && (
+        !result.data.keyVersionId ||
+        !result.data.signature ||
+        !result.data.signedByDeviceId ||
+        !(await verifyBundleSignature(
+          channelId,
+          result.data.keyVersionId,
+          result.data.deviceId,
+          result.data.encryptedKey,
+          result.data.kemCiphertext,
+          result.data.signature,
+          result.data.signedByDeviceId,
+        ))
+      )
+    ) {
+      return null
+    }
+
+    const channelKey = await unwrapKeyWithKem(result.data.encryptedKey, result.data.kemCiphertext, secretKeys.kemSecretKey)
+    await storeChannelKey(
+      channelId,
+      channelKey,
+      encryptionType,
+      result.data.keyVersion ?? 1,
+      result.data.keyVersionId ?? null,
+    )
     return channelKey
   } catch {
     return null

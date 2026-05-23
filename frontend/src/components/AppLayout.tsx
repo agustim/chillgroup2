@@ -14,6 +14,7 @@ import { Channel, Server, ServerFullInfo, VoiceParticipant } from '../types'
 import { getSocket } from '../lib/socket'
 import { hasLocalDeviceKeypair } from '../lib/device-keys'
 import { ensureChannelKey, distributeChannelKey } from '../lib/channel-crypto'
+import { getChannelKey, getLatestChannelKey } from '../lib/storage'
 import {
   serverInviteMember,
   serversCreate,
@@ -81,7 +82,8 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   // Auto-dismiss feedback
   useEffect(() => {
     if (feedback) {
-      const timer = setTimeout(() => setFeedback(null), 3000)
+      const isError = feedback.includes('ha fallat') || feedback.startsWith('Error:')
+      const timer = setTimeout(() => setFeedback(null), isError ? 12000 : 3000)
       return () => clearTimeout(timer)
     }
   }, [feedback])
@@ -389,8 +391,20 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
         const { generateSymmetricKey } = await import('../lib/crypto')
         const { storeChannelKey } = await import('../lib/storage')
         const channelKey = generateSymmetricKey()
-        await storeChannelKey(result.data.channelId, channelKey, result.data.encryptionType)
-        distributeChannelKey(result.data.channelId, channelKey).catch(() => {})
+        await storeChannelKey(
+          result.data.channelId,
+          channelKey,
+          result.data.encryptionType,
+          result.data.keyVersion ?? 1,
+          result.data.keyVersionId ?? null,
+        )
+        distributeChannelKey(
+          result.data.channelId,
+          channelKey,
+          result.data.keyVersion ?? 1,
+          result.data.keyVersionId ?? null,
+          currentDeviceId ?? undefined,
+        ).catch(() => {})
       }
       await fetchChannels(selectedServer)
       setSelectedChannel(result.data)
@@ -409,8 +423,20 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
         const { generateSymmetricKey } = await import('../lib/crypto')
         const { storeChannelKey } = await import('../lib/storage')
         const channelKey = generateSymmetricKey()
-        await storeChannelKey(result.data.channelId, channelKey, result.data.encryptionType)
-        distributeChannelKey(result.data.channelId, channelKey).catch(() => {})
+        await storeChannelKey(
+          result.data.channelId,
+          channelKey,
+          result.data.encryptionType,
+          result.data.keyVersion ?? 1,
+          result.data.keyVersionId ?? null,
+        )
+        distributeChannelKey(
+          result.data.channelId,
+          channelKey,
+          result.data.keyVersion ?? 1,
+          result.data.keyVersionId ?? null,
+          currentDeviceId ?? undefined,
+        ).catch(() => {})
       }
       await fetchChannels(selectedServer)
       setSelectedChannel(result.data)
@@ -435,14 +461,21 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
       // Redistribuir claus de canals asimètrics on tenim clau local.
       // Evita deixar el nou membre sense bundle si no estàvem en el canal concret.
       if (channels.some((channel) => channel.encryptionType === 'asymmetric')) {
-        const { getChannelKey } = await import('../lib/storage')
+        const { getLatestChannelKey, getChannelKey } = await import('../lib/storage')
         await Promise.allSettled(
           channels
             .filter((channel) => channel.encryptionType === 'asymmetric')
             .map(async (channel) => {
-              const channelKey = await getChannelKey(channel.channelId)
+              const latestKey = await getLatestChannelKey(channel.channelId)
+              const channelKey = latestKey?.keyBytes ?? await getChannelKey(channel.channelId)
               if (!channelKey) return
-              await distributeChannelKey(channel.channelId, channelKey)
+              await distributeChannelKey(
+                channel.channelId,
+                channelKey,
+                latestKey?.keyVersion ?? channel.keyVersion ?? 1,
+                latestKey?.keyVersionId ?? channel.keyVersionId ?? null,
+                currentDeviceId ?? undefined,
+              )
             })
         )
       }
@@ -462,6 +495,38 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     const result = await channelInvite(channel.channelId, username)
     if (result.success) {
       setFeedback(`Invitació al canal enviada a ${username}`)
+      if (channel.encryptionType === 'asymmetric') {
+        try {
+          let latestKey = await getLatestChannelKey(channel.channelId)
+          let channelKey = latestKey?.keyBytes ?? await getChannelKey(channel.channelId)
+
+          if (!channelKey && currentDeviceId) {
+            channelKey = await ensureChannelKey(channel.channelId, channel.encryptionType, currentDeviceId)
+            latestKey = await getLatestChannelKey(channel.channelId)
+          }
+
+          if (!channelKey) {
+            throw new Error('No tens la clau local del canal per redistribuir-la')
+          }
+
+          await distributeChannelKey(
+            channel.channelId,
+            channelKey,
+            latestKey?.keyVersion ?? channel.keyVersion ?? 1,
+            latestKey?.keyVersionId ?? channel.keyVersionId ?? null,
+            currentDeviceId ?? undefined,
+          )
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'No s\'ha pogut redistribuir la clau del canal'
+          console.error('[E2EE] Ha fallat la redistribució després de convidar al canal', {
+            channelId: channel.channelId,
+            username,
+            currentDeviceId,
+            error: msg,
+          })
+          setFeedback(`Invitació enviada, però ha fallat la redistribució de clau: ${msg}`)
+        }
+      }
     } else {
       setFeedback(result.error.message)
     }
@@ -719,6 +784,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
             isOpen={showDeviceKeysModal}
             onClose={() => setShowDeviceKeysModal(false)}
             currentDeviceId={currentDeviceId}
+            channels={channels}
             devices={user.devices ?? []}
           />
         )}

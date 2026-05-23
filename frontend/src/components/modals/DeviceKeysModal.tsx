@@ -6,13 +6,16 @@ import {
   deleteDeviceKeypair,
   deleteSymmetricChannelKey,
   exportDeviceKeypair,
+  exportAsymmetricChannelKeys,
   exportSymmetricChannelKeys,
   generateAndStoreDeviceKeypair,
   getDeviceKeySummary,
   KeypairDeviceIdExistsError,
   importAndStoreDeviceKeypair,
+  importAsymmetricChannelKeys,
   importSymmetricChannelKeys,
   listDeviceKeypairs,
+  listChannelKeys,
   listSymmetricChannelKeys,
 } from '../../lib/device-keys'
 import { persistDeviceId } from '../../lib/device-identity'
@@ -22,6 +25,10 @@ interface DeviceKeysModalProps {
   isOpen: boolean
   onClose: () => void
   currentDeviceId: string | null
+  channels?: Array<{
+    channelId: string
+    name: string
+  }>
   devices?: Array<{
     deviceId: string
     label: string
@@ -34,6 +41,7 @@ export function DeviceKeysModal({
   isOpen,
   onClose,
   currentDeviceId,
+  channels = [],
   devices = [],
 }: DeviceKeysModalProps) {
   const [activeTab, setActiveTab] = useState<'device' | 'channels'>('device')
@@ -42,7 +50,9 @@ export function DeviceKeysModal({
   const [success, setSuccess] = useState<string | null>(null)
   const [deviceSummary, setDeviceSummary] = useState<{
     hasKeypair: boolean
-    publicKeyPreview: string | null
+    kemPublicKeyPreview: string | null
+    dsaPublicKeyPreview: string | null
+    hasSigningKeypair: boolean
   } | null>(null)
   const [keypairDeviceId, setKeypairDeviceId] = useState('')
   const [keypairs, setKeypairs] = useState<Array<{
@@ -53,8 +63,10 @@ export function DeviceKeysModal({
   const [serverDevices, setServerDevices] = useState<Array<{
     deviceId: string
     label: string
-    publicKey: string
-    hasPublicKey: boolean
+    kemPublicKey: string
+    dsaPublicKey: string
+    hasKemPublicKey: boolean
+    hasDsaPublicKey: boolean
     createdAt?: string
     lastSeen: string
     revoked: boolean
@@ -66,14 +78,22 @@ export function DeviceKeysModal({
     acquiredAt: number
     preview: string
   }>>([])
+  const [asymmetricKeys, setAsymmetricKeys] = useState<Array<{
+    channelId: string
+    keyVersion: number
+    keyVersionId: string | null
+    acquiredAt: number
+  }>>([])
   const [pendingOverwrite, setPendingOverwrite] = useState<
     { kind: 'generate' } | { kind: 'import'; text: string } | null
   >(null)
 
   const [deviceImportText, setDeviceImportText] = useState('')
   const [symImportText, setSymImportText] = useState('')
+  const [asymImportText, setAsymImportText] = useState('')
   const [exportedDeviceBundle, setExportedDeviceBundle] = useState('')
   const [exportedSymmetricBundle, setExportedSymmetricBundle] = useState('')
+  const [exportedAsymmetricBundle, setExportedAsymmetricBundle] = useState('')
 
   const activeDevice = useMemo(
     () => serverDevices.find((item) => item.deviceId === currentDeviceId)
@@ -100,7 +120,8 @@ export function DeviceKeysModal({
           hasLocalKeypair: !!local,
           isRemoteOnly: !local && !!server,
           isLocalOnly: !!local && !server,
-          hasPublicKey: server?.hasPublicKey ?? false,
+          hasKemPublicKey: server?.hasKemPublicKey ?? false,
+          hasDsaPublicKey: server?.hasDsaPublicKey ?? false,
         }
       })
       .sort((a, b) => {
@@ -112,23 +133,47 @@ export function DeviceKeysModal({
       })
   }, [keypairs, serverDevices, currentDeviceId])
 
+  const channelNameById = useMemo(
+    () => new Map(channels.map((channel) => [channel.channelId, channel.name])),
+    [channels]
+  )
+
+  const formatChannelLabel = (channelId: string) => {
+    const name = channelNameById.get(channelId)
+    return name ? `${name} · ${channelId}` : channelId
+  }
+
   const refreshState = async () => {
-    const [summary, pairs, symKeys, devicesResult] = await Promise.all([
+    const [summary, pairs, symKeys, channelKeys, devicesResult] = await Promise.all([
       currentDeviceId ? getDeviceKeySummary(currentDeviceId) : Promise.resolve(null),
       listDeviceKeypairs(),
       listSymmetricChannelKeys(),
+      listChannelKeys(),
       userDevicesList(),
     ])
 
     setDeviceSummary(summary)
     setKeypairs(pairs)
     setSymmetricKeys(symKeys)
+    setAsymmetricKeys(
+      channelKeys
+        .filter((entry) => entry.type === 'asymmetric')
+        .map((entry) => ({
+          channelId: entry.channelId,
+          keyVersion: entry.keyVersion,
+          keyVersionId: entry.keyVersionId ?? null,
+          acquiredAt: entry.acquiredAt,
+        }))
+        .sort((a, b) => b.acquiredAt - a.acquiredAt)
+    )
     if (devicesResult.success) {
       setServerDevices(devicesResult.data.map((device) => ({
         deviceId: device.deviceId,
         label: device.label,
-        publicKey: device.publicKey,
-        hasPublicKey: device.hasPublicKey ?? false,
+        kemPublicKey: device.kemPublicKey,
+        dsaPublicKey: device.dsaPublicKey,
+        hasKemPublicKey: device.hasKemPublicKey ?? false,
+        hasDsaPublicKey: device.hasDsaPublicKey ?? false,
         createdAt: device.createdAt,
         lastSeen: device.lastSeen,
         revoked: device.revoked,
@@ -152,6 +197,9 @@ export function DeviceKeysModal({
     setKeypairDeviceId(currentDeviceId ?? '')
     setExportedDeviceBundle('')
     setExportedSymmetricBundle('')
+    setExportedAsymmetricBundle('')
+    setSymImportText('')
+    setAsymImportText('')
     void refreshState()
   }, [isOpen, currentDeviceId])
 
@@ -171,7 +219,7 @@ export function DeviceKeysModal({
       await generateAndStoreDeviceKeypair(resolvedDeviceId, overwrite)
       persistDeviceId(resolvedDeviceId)
       await refreshState()
-      setSuccess('Parell de claus ML-KEM-1024 generat i guardat localment')
+      setSuccess('Parell de claus ML-KEM-1024 + ML-DSA-87 generat i guardat localment')
     } catch (err) {
       if (err instanceof KeypairDeviceIdExistsError) {
         setPendingOverwrite({ kind: 'generate' })
@@ -243,6 +291,22 @@ export function DeviceKeysModal({
       setSuccess('Exportació de claus simètriques preparada')
     } catch {
       setError('No s\'han pogut exportar les claus simètriques')
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  const handleExportAsymmetric = async () => {
+    setIsBusy(true)
+    setError(null)
+    setSuccess(null)
+
+    try {
+      const json = await exportAsymmetricChannelKeys()
+      setExportedAsymmetricBundle(json)
+      setSuccess('Exportació de claus asimètriques preparada')
+    } catch {
+      setError('No s\'han pogut exportar les claus asimètriques')
     } finally {
       setIsBusy(false)
     }
@@ -320,6 +384,29 @@ export function DeviceKeysModal({
     }
   }
 
+  const handleImportAsymmetric = async () => {
+    if (!asymImportText.trim()) {
+      setError('Enganxa el JSON de claus asimètriques')
+      return
+    }
+
+    setIsBusy(true)
+    setError(null)
+    setSuccess(null)
+
+    try {
+      const imported = await importAsymmetricChannelKeys(asymImportText)
+      await refreshState()
+      setSuccess(`Importades ${imported} claus asimètriques de canals`)
+      setAsymImportText('')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'No s\'han pogut importar les claus'
+      setError(msg)
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Gestió de claus de dispositiu i canals">
       <div className="device-keys-modal">
@@ -364,8 +451,15 @@ export function DeviceKeysModal({
             Keypair local:{' '}
             <strong>{deviceSummary?.hasKeypair ? 'Present' : 'No trobat'}</strong>
           </p>
-          {deviceSummary?.publicKeyPreview && (
-            <p>Public key (preview): {deviceSummary.publicKeyPreview}</p>
+          <p>
+            Signing key local:{' '}
+            <strong>{deviceSummary?.hasSigningKeypair ? 'Present' : 'No trobat'}</strong>
+          </p>
+          {deviceSummary?.kemPublicKeyPreview && (
+            <p>KEM public key: {deviceSummary.kemPublicKeyPreview}</p>
+          )}
+          {deviceSummary?.dsaPublicKeyPreview && (
+            <p>DSA public key: {deviceSummary.dsaPublicKeyPreview}</p>
           )}
           <div className="device-keys-form-grid">
             <input
@@ -405,7 +499,8 @@ export function DeviceKeysModal({
                     </span>
                     {device.server && (
                       <span>
-                        Clau pública: {device.hasPublicKey ? 'registrada' : 'pendent'} · 
+                        KEM: {device.hasKemPublicKey ? 'registrada' : 'pendent'} · 
+                        DSA: {device.hasDsaPublicKey ? 'registrada' : 'pendent'} · 
                         Estat: {device.server.revoked ? 'revocat' : 'actiu'}
                       </span>
                     )}
@@ -495,6 +590,10 @@ export function DeviceKeysModal({
         <section className="device-keys-section">
           <h4>Claus simètriques de canals</h4>
           <p>Claus simètriques guardades localment: <strong>{symmetricKeys.length}</strong></p>
+          <p>
+            Els canals asimètrics depenen del keypair KEM + DSA del dispositiu actual.
+            Si falta algun dels dos, no podràs verificar ni redistribuir bundles signats.
+          </p>
           <div className="modal-form-actions">
             <Button variant="secondary" size="sm" onClick={handleExportSymmetric} disabled={isBusy}>
               Exportar simètriques
@@ -505,7 +604,7 @@ export function DeviceKeysModal({
               {symmetricKeys.map((key) => (
                 <li key={`${key.channelId}-${key.keyVersion}`} className="device-keys-list-item">
                   <div className="device-keys-list-main">
-                    <strong>Canal {key.channelId} · v{key.keyVersion}</strong>
+                    <strong>Canal {formatChannelLabel(key.channelId)} · v{key.keyVersion}</strong>
                     <span>Clau: {key.preview}</span>
                     <span>Guardada: {new Date(key.acquiredAt).toLocaleString()}</span>
                   </div>
@@ -537,6 +636,51 @@ export function DeviceKeysModal({
             </Button>
           </div>
         </section>
+
+        <section className="device-keys-section">
+          <h4>Bundles asimètrics de canals</h4>
+          <p>Bundles asimètrics guardats localment: <strong>{asymmetricKeys.length}</strong></p>
+          <div className="modal-form-actions">
+            <Button variant="secondary" size="sm" onClick={handleExportAsymmetric} disabled={isBusy}>
+              Exportar asimètriques
+            </Button>
+          </div>
+          {asymmetricKeys.length > 0 ? (
+            <ul className="device-keys-list">
+              {asymmetricKeys.map((key) => (
+                <li key={`${key.channelId}-${key.keyVersion}`} className="device-keys-list-item">
+                  <div className="device-keys-list-main">
+                    <strong>Canal {formatChannelLabel(key.channelId)} · v{key.keyVersion}</strong>
+                    <span>KeyVersionId: {key.keyVersionId ?? 'sense id'}</span>
+                    <span>Guardat: {new Date(key.acquiredAt).toLocaleString()}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No hi ha bundles asimètrics guardats localment.</p>
+          )}
+          <textarea
+            className="device-keys-textarea"
+            value={asymImportText}
+            onChange={(e) => setAsymImportText(e.target.value)}
+            placeholder="Enganxa aquí JSON de bundles asimètrics"
+            rows={5}
+            disabled={isBusy}
+          />
+          <div className="modal-form-actions">
+            <Button variant="secondary" size="sm" onClick={handleImportAsymmetric} disabled={isBusy}>
+              Importar asimètriques
+            </Button>
+          </div>
+        </section>
+
+        {exportedAsymmetricBundle && (
+          <section className="device-keys-section">
+            <h4>Backup de claus asimètriques (JSON)</h4>
+            <textarea className="device-keys-textarea" value={exportedAsymmetricBundle} readOnly rows={6} />
+          </section>
+        )}
 
         {exportedSymmetricBundle && (
           <section className="device-keys-section">

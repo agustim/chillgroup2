@@ -22,6 +22,9 @@ import {
   channelsList,
   channelsCreate,
   channelsGetKeys,
+  channelInvite,
+  channelGetKey,
+  channelGetMemberDevices,
 } from './api'
 
 // Mock de sessionStorage
@@ -234,6 +237,68 @@ describe('API Client', () => {
       if (result.success) {
         expect(result.data.deleted).toBe(true)
       }
+    })
+  })
+
+  describe('channel key metadata', () => {
+    it('mapeja bundles signats amb keyVersionId', async () => {
+      setupMocks({
+        success: true,
+        data: {
+          deviceId: 'dev-1',
+          keyVersionId: 'ver-1',
+          keyVersion: 2,
+          encryptedKey: 'encrypted-key',
+          kemCiphertext: 'kem-ciphertext',
+          signature: 'sig',
+          signedByDeviceId: 'dev-signer',
+        },
+      })
+
+      const result = await channelGetKey('ch-1')
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data.keyVersionId).toBe('ver-1')
+        expect(result.data.signedByDeviceId).toBe('dev-signer')
+        expect(result.data.signature).toBe('sig')
+      }
+    })
+
+    it('mapeja dispositius membres amb claus KEM i DSA', async () => {
+      setupMocks({
+        success: true,
+        data: [{
+          deviceId: 'dev-1',
+          kemPublicKey: 'kem-public',
+          dsaPublicKey: 'dsa-public',
+        }],
+      })
+
+      const result = await channelGetMemberDevices('ch-1')
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data[0].publicKey).toBe('kem-public')
+        expect(result.data[0].kemPublicKey).toBe('kem-public')
+        expect(result.data[0].dsaPublicKey).toBe('dsa-public')
+      }
+    })
+  })
+
+  describe('channel invitations', () => {
+    it('envia invitacions de canal amb només username', async () => {
+      setupMocks({
+        success: true,
+        data: { invited_user: 'alice' },
+      })
+
+      const result = await channelInvite('ch-1', 'alice')
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data.invitedUser).toBe('alice')
+      }
+
+      const requestBody = JSON.parse(String(mockFetch.mock.calls[0]?.[1]?.body ?? '{}')) as { username?: string }
+      expect(requestBody).toEqual({ username: 'alice' })
     })
   })
 

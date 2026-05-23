@@ -12,6 +12,11 @@ export interface DeviceInfo {
   deviceId: string
   label: string
   publicKey: string
+  kemPublicKey?: string
+  dsaPublicKey?: string
+  hasPublicKey?: boolean
+  hasKemPublicKey?: boolean
+  hasDsaPublicKey?: boolean
   lastSeen: string
   revoked: boolean
 }
@@ -56,6 +61,8 @@ export interface Channel {
   messageTTL: number | null
   isPrivate: boolean
   unreadCount?: number
+  keyVersionId?: string | null
+  keyVersion?: number | null
   createdAt: string
 }
 

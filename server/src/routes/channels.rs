@@ -109,6 +109,7 @@ pub struct UpdateChannelRequest {
 pub struct InviteRequest {
     pub username: String,
     #[allow(dead_code)]
+    #[serde(default)]
     pub encrypted_keys: Vec<EncryptedKey>,
 }
 
@@ -160,11 +161,13 @@ pub async fn mark_channel_read(
     Json(req): Json<MarkChannelReadRequest>,
 ) -> Result<StatusCode, AppError> {
     let channel = state.db.get_channel(channel_id).await.map_err(AppError::DatabaseError)?;
-    let channel = channel.ok_or(AppError::ChannelNotFound)?;
+    let _channel = channel.ok_or(AppError::ChannelNotFound)?;
 
-    let role = state.db.is_server_member(channel.server_id, claims.user_id).await
+    let can_access = state.db
+        .user_can_access_channel(channel_id, claims.user_id)
+        .await
         .map_err(AppError::DatabaseError)?;
-    if role.is_none() {
+    if !can_access {
         return Err(AppError::Forbidden);
     }
 
@@ -216,6 +219,17 @@ pub async fn create_channel(
         req.is_private,
     ).await.map_err(|e| AppError::DatabaseError(e))?;
 
+    if req.is_private {
+        state
+            .db
+            .add_channel_member(channel_id, claims.user_id)
+            .await
+            .map_err(AppError::DatabaseError)?;
+    }
+
+    let mut initial_key_version_id = None;
+    let mut initial_key_version = None;
+
     if req.encryption_type == EncryptionType::Symmetric {
         let mut channel_key = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut channel_key);
@@ -224,11 +238,21 @@ pub async fn create_channel(
         let encrypted_key_b64 = STANDARD.encode(encrypted_key_bytes);
         let nonce_b64 = STANDARD.encode(nonce);
 
-        state
+        let key_version_id = state
             .db
             .create_channel_key_version(channel_id, 1, &encrypted_key_b64, &nonce_b64, claims.user_id)
             .await
             .map_err(AppError::DatabaseError)?;
+        initial_key_version_id = Some(key_version_id);
+        initial_key_version = Some(1);
+    } else if req.encryption_type == EncryptionType::Asymmetric {
+        let key_version_id = state
+            .db
+            .create_channel_key_version(channel_id, 1, "", "", claims.user_id)
+            .await
+            .map_err(AppError::DatabaseError)?;
+        initial_key_version_id = Some(key_version_id);
+        initial_key_version = Some(1);
     }
 
     info!("Canal creat i desat a DB: channel_id={}", channel_id);
@@ -243,6 +267,8 @@ pub async fn create_channel(
             message_ttl: req.message_ttl,
             is_private: req.is_private,
             unread_count: 0,
+            key_version_id: initial_key_version_id,
+            key_version: initial_key_version,
             created_at: now,
         }),
     ))
@@ -259,19 +285,21 @@ pub async fn get_channel_keys(
     // Verificar que el canal existeix i l'usuari és membre
     let channel = state.db.get_channel(channel_id).await.map_err(AppError::DatabaseError)?;
     let channel = channel.ok_or(AppError::ChannelNotFound)?;
-    let role = state.db.is_server_member(channel.server_id, claims.user_id).await
+    let can_access = state.db
+        .user_can_access_channel(channel_id, claims.user_id)
+        .await
         .map_err(AppError::DatabaseError)?;
-    if role.is_none() {
+    if !can_access {
         return Err(AppError::Forbidden);
     }
 
     if channel.encryption_type == EncryptionType::Symmetric {
-        let device_public_key = state
+        let (device_public_key, _) = state
             .db
-            .get_device_public_key_for_user(claims.device_id, claims.user_id)
+            .get_device_public_keys_for_user(claims.device_id, claims.user_id)
             .await
             .map_err(AppError::DatabaseError)?
-            .filter(|value| !value.trim().is_empty())
+            .filter(|(kem_public_key, _)| !kem_public_key.trim().is_empty())
             .ok_or(AppError::DeviceNoPublicKey)?;
 
         let key_version_row = if let Some(version) = query.version {
@@ -308,17 +336,21 @@ pub async fn get_channel_keys(
     } else {
         // Nivell 2: recuperar bundle pujat pels clients (zero-knowledge del servidor)
         let key_entry = state.db
-            .get_channel_key_for_device(channel_id, claims.device_id)
+            .get_latest_channel_key_bundle_for_device(channel_id, claims.device_id)
             .await
             .map_err(AppError::DatabaseError)?;
 
         match key_entry {
-            Some((encrypted_key, kem_ciphertext)) => Ok(Json(serde_json::json!({
+            Some((key_version_id, key_version, encrypted_key, kem_ciphertext, signature, signed_by_device_id)) => Ok(Json(serde_json::json!({
                 "success": true,
                 "data": {
                     "deviceId": claims.device_id,
+                    "keyVersionId": key_version_id,
+                    "keyVersion": key_version,
                     "encryptedKey": encrypted_key,
                     "kemCiphertext": kem_ciphertext,
+                    "signature": signature,
+                    "signedByDeviceId": signed_by_device_id,
                 }
             }))),
             None => Err(AppError::ChannelKeyNotFound),
@@ -331,6 +363,9 @@ pub struct ChannelKeyBundle {
     pub device_id: Uuid,
     pub encrypted_key: String,
     pub kem_ciphertext: String,
+    pub key_version: Option<i32>,
+    pub signature: Option<String>,
+    pub signed_by_device_id: Option<Uuid>,
 }
 
 pub async fn upload_channel_keys(
@@ -343,15 +378,62 @@ pub async fn upload_channel_keys(
 
     let channel = state.db.get_channel(channel_id).await.map_err(AppError::DatabaseError)?;
     let channel = channel.ok_or(AppError::ChannelNotFound)?;
-    let role = state.db.is_server_member(channel.server_id, claims.user_id).await
+    let can_access = state.db
+        .user_can_access_channel(channel_id, claims.user_id)
+        .await
         .map_err(AppError::DatabaseError)?;
-    if role.is_none() {
+    if !can_access {
         return Err(AppError::Forbidden);
     }
 
+    let member_devices = state
+        .db
+        .get_member_devices_for_channel(channel_id)
+        .await
+        .map_err(AppError::DatabaseError)?;
+    let member_device_ids: std::collections::HashSet<Uuid> = member_devices
+        .iter()
+        .map(|(device_id, _, _)| *device_id)
+        .collect();
+
     for bundle in &bundles {
+        if !member_device_ids.contains(&bundle.device_id) {
+            return Err(AppError::Forbidden);
+        }
+
+        if channel.encryption_type == EncryptionType::Asymmetric {
+            if bundle.signed_by_device_id != Some(claims.device_id) {
+                return Err(AppError::Forbidden);
+            }
+        }
+
+        let requested_version = bundle.key_version.unwrap_or(1);
+        let key_version_id = if let Some((key_version_id, _, _, _)) = state
+            .db
+            .get_channel_key_version(channel_id, requested_version)
+            .await
+            .map_err(AppError::DatabaseError)?
+        {
+            key_version_id
+        } else if channel.encryption_type == EncryptionType::Asymmetric {
+            state
+                .db
+                .create_channel_key_version(channel_id, requested_version, "", "", claims.user_id)
+                .await
+                .map_err(AppError::DatabaseError)?
+        } else {
+            return Err(AppError::ChannelKeyNotFound);
+        };
+
         state.db
-            .store_channel_key_for_device(channel_id, bundle.device_id, &bundle.encrypted_key, &bundle.kem_ciphertext)
+            .store_channel_key_bundle_for_device(
+                key_version_id,
+                bundle.device_id,
+                &bundle.encrypted_key,
+                &bundle.kem_ciphertext,
+                bundle.signature.as_deref(),
+                bundle.signed_by_device_id,
+            )
             .await
             .map_err(AppError::DatabaseError)?;
     }
@@ -367,10 +449,12 @@ pub async fn get_channel_member_devices(
     info!("Endpoint get_channel_member_devices cridat: channel_id={}", channel_id);
 
     let channel = state.db.get_channel(channel_id).await.map_err(AppError::DatabaseError)?;
-    let channel = channel.ok_or(AppError::ChannelNotFound)?;
-    let role = state.db.is_server_member(channel.server_id, claims.user_id).await
+    let _channel = channel.ok_or(AppError::ChannelNotFound)?;
+    let can_access = state.db
+        .user_can_access_channel(channel_id, claims.user_id)
+        .await
         .map_err(AppError::DatabaseError)?;
-    if role.is_none() {
+    if !can_access {
         return Err(AppError::Forbidden);
     }
 
@@ -379,9 +463,10 @@ pub async fn get_channel_member_devices(
         .await
         .map_err(AppError::DatabaseError)?;
 
-    let data: Vec<serde_json::Value> = devices.iter().map(|(device_id, public_key)| serde_json::json!({
+    let data: Vec<serde_json::Value> = devices.iter().map(|(device_id, kem_public_key, dsa_public_key)| serde_json::json!({
         "deviceId": device_id,
-        "publicKey": public_key,
+        "kemPublicKey": kem_public_key,
+        "dsaPublicKey": dsa_public_key,
     })).collect();
 
     Ok(Json(serde_json::json!({ "success": true, "data": data })))
@@ -394,11 +479,65 @@ pub async fn invite_to_channel(
     Json(req): Json<InviteRequest>,
 ) -> Result<(StatusCode, Json<InviteResponse>), AppError> {
     info!("Endpoint invite_to_channel cridat: channel_id={}, username={}, user_id={}", channel_id, req.username, claims.user_id);
+    let channel = _state.db.get_channel(channel_id).await.map_err(AppError::DatabaseError)?;
+    let channel = channel.ok_or(AppError::ChannelNotFound)?;
+
+    let current_role = _state
+        .db
+        .is_server_member(channel.server_id, claims.user_id)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .ok_or(AppError::NotServerMember)?;
+
+    if current_role != "owner" && current_role != "admin" && current_role != "member" {
+        return Err(AppError::Forbidden);
+    }
+
+    let invited_user = _state
+        .db
+        .find_user_by_username(&req.username)
+        .await
+        .map_err(|_| AppError::InternalError)?
+        .ok_or(AppError::UserNotFound)?;
+
+    if _state
+        .db
+        .is_server_member(channel.server_id, invited_user.0)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .is_none()
+    {
+        _state
+            .db
+            .add_server_member(channel.server_id, invited_user.0, "member")
+            .await
+            .map_err(AppError::DatabaseError)?;
+    }
+
+    if channel.is_private {
+        _state
+            .db
+            .add_channel_member(channel_id, invited_user.0)
+            .await
+            .map_err(AppError::DatabaseError)?;
+    }
+
+    let invited_devices = _state
+        .db
+        .list_devices_for_user(invited_user.0)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+    let devices_invited = invited_devices
+        .iter()
+        .filter(|(_, _, kem_public_key, _, _, _, revoked)| !revoked && !kem_public_key.trim().is_empty())
+        .count() as u32;
+
     Ok((
         StatusCode::CREATED,
         Json(InviteResponse {
             invited_user: req.username,
-            devices_invited: 0,
+            devices_invited,
         }),
     ))
 }

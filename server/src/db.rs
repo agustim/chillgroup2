@@ -103,6 +103,8 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
             user_id TEXT NOT NULL,
             label TEXT,
             public_key TEXT NOT NULL,
+            kem_public_key TEXT NOT NULL DEFAULT '',
+            dsa_public_key TEXT NOT NULL DEFAULT '',
             last_seen DATETIME,
             revoked INTEGER NOT NULL DEFAULT 0,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -140,6 +142,21 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
         r#"CREATE INDEX IF NOT EXISTS idx_server_members_server_id ON server_members(server_id)"#,
         r#"CREATE INDEX IF NOT EXISTS idx_server_members_user_id ON server_members(user_id)"#,
 
+        // Channel Members (for private channels)
+        r#"
+        CREATE TABLE IF NOT EXISTS channel_members (
+            id TEXT PRIMARY KEY,
+            channel_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (channel_id) REFERENCES channels(id),
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            UNIQUE(channel_id, user_id)
+        )
+        "#,
+        r#"CREATE INDEX IF NOT EXISTS idx_channel_members_channel_id ON channel_members(channel_id)"#,
+        r#"CREATE INDEX IF NOT EXISTS idx_channel_members_user_id ON channel_members(user_id)"#,
+
         // Channels
         r#"
         CREATE TABLE IF NOT EXISTS channels (
@@ -156,21 +173,25 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
         "#,
         r#"CREATE INDEX IF NOT EXISTS idx_channels_server_id ON channels(server_id)"#,
 
-        // Channel Keys
+        // Asymmetric channel key bundles (versioned, per device)
         r#"
-        CREATE TABLE IF NOT EXISTS channel_keys (
+        CREATE TABLE IF NOT EXISTS channel_key_device_bundles (
             id TEXT PRIMARY KEY,
-            channel_id TEXT NOT NULL,
+            key_version_id TEXT NOT NULL,
             device_id TEXT NOT NULL,
             encrypted_key TEXT NOT NULL,
-            kem_ciphertext TEXT,
+            kem_ciphertext TEXT NOT NULL,
+            signature TEXT,
+            signed_by_device_id TEXT,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE (channel_id, device_id),
-            FOREIGN KEY (channel_id) REFERENCES channels(id),
-            FOREIGN KEY (device_id) REFERENCES devices(id)
+            UNIQUE (key_version_id, device_id),
+            FOREIGN KEY (key_version_id) REFERENCES channel_key_versions(id),
+            FOREIGN KEY (device_id) REFERENCES devices(id),
+            FOREIGN KEY (signed_by_device_id) REFERENCES devices(id)
         )
         "#,
-        r#"CREATE INDEX IF NOT EXISTS idx_channel_keys_channel_id ON channel_keys(channel_id)"#,
+        r#"CREATE INDEX IF NOT EXISTS idx_channel_key_device_bundles_key_version_id ON channel_key_device_bundles(key_version_id)"#,
+        r#"CREATE INDEX IF NOT EXISTS idx_channel_key_device_bundles_device_id ON channel_key_device_bundles(device_id)"#,
 
         // Channel key versions (Nivell 1: simètric, clau xifrada amb master key)
         r#"
@@ -189,6 +210,26 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
         )
         "#,
         r#"CREATE INDEX IF NOT EXISTS idx_channel_key_versions_channel ON channel_key_versions(channel_id)"#,
+
+        // Asymmetric channel bundles
+        r#"
+        CREATE TABLE IF NOT EXISTS channel_key_device_bundles (
+            id TEXT PRIMARY KEY,
+            key_version_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            encrypted_key TEXT NOT NULL,
+            kem_ciphertext TEXT NOT NULL,
+            signature TEXT,
+            signed_by_device_id TEXT,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(key_version_id, device_id),
+            FOREIGN KEY (key_version_id) REFERENCES channel_key_versions(id),
+            FOREIGN KEY (device_id) REFERENCES devices(id),
+            FOREIGN KEY (signed_by_device_id) REFERENCES devices(id)
+        )
+        "#,
+        r#"CREATE INDEX IF NOT EXISTS idx_channel_key_device_bundles_key_version_id ON channel_key_device_bundles(key_version_id)"#,
+        r#"CREATE INDEX IF NOT EXISTS idx_channel_key_device_bundles_device_id ON channel_key_device_bundles(device_id)"#,
 
         // Messages
         r#"
@@ -609,13 +650,18 @@ impl DatabasePool {
         Ok(())
     }
 
-    pub async fn list_channels_for_server(&self, server_id: Uuid, user_id: Uuid) -> Result<Vec<Channel>, sqlx::Error> {
-        let query = "SELECT id, server_id, name, type AS channel_type, encryption_type, message_ttl, is_private, created_at FROM channels WHERE server_id = $1 ORDER BY type ASC, name ASC";
+        pub async fn list_channels_for_server(&self, server_id: Uuid, user_id: Uuid) -> Result<Vec<Channel>, sqlx::Error> {
+                let query = "SELECT c.id, c.server_id, c.name, c.type AS channel_type, c.encryption_type, c.message_ttl, c.is_private, c.created_at \
+                                         FROM channels c \
+                                         WHERE c.server_id = $1 \
+                                             AND (c.is_private = 0 OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = $2)) \
+                                         ORDER BY c.type ASC, c.name ASC";
         let mut channels = Vec::new();
         match self {
             DatabasePool::Postgres(pool) => {
                 let rows = sqlx::query(query)
                     .bind(server_id)
+                    .bind(user_id)
                     .fetch_all(pool)
                     .await?;
                 for row in rows {
@@ -635,8 +681,14 @@ impl DatabasePool {
                     let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
                         .map(|dt| dt.with_timezone(&chrono::Utc))
                         .unwrap_or_else(|_| chrono::Utc::now());
+                    let channel_id: Uuid = row.get(0);
+                    let (key_version_id, key_version) = self
+                        .get_channel_key_version_metadata(channel_id)
+                        .await?
+                        .map(|(id, version)| (Some(id), Some(version)))
+                        .unwrap_or((None, None));
                     channels.push(Channel {
-                        id: row.get(0),
+                        id: channel_id,
                         server_id: row.get(1),
                         name: row.get(2),
                         channel_type,
@@ -644,14 +696,21 @@ impl DatabasePool {
                         message_ttl: row.get(5),
                         is_private: is_private != 0,
                         unread_count: 0,
+                        key_version_id,
+                        key_version,
                         created_at,
                     });
                 }
             }
             DatabasePool::Sqlite(pool) => {
-                let query = query.replace("$1", "?");
+                                let query = "SELECT c.id, c.server_id, c.name, c.type AS channel_type, c.encryption_type, c.message_ttl, c.is_private, c.created_at \
+                                                         FROM channels c \
+                                                         WHERE c.server_id = ? \
+                                                             AND (c.is_private = 0 OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?)) \
+                                                         ORDER BY c.type ASC, c.name ASC";
                 let rows = sqlx::query(&query)
                     .bind(server_id)
+                                        .bind(user_id)
                     .fetch_all(pool)
                     .await?;
                 for row in rows {
@@ -671,8 +730,14 @@ impl DatabasePool {
                     let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
                         .map(|dt| dt.with_timezone(&chrono::Utc))
                         .unwrap_or_else(|_| chrono::Utc::now());
+                    let channel_id: Uuid = row.get(0);
+                    let (key_version_id, key_version) = self
+                        .get_channel_key_version_metadata(channel_id)
+                        .await?
+                        .map(|(id, version)| (Some(id), Some(version)))
+                        .unwrap_or((None, None));
                     channels.push(Channel {
-                        id: row.get(0),
+                        id: channel_id,
                         server_id: row.get(1),
                         name: row.get(2),
                         channel_type,
@@ -680,6 +745,8 @@ impl DatabasePool {
                         message_ttl: row.get(5),
                         is_private: is_private != 0,
                         unread_count: 0,
+                        key_version_id,
+                        key_version,
                         created_at,
                     });
                 }
@@ -694,6 +761,94 @@ impl DatabasePool {
         }
 
         Ok(channels)
+    }
+
+    pub async fn add_channel_member(&self, channel_id: Uuid, user_id: Uuid) -> Result<(), sqlx::Error> {
+        let id = Uuid::new_v4();
+        let now = chrono::Utc::now().to_rfc3339();
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "INSERT INTO channel_members (id, channel_id, user_id, joined_at) VALUES ($1, $2, $3, NOW()) ON CONFLICT (channel_id, user_id) DO NOTHING"
+                )
+                .bind(id)
+                .bind(channel_id)
+                .bind(user_id)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "INSERT OR IGNORE INTO channel_members (id, channel_id, user_id, joined_at) VALUES (?, ?, ?, ?)"
+                )
+                .bind(id)
+                .bind(channel_id)
+                .bind(user_id)
+                .bind(&now)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn is_channel_member(&self, channel_id: Uuid, user_id: Uuid) -> Result<bool, sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query("SELECT EXISTS(SELECT 1 FROM channel_members WHERE channel_id = $1 AND user_id = $2)")
+                    .bind(channel_id)
+                    .bind(user_id)
+                    .fetch_one(pool)
+                    .await?;
+                Ok(row.get::<bool, _>(0))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query("SELECT EXISTS(SELECT 1 FROM channel_members WHERE channel_id = ? AND user_id = ?)")
+                    .bind(channel_id)
+                    .bind(user_id)
+                    .fetch_one(pool)
+                    .await?;
+                Ok(row.get::<bool, _>(0))
+            }
+        }
+    }
+
+    pub async fn user_can_access_channel(&self, channel_id: Uuid, user_id: Uuid) -> Result<bool, sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(
+                    "SELECT EXISTS(\
+                        SELECT 1 \
+                        FROM channels c \
+                        JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = $2 \
+                        LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = $2 \
+                        WHERE c.id = $1 AND (c.is_private = 0 OR cm.user_id IS NOT NULL)\
+                    )"
+                )
+                .bind(channel_id)
+                .bind(user_id)
+                .fetch_one(pool)
+                .await?;
+                Ok(row.get::<bool, _>(0))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query(
+                    "SELECT EXISTS(\
+                        SELECT 1 \
+                        FROM channels c \
+                        JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = ? \
+                        LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = ? \
+                        WHERE c.id = ? AND (c.is_private = 0 OR cm.user_id IS NOT NULL)\
+                    )"
+                )
+                .bind(user_id)
+                .bind(user_id)
+                .bind(channel_id)
+                .fetch_one(pool)
+                .await?;
+                Ok(row.get::<bool, _>(0))
+            }
+        }
     }
 
     pub async fn list_server_member_ids(&self, server_id: Uuid) -> Result<Vec<Uuid>, sqlx::Error> {
@@ -755,7 +910,7 @@ impl DatabasePool {
                     .bind(channel_id)
                     .fetch_optional(pool)
                     .await?;
-                row.map(|row| {
+                if let Some(row) = row {
                     let channel_type_str: String = row.get(3);
                     let channel_type = match channel_type_str.as_str() {
                         "voice" => ChannelType::Voice,
@@ -772,7 +927,12 @@ impl DatabasePool {
                     let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
                         .map(|dt| dt.with_timezone(&chrono::Utc))
                         .unwrap_or_else(|_| chrono::Utc::now());
-                    Ok(Channel {
+                    let (key_version_id, key_version) = self
+                        .get_channel_key_version_metadata(channel_id)
+                        .await?
+                        .map(|(id, version)| (Some(id), Some(version)))
+                        .unwrap_or((None, None));
+                    Ok(Some(Channel {
                         id: row.get(0),
                         server_id: row.get(1),
                         name: row.get(2),
@@ -781,9 +941,13 @@ impl DatabasePool {
                         message_ttl: row.get(5),
                         is_private: is_private != 0,
                         unread_count: 0,
+                        key_version_id,
+                        key_version,
                         created_at,
-                    })
-                }).transpose()
+                    }))
+                } else {
+                    Ok(None)
+                }
             }
             DatabasePool::Sqlite(pool) => {
                 let query = query.replace("$1", "?");
@@ -791,7 +955,7 @@ impl DatabasePool {
                     .bind(channel_id)
                     .fetch_optional(pool)
                     .await?;
-                row.map(|row| {
+                if let Some(row) = row {
                     let channel_type_str: String = row.get(3);
                     let channel_type = match channel_type_str.as_str() {
                         "voice" => ChannelType::Voice,
@@ -808,7 +972,12 @@ impl DatabasePool {
                     let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
                         .map(|dt| dt.with_timezone(&chrono::Utc))
                         .unwrap_or_else(|_| chrono::Utc::now());
-                    Ok(Channel {
+                    let (key_version_id, key_version) = self
+                        .get_channel_key_version_metadata(channel_id)
+                        .await?
+                        .map(|(id, version)| (Some(id), Some(version)))
+                        .unwrap_or((None, None));
+                    Ok(Some(Channel {
                         id: row.get(0),
                         server_id: row.get(1),
                         name: row.get(2),
@@ -817,9 +986,13 @@ impl DatabasePool {
                         message_ttl: row.get(5),
                         is_private: is_private != 0,
                         unread_count: 0,
+                        key_version_id,
+                        key_version,
                         created_at,
-                    })
-                }).transpose()
+                    }))
+                } else {
+                    Ok(None)
+                }
             }
         }
     }
@@ -1447,12 +1620,12 @@ impl DatabasePool {
         Ok(())
     }
 
-    /// Retorna el primer dispositiu actiu de l'usuari (device_id, public_key).
+    /// Retorna el primer dispositiu actiu de l'usuari (device_id, kem_public_key).
     pub async fn get_device_for_user(&self, user_id: Uuid) -> Result<Option<(Uuid, String)>, sqlx::Error> {
         match self {
             DatabasePool::Postgres(pool) => {
                 let row = sqlx::query(
-                    "SELECT id, public_key FROM devices WHERE user_id = $1 AND revoked = false ORDER BY created_at ASC LIMIT 1"
+                    "SELECT id, kem_public_key FROM devices WHERE user_id = $1 AND revoked = false ORDER BY created_at ASC LIMIT 1"
                 )
                 .bind(user_id)
                 .fetch_optional(pool)
@@ -1461,7 +1634,7 @@ impl DatabasePool {
             }
             DatabasePool::Sqlite(pool) => {
                 let row = sqlx::query(
-                    "SELECT id, public_key FROM devices WHERE user_id = ? AND revoked = 0 ORDER BY created_at ASC LIMIT 1"
+                    "SELECT id, kem_public_key FROM devices WHERE user_id = ? AND revoked = 0 ORDER BY created_at ASC LIMIT 1"
                 )
                 .bind(user_id)
                 .fetch_optional(pool)
@@ -1482,8 +1655,8 @@ impl DatabasePool {
         match self {
             DatabasePool::Postgres(pool) => {
                 sqlx::query(
-                    "INSERT INTO devices (id, user_id, label, public_key, last_seen, revoked, created_at) \
-                     VALUES ($1, $2, $3, '', NOW(), false, NOW()) ON CONFLICT DO NOTHING"
+                    "INSERT INTO devices (id, user_id, label, public_key, kem_public_key, dsa_public_key, last_seen, revoked, created_at) \
+                     VALUES ($1, $2, $3, '', '', '', NOW(), false, NOW()) ON CONFLICT DO NOTHING"
                 )
                 .bind(device_id)
                 .bind(user_id)
@@ -1493,8 +1666,8 @@ impl DatabasePool {
             }
             DatabasePool::Sqlite(pool) => {
                 sqlx::query(
-                    "INSERT OR IGNORE INTO devices (id, user_id, label, public_key, last_seen, revoked, created_at) \
-                     VALUES (?, ?, ?, '', ?, 0, ?)"
+                    "INSERT OR IGNORE INTO devices (id, user_id, label, public_key, kem_public_key, dsa_public_key, last_seen, revoked, created_at) \
+                     VALUES (?, ?, ?, '', '', '', ?, 0, ?)"
                 )
                 .bind(device_id)
                 .bind(user_id)
@@ -1508,14 +1681,21 @@ impl DatabasePool {
         Ok(device_id)
     }
 
-    /// Actualitza la clau pública d'un dispositiu de l'usuari.
-    pub async fn update_device_public_key(&self, device_id: Uuid, user_id: Uuid, public_key: &str) -> Result<(), sqlx::Error> {
+    /// Actualitza les claus públiques d'un dispositiu de l'usuari.
+    pub async fn update_device_public_keys(
+        &self,
+        device_id: Uuid,
+        user_id: Uuid,
+        kem_public_key: &str,
+        dsa_public_key: &str,
+    ) -> Result<(), sqlx::Error> {
         match self {
             DatabasePool::Postgres(pool) => {
                 sqlx::query(
-                    "UPDATE devices SET public_key = $1, last_seen = NOW() WHERE id = $2 AND user_id = $3"
+                    "UPDATE devices SET public_key = $1, kem_public_key = $1, dsa_public_key = $2, last_seen = NOW() WHERE id = $3 AND user_id = $4"
                 )
-                .bind(public_key)
+                .bind(kem_public_key)
+                .bind(dsa_public_key)
                 .bind(device_id)
                 .bind(user_id)
                 .execute(pool)
@@ -1524,9 +1704,11 @@ impl DatabasePool {
             DatabasePool::Sqlite(pool) => {
                 let now = chrono::Utc::now().to_rfc3339();
                 sqlx::query(
-                    "UPDATE devices SET public_key = ?, last_seen = ? WHERE id = ? AND user_id = ?"
+                    "UPDATE devices SET public_key = ?, kem_public_key = ?, dsa_public_key = ?, last_seen = ? WHERE id = ? AND user_id = ?"
                 )
-                .bind(public_key)
+                .bind(kem_public_key)
+                .bind(kem_public_key)
+                .bind(dsa_public_key)
                 .bind(&now)
                 .bind(device_id)
                 .bind(user_id)
@@ -1541,11 +1723,11 @@ impl DatabasePool {
     pub async fn list_devices_for_user(
         &self,
         user_id: Uuid,
-    ) -> Result<Vec<(Uuid, Option<String>, String, String, String, bool)>, sqlx::Error> {
+    ) -> Result<Vec<(Uuid, Option<String>, String, String, String, String, bool)>, sqlx::Error> {
         match self {
             DatabasePool::Postgres(pool) => {
                 let rows = sqlx::query(
-                    "SELECT id, label, public_key, created_at, last_seen, revoked \
+                    "SELECT id, label, kem_public_key, dsa_public_key, created_at, last_seen, revoked \
                      FROM devices \
                      WHERE user_id = $1 \
                      ORDER BY created_at ASC"
@@ -1555,12 +1737,12 @@ impl DatabasePool {
                 .await?;
                 Ok(rows
                     .into_iter()
-                    .map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5)))
+                    .map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6)))
                     .collect())
             }
             DatabasePool::Sqlite(pool) => {
                 let rows = sqlx::query(
-                    "SELECT id, label, public_key, created_at, last_seen, revoked \
+                    "SELECT id, label, kem_public_key, dsa_public_key, created_at, last_seen, revoked \
                      FROM devices \
                      WHERE user_id = ? \
                      ORDER BY created_at ASC"
@@ -1571,8 +1753,8 @@ impl DatabasePool {
                 Ok(rows
                     .into_iter()
                     .map(|r| {
-                        let revoked: i64 = r.get(5);
-                        (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), revoked != 0)
+                        let revoked: i64 = r.get(6);
+                        (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), revoked != 0)
                     })
                     .collect())
             }
@@ -1607,51 +1789,98 @@ impl DatabasePool {
         }
     }
 
-    /// Retorna la clau de canal encriptada per a un dispositiu concret.
-    pub async fn get_channel_key_for_device(&self, channel_id: Uuid, device_id: Uuid) -> Result<Option<(String, String)>, sqlx::Error> {
+    /// Retorna el bundle de clau de canal més recent per a un dispositiu concret.
+    pub async fn get_latest_channel_key_bundle_for_device(
+        &self,
+        channel_id: Uuid,
+        device_id: Uuid,
+    ) -> Result<Option<(Uuid, i32, String, String, Option<String>, Option<Uuid>)>, sqlx::Error> {
         match self {
             DatabasePool::Postgres(pool) => {
                 let row = sqlx::query(
-                    "SELECT encrypted_key, kem_ciphertext FROM channel_keys WHERE channel_id = $1 AND device_id = $2 LIMIT 1"
+                    "SELECT ckv.id, ckv.version, ckdb.encrypted_key, ckdb.kem_ciphertext, ckdb.signature, ckdb.signed_by_device_id \
+                     FROM channel_key_device_bundles ckdb \
+                     JOIN channel_key_versions ckv ON ckv.id = ckdb.key_version_id \
+                     WHERE ckv.channel_id = $1 AND ckdb.device_id = $2 \
+                     ORDER BY ckv.version DESC \
+                     LIMIT 1"
                 )
                 .bind(channel_id)
                 .bind(device_id)
                 .fetch_optional(pool)
                 .await?;
-                Ok(row.map(|r| (r.get(0), r.get::<Option<String>, _>(1).unwrap_or_default())))
+                Ok(row.map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5))))
             }
             DatabasePool::Sqlite(pool) => {
                 let row = sqlx::query(
-                    "SELECT encrypted_key, kem_ciphertext FROM channel_keys WHERE channel_id = ? AND device_id = ? LIMIT 1"
+                    "SELECT ckv.id, ckv.version, ckdb.encrypted_key, ckdb.kem_ciphertext, ckdb.signature, ckdb.signed_by_device_id \
+                     FROM channel_key_device_bundles ckdb \
+                     JOIN channel_key_versions ckv ON ckv.id = ckdb.key_version_id \
+                     WHERE ckv.channel_id = ? AND ckdb.device_id = ? \
+                     ORDER BY ckv.version DESC \
+                     LIMIT 1"
                 )
                 .bind(channel_id)
                 .bind(device_id)
                 .fetch_optional(pool)
                 .await?;
-                Ok(row.map(|r| (r.get(0), r.get::<Option<String>, _>(1).unwrap_or_default())))
+                Ok(row.map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5))))
             }
         }
     }
 
-    /// Retorna la clau pública d'un dispositiu concret si pertany a l'usuari i no està revocat.
-    pub async fn get_device_public_key_for_user(&self, device_id: Uuid, user_id: Uuid) -> Result<Option<String>, sqlx::Error> {
+    /// Retorna les claus públiques d'un dispositiu concret si pertany a l'usuari i no està revocat.
+    pub async fn get_device_public_keys_for_user(
+        &self,
+        device_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<Option<(String, String)>, sqlx::Error> {
         match self {
             DatabasePool::Postgres(pool) => {
                 let row = sqlx::query(
-                    "SELECT public_key FROM devices WHERE id = $1 AND user_id = $2 AND revoked = false LIMIT 1"
+                    "SELECT kem_public_key, dsa_public_key FROM devices WHERE id = $1 AND user_id = $2 AND revoked = false LIMIT 1"
                 )
                 .bind(device_id)
                 .bind(user_id)
+                .fetch_optional(pool)
+                .await?;
+                Ok(row.map(|r| (
+                    r.get::<Option<String>, _>(0).unwrap_or_default(),
+                    r.get::<Option<String>, _>(1).unwrap_or_default(),
+                )))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query(
+                    "SELECT kem_public_key, dsa_public_key FROM devices WHERE id = ? AND user_id = ? AND revoked = 0 LIMIT 1"
+                )
+                .bind(device_id)
+                .bind(user_id)
+                .fetch_optional(pool)
+                .await?;
+                Ok(row.map(|r| (
+                    r.get::<Option<String>, _>(0).unwrap_or_default(),
+                    r.get::<Option<String>, _>(1).unwrap_or_default(),
+                )))
+            }
+        }
+    }
+
+    pub async fn get_dsa_public_key_for_device(&self, device_id: Uuid) -> Result<Option<String>, sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(
+                    "SELECT dsa_public_key FROM devices WHERE id = $1 AND revoked = false LIMIT 1"
+                )
+                .bind(device_id)
                 .fetch_optional(pool)
                 .await?;
                 Ok(row.map(|r| r.get::<Option<String>, _>(0).unwrap_or_default()))
             }
             DatabasePool::Sqlite(pool) => {
                 let row = sqlx::query(
-                    "SELECT public_key FROM devices WHERE id = ? AND user_id = ? AND revoked = 0 LIMIT 1"
+                    "SELECT dsa_public_key FROM devices WHERE id = ? AND revoked = 0 LIMIT 1"
                 )
                 .bind(device_id)
-                .bind(user_id)
                 .fetch_optional(pool)
                 .await?;
                 Ok(row.map(|r| r.get::<Option<String>, _>(0).unwrap_or_default()))
@@ -1775,42 +2004,58 @@ impl DatabasePool {
         }
     }
 
-    /// Guarda (upsert) una clau de canal encriptada per a un dispositiu.
-    pub async fn store_channel_key_for_device(
+    pub async fn get_channel_key_version_metadata(
         &self,
         channel_id: Uuid,
+    ) -> Result<Option<(Uuid, i32)>, sqlx::Error> {
+        Ok(self
+            .get_latest_channel_key_version(channel_id)
+            .await?
+            .map(|(key_version_id, key_version, _, _)| (key_version_id, key_version)))
+    }
+
+    /// Guarda (upsert) un bundle de clau de canal encriptat per a un dispositiu.
+    pub async fn store_channel_key_bundle_for_device(
+        &self,
+        key_version_id: Uuid,
         device_id: Uuid,
         encrypted_key: &str,
         kem_ciphertext: &str,
+        signature: Option<&str>,
+        signed_by_device_id: Option<Uuid>,
     ) -> Result<(), sqlx::Error> {
         let id = Uuid::new_v4();
         let now = chrono::Utc::now().to_rfc3339();
         match self {
             DatabasePool::Postgres(pool) => {
                 sqlx::query(
-                    "INSERT INTO channel_keys (id, channel_id, device_id, encrypted_key, kem_ciphertext, created_at) \
-                     VALUES ($1, $2, $3, $4, $5, NOW()) \
-                     ON CONFLICT (channel_id, device_id) DO UPDATE SET encrypted_key = EXCLUDED.encrypted_key, kem_ciphertext = EXCLUDED.kem_ciphertext"
+                    "INSERT INTO channel_key_device_bundles (id, key_version_id, device_id, encrypted_key, kem_ciphertext, signature, signed_by_device_id, created_at) \
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW()) \
+                     ON CONFLICT (key_version_id, device_id) DO UPDATE SET encrypted_key = EXCLUDED.encrypted_key, kem_ciphertext = EXCLUDED.kem_ciphertext, signature = EXCLUDED.signature, signed_by_device_id = EXCLUDED.signed_by_device_id"
                 )
                 .bind(id)
-                .bind(channel_id)
+                .bind(key_version_id)
                 .bind(device_id)
                 .bind(encrypted_key)
                 .bind(kem_ciphertext)
+                .bind(signature)
+                .bind(signed_by_device_id)
                 .execute(pool)
                 .await?;
             }
             DatabasePool::Sqlite(pool) => {
                 sqlx::query(
-                    "INSERT INTO channel_keys (id, channel_id, device_id, encrypted_key, kem_ciphertext, created_at) \
-                     VALUES (?, ?, ?, ?, ?, ?) \
-                     ON CONFLICT (channel_id, device_id) DO UPDATE SET encrypted_key = excluded.encrypted_key, kem_ciphertext = excluded.kem_ciphertext"
+                    "INSERT INTO channel_key_device_bundles (id, key_version_id, device_id, encrypted_key, kem_ciphertext, signature, signed_by_device_id, created_at) \
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?) \
+                     ON CONFLICT (key_version_id, device_id) DO UPDATE SET encrypted_key = excluded.encrypted_key, kem_ciphertext = excluded.kem_ciphertext, signature = excluded.signature, signed_by_device_id = excluded.signed_by_device_id"
                 )
                 .bind(id)
-                .bind(channel_id)
+                .bind(key_version_id)
                 .bind(device_id)
                 .bind(encrypted_key)
                 .bind(kem_ciphertext)
+                .bind(signature)
+                .bind(signed_by_device_id)
                 .bind(&now)
                 .execute(pool)
                 .await?;
@@ -1819,34 +2064,38 @@ impl DatabasePool {
         Ok(())
     }
 
-    /// Retorna els dispositius dels membres del canal que tenen clau pública registrada.
-    pub async fn get_member_devices_for_channel(&self, channel_id: Uuid) -> Result<Vec<(Uuid, String)>, sqlx::Error> {
+    /// Retorna els dispositius dels membres del canal amb claus públiques registrades.
+    pub async fn get_member_devices_for_channel(&self, channel_id: Uuid) -> Result<Vec<(Uuid, String, String)>, sqlx::Error> {
         match self {
             DatabasePool::Postgres(pool) => {
                 let rows = sqlx::query(
-                    "SELECT DISTINCT d.id, d.public_key \
+                    "SELECT DISTINCT d.id, d.kem_public_key, d.dsa_public_key \
                      FROM devices d \
                      JOIN server_members sm ON sm.user_id = d.user_id \
                      JOIN channels c ON c.server_id = sm.server_id \
-                     WHERE c.id = $1 AND d.revoked = false AND d.public_key != '' AND d.public_key IS NOT NULL"
+                     LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = d.user_id \
+                     WHERE c.id = $1 AND d.revoked = false AND d.kem_public_key != '' AND d.kem_public_key IS NOT NULL \
+                       AND (c.is_private = 0 OR cm.user_id IS NOT NULL)"
                 )
                 .bind(channel_id)
                 .fetch_all(pool)
                 .await?;
-                Ok(rows.iter().map(|r| (r.get(0), r.get(1))).collect())
+                Ok(rows.into_iter().map(|r| (r.get(0), r.get(1), r.get(2))).collect())
             }
             DatabasePool::Sqlite(pool) => {
                 let rows = sqlx::query(
-                    "SELECT DISTINCT d.id, d.public_key \
+                    "SELECT DISTINCT d.id, d.kem_public_key, d.dsa_public_key \
                      FROM devices d \
                      JOIN server_members sm ON sm.user_id = d.user_id \
                      JOIN channels c ON c.server_id = sm.server_id \
-                     WHERE c.id = ? AND d.revoked = 0 AND d.public_key != '' AND d.public_key IS NOT NULL"
+                                         LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = d.user_id \
+                                         WHERE c.id = ? AND d.revoked = 0 AND d.kem_public_key != '' AND d.kem_public_key IS NOT NULL \
+                                             AND (c.is_private = 0 OR cm.user_id IS NOT NULL)"
                 )
                 .bind(channel_id)
                 .fetch_all(pool)
                 .await?;
-                Ok(rows.iter().map(|r| (r.get(0), r.get(1))).collect())
+                Ok(rows.into_iter().map(|r| (r.get(0), r.get(1), r.get(2))).collect())
             }
         }
     }

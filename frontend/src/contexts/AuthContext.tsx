@@ -1,8 +1,30 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react'
+import { ml_kem1024 } from '@noble/post-quantum/ml-kem.js'
 import { User } from '../types'
 import { authLogin, authRegister, authMe, authRefresh, deviceUpdatePublicKey } from '../lib/api'
 import { getStoredDeviceId, persistDeviceId } from '../lib/device-identity'
 import { generateAndStoreDeviceKeypair, hasLocalDeviceKeypair } from '../lib/device-keys'
+
+const ML_KEM_1024_PUBLIC_KEY_BYTES = 1568
+
+function uint8ArrayToBase64(data: Uint8Array): string {
+  let binary = ''
+  for (let i = 0; i < data.length; i++) binary += String.fromCharCode(data[i])
+  return btoa(binary)
+}
+
+function isValidKemPublicKey(key: Uint8Array): boolean {
+  if (key.length !== ML_KEM_1024_PUBLIC_KEY_BYTES) {
+    return false
+  }
+
+  try {
+    ml_kem1024.encapsulate(key)
+    return true
+  } catch {
+    return false
+  }
+}
 
 interface AuthContextType {
   user: User | null
@@ -83,24 +105,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Assegura que el dispositiu té un keypair ML-KEM generat i pujat al servidor.
   const ensureDeviceKeypairUploaded = useCallback(async (deviceId: string) => {
     const alreadyHas = await hasLocalDeviceKeypair(deviceId)
-    let publicKey: string
+    let kemPublicKey: string
+    let dsaPublicKey: string
     if (alreadyHas) {
       // Retrieve existing public key from IndexedDB
-      const { getDevicePublicKey } = await import('../lib/storage')
-      const pkBytes = await getDevicePublicKey(deviceId)
-      if (!pkBytes) {
-        throw new Error('No s\'ha trobat la clau pública local del dispositiu')
+      const { getDevicePublicKeys } = await import('../lib/storage')
+      const keypair = await getDevicePublicKeys(deviceId)
+      if (
+        !keypair?.kemPublicKey ||
+        !keypair.dsaPublicKey ||
+        !isValidKemPublicKey(keypair.kemPublicKey)
+      ) {
+        const repaired = await generateAndStoreDeviceKeypair(deviceId, true)
+        kemPublicKey = repaired.kemPublicKey
+        dsaPublicKey = repaired.dsaPublicKey
+      } else {
+        kemPublicKey = uint8ArrayToBase64(keypair.kemPublicKey)
+        dsaPublicKey = uint8ArrayToBase64(keypair.dsaPublicKey)
       }
-      // Convert to base64
-      let binary = ''
-      for (let i = 0; i < pkBytes.length; i++) binary += String.fromCharCode(pkBytes[i])
-      publicKey = btoa(binary)
     } else {
-      const result = await generateAndStoreDeviceKeypair(deviceId)
-      publicKey = result.publicKey
+      const result = await generateAndStoreDeviceKeypair(deviceId, true)
+      kemPublicKey = result.kemPublicKey
+      dsaPublicKey = result.dsaPublicKey
     }
 
-    const uploadResult = await deviceUpdatePublicKey(publicKey)
+    const uploadResult = await deviceUpdatePublicKey(kemPublicKey, dsaPublicKey)
     if (!uploadResult.success) {
       throw new Error(uploadResult.error.message || 'No s\'ha pogut registrar la clau pública del dispositiu')
     }
@@ -184,9 +213,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (stored) {
       let cancelled = false
       setIsLoading(true)
+      const storedDeviceId = getStoredDeviceId()
       
       fetchUser(stored)
-        .then(() => {
+        .then(async () => {
+          if (storedDeviceId) {
+            try {
+              await ensureDeviceKeypairUploaded(storedDeviceId)
+            } catch {
+              // El login explícit ja mostrarà errors; aquí fem best-effort de reparació.
+            }
+          }
           if (!cancelled) {
             setIsLoading(false)
           }
@@ -203,7 +240,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } else {
       setIsLoading(false)
     }
-  }, [loadToken, loadDeviceId, fetchUser, user])
+  }, [loadToken, loadDeviceId, fetchUser, ensureDeviceKeypairUploaded, user])
 
   return (
     <AuthContext.Provider

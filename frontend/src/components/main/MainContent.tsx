@@ -88,9 +88,29 @@ export function MainContent({
 
         // Si tenim la clau local, tornem a distribuir-la als dispositius membres.
         // Això cobreix membres/dispositius nous que encara no tenien bundle.
-        distributeChannelKey(channel.channelId, channelKey).catch(() => {})
+        distributeChannelKey(
+          channel.channelId,
+          channelKey,
+          channel.keyVersion ?? 1,
+          channel.keyVersionId ?? null,
+          currentDeviceId,
+        ).catch((err) => {
+          const msg = err instanceof Error ? err.message : 'Error desconegut redistribuint clau'
+          console.error('[E2EE] Redistribució automàtica de clau fallida en obrir canal', {
+            channelId: channel.channelId,
+            currentDeviceId,
+            error: msg,
+          })
+        })
       })
-      .catch(() => {})
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : 'Error desconegut obtenint clau de canal'
+        console.error('[E2EE] Error obtenint clau de canal en obrir-lo', {
+          channelId: channel.channelId,
+          currentDeviceId,
+          error: msg,
+        })
+      })
 
     return () => {
       cancelled = true

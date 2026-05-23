@@ -9,6 +9,9 @@ use axum::{
     Router,
     http::StatusCode,
 };
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
+use ml_kem::ml_kem_1024;
 use serde::Deserialize;
 use tracing::info;
 use uuid::Uuid;
@@ -58,7 +61,23 @@ pub async fn get_user_me(
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateDevicePublicKeyRequest {
-    pub public_key: String,
+    pub kem_public_key: String,
+    pub dsa_public_key: String,
+}
+
+fn is_valid_kem_public_key_b64(value: &str) -> bool {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let decoded = match STANDARD.decode(trimmed) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+
+    let key: Result<ml_kem::kem::Key<ml_kem_1024::EncapsulationKey>, _> = decoded.as_slice().try_into();
+    key.is_ok()
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -66,8 +85,10 @@ pub struct UpdateDevicePublicKeyRequest {
 pub struct UserDeviceResponse {
     pub device_id: Uuid,
     pub label: String,
-    pub public_key: String,
-    pub has_public_key: bool,
+    pub kem_public_key: String,
+    pub dsa_public_key: String,
+    pub has_kem_public_key: bool,
+    pub has_dsa_public_key: bool,
     pub created_at: String,
     pub last_seen: String,
     pub revoked: bool,
@@ -81,14 +102,23 @@ pub async fn update_device_public_key(
     axum::Extension(claims): axum::Extension<AuthClaims>,
     Json(req): Json<UpdateDevicePublicKeyRequest>,
 ) -> Result<StatusCode, AppError> {
-    info!("🔑 Actualitzant clau pública del dispositiu {} per l'usuari {}", claims.device_id, claims.user_id);
+    info!("🔑 Actualitzant claus públiques del dispositiu {} per l'usuari {}", claims.device_id, claims.user_id);
 
-    if req.public_key.is_empty() {
+    if req.kem_public_key.trim().is_empty() || req.dsa_public_key.trim().is_empty() {
+        return Err(AppError::BadRequest);
+    }
+
+    if !is_valid_kem_public_key_b64(&req.kem_public_key) {
         return Err(AppError::BadRequest);
     }
 
     state.db
-        .update_device_public_key(claims.device_id, claims.user_id, &req.public_key)
+        .update_device_public_keys(
+            claims.device_id,
+            claims.user_id,
+            req.kem_public_key.trim(),
+            req.dsa_public_key.trim(),
+        )
         .await
         .map_err(AppError::DatabaseError)?;
 
@@ -109,11 +139,13 @@ pub async fn list_my_devices(
 
     let data: Vec<UserDeviceResponse> = devices
         .into_iter()
-        .map(|(device_id, label, public_key, created_at, last_seen, revoked)| UserDeviceResponse {
+        .map(|(device_id, label, kem_public_key, dsa_public_key, created_at, last_seen, revoked)| UserDeviceResponse {
             device_id,
             label: label.unwrap_or_else(|| "Dispositiu".to_string()),
-            has_public_key: !public_key.trim().is_empty(),
-            public_key,
+            has_kem_public_key: !kem_public_key.trim().is_empty(),
+            has_dsa_public_key: !dsa_public_key.trim().is_empty(),
+            kem_public_key,
+            dsa_public_key,
             created_at,
             last_seen,
             revoked,

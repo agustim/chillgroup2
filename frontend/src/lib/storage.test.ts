@@ -4,6 +4,8 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
+  getDevicePublicKeys,
+  getDeviceSecretKeys,
   storeKeypair,
   getKeypair,
   deleteKeypair,
@@ -46,6 +48,17 @@ describe('IndexedDB Storage', () => {
 
       const retrieved = await getKeypair('device-1')
       expect(retrieved).toEqual(secretKey)
+    })
+
+    it('guarda i recupera també la signing key del dispositiu', async () => {
+      const kemSecretKey = new Uint8Array([1, 2, 3])
+      const dsaSecretKey = new Uint8Array([4, 5, 6])
+
+      await storeKeypair('device-1', kemSecretKey, dsaSecretKey)
+
+      const retrieved = await getDeviceSecretKeys('device-1')
+      expect(retrieved?.kemSecretKey).toEqual(kemSecretKey)
+      expect(retrieved?.dsaSecretKey).toEqual(dsaSecretKey)
     })
 
     it('retorna null si el keypair no existeix', async () => {
@@ -134,6 +147,17 @@ describe('IndexedDB Storage', () => {
 
       const retrieved = await getDevicePublicKey('device-1')
       expect(retrieved).toEqual(publicKey)
+    })
+
+    it('guarda i recupera claus públiques KEM i DSA', async () => {
+      const kemPublicKey = new Uint8Array([7, 8, 9])
+      const dsaPublicKey = new Uint8Array([10, 11, 12])
+
+      await storeDevicePublicKey('device-1', kemPublicKey, dsaPublicKey)
+
+      const retrieved = await getDevicePublicKeys('device-1')
+      expect(retrieved?.kemPublicKey).toEqual(kemPublicKey)
+      expect(retrieved?.dsaPublicKey).toEqual(dsaPublicKey)
     })
 
     it('retorna null si no existeix', async () => {
