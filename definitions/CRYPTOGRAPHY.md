@@ -14,6 +14,117 @@ ChillGroup suporta tres nivells de seguretat per canal. L'usuari tria el nivell 
 
 ---
 
+## Compartició de Claus (Implementació Actual)
+
+Aquest apartat descriu quan i com es comparteixen claus al sistema real (frontend + backend), per cada escenari.
+
+### 1) Canal Simètric (nivell 1)
+
+#### 1.1 Creació de canal
+
+1. El client crea el canal amb `encryption_type = symmetric`.
+2. El servidor genera una `channel_key` AES-256.
+3. El servidor la guarda a `channel_key_versions` xifrada amb `server_master_key`.
+
+#### 1.2 Primer accés / recuperació de clau
+
+1. El client entra al canal i intenta `ensureChannelKey(...)`.
+2. Si no té clau local, fa `GET /api/channels/{channel_id}/keys`.
+3. El servidor valida accés al canal:
+  1. Si el canal es privat, ha de ser membre del canal.
+  2. Si es públic, n'hi ha prou amb ser membre del servidor.
+4. El servidor desencripta la `channel_key` (amb `server_master_key`), l'encapsula per al dispositiu demanant (ML-KEM), i retorna `encryptedKey + kemCiphertext`.
+5. El client decapsula, obté la clau i la guarda localment.
+
+Punt clau: en simètric, no hi ha "push" de claus entre usuaris; cada dispositiu autoritzat la demana al servidor quan la necessita.
+
+### 2) Canal Asimètric (nivell 2)
+
+#### 2.1 Creació de canal
+
+1. El servidor crea el canal i la versió inicial (`channel_key_versions`, version 1) sense conèixer la clau de contingut.
+2. El client creador genera localment una `channel_key` AES-256.
+3. El client consulta `GET /api/channels/{channel_id}/member-devices`.
+4. Per cada dispositiu retornat:
+  1. Encapsula amb ML-KEM (`kemPublicKey` destinatari).
+  2. Xifra la `channel_key` amb el shared secret derivat.
+  3. Signa el bundle amb ML-DSA del dispositiu signant.
+5. El client puja bundles via `POST /api/channels/{channel_id}/keys`.
+
+#### 2.2 Accés d'un membre que no té la clau
+
+1. El client fa `GET /api/channels/{channel_id}/keys`.
+2. El servidor retorna el bundle guardat per al `device_id` del JWT.
+3. El client valida la signatura del bundle.
+4. Si es valida, decapsula i recupera la `channel_key`.
+
+Punt clau: el servidor no pot reconstruir la `channel_key`; només guarda bundles xifrats per dispositiu.
+
+### 3) Convidar usuari al canal
+
+#### 3.1 Canal públic (`is_private = false`)
+
+1. L'usuari convidador fa `POST /api/channels/{channel_id}/invite`.
+2. El backend garanteix que el convidat és membre del servidor.
+3. El convidador redistribueix la clau del canal (asimètric) pujant bundles per als dispositius del convidat.
+
+#### 3.2 Canal privat (`is_private = true`)
+
+1. El creador queda afegit automàticament a `channel_members` en crear el canal.
+2. En `POST /api/channels/{channel_id}/invite`, el backend afegeix el convidat a `channel_members`.
+3. Només després, el convidat pot:
+  1. veure el canal,
+  2. demanar claus,
+  3. veure missatges,
+  4. aparèixer a `member-devices`.
+
+Punt clau: en canals privats, la compartició de claus i l'accés es governen per membres del canal, no per tots els membres del servidor.
+
+### 4) Dispositiu nou d'un usuari existent
+
+#### 4.1 Simètric
+
+1. El dispositiu nou registra les seves claus públiques.
+2. Quan entra al canal, demana clau al servidor (`GET /keys`) i la recupera.
+
+#### 4.2 Asimètric
+
+1. El dispositiu nou publica `kemPublicKey` + `dsaPublicKey`.
+2. Necessita que algun membre amb `channel_key` redistribueixi bundles per a aquest dispositiu.
+3. Això passa automàticament en punts com:
+  1. entrar al canal (redistribució best-effort),
+  2. convidar a canal,
+  3. convidar a servidor (redistribució de canals asimètrics coneguts localment).
+
+### 5) Punts exactes on es comparteixen claus
+
+1. Crear canal asimètric: el creador genera i puja bundles inicials.
+2. Obrir canal asimètric: redistribució best-effort si el client té la clau local.
+3. Convidar usuari a canal: redistribució explícita després del `invite`.
+4. Convidar usuari a servidor: redistribució per canals asimètrics on hi ha clau local disponible.
+
+### 6) Regles d'accés (resum)
+
+1. Canal públic:
+  1. membre de servidor = pot accedir al canal.
+2. Canal privat:
+  1. membre de canal = pot accedir al canal,
+  2. no membre de canal = no veu canal, no rep clau, no veu missatges.
+
+### 7) Errors típics de compartició
+
+1. `ChannelKeyNotFound`:
+  1. en simètric, no hi ha versió de clau o falta registre de clau pública del dispositiu,
+  2. en asimètric, no existeix bundle per aquell `device_id`.
+2. Error de redistribució asimètrica:
+  1. clau pública de dispositiu invàlida o corrupta,
+  2. clau de signatura local invàlida,
+  3. dispositiu sense permisos de canal.
+
+Els errors de redistribució s'escriuen a consola per poder diagnosticar dispositiu per dispositiu.
+
+---
+
 ## Nivell 0 — Sense Criptografia
 
 ### Ús
