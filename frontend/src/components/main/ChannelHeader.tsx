@@ -4,12 +4,9 @@ import { EncryptionIcon } from '../shared/EncryptionIcon'
 
 interface ChannelHeaderProps {
   channel: Channel
-  canManageChannel?: boolean
-  onConfigureChannel?: () => void
-  onInviteChannel?: () => void
 }
 
-export function ChannelHeader({ channel, canManageChannel = false, onConfigureChannel, onInviteChannel }: ChannelHeaderProps) {
+export function ChannelHeader({ channel }: ChannelHeaderProps) {
   return (
     <div className="channel-header">
       <div className="channel-header-info">
@@ -23,19 +20,7 @@ export function ChannelHeader({ channel, canManageChannel = false, onConfigureCh
         {channel.isPrivate && <span className="private-badge">Privat</span>}
       </div>
       <div className="channel-header-actions">
-        {channel.type === 'voice' && (
-          <span className="voice-status">🎤 Connectat</span>
-        )}
-        {canManageChannel && onInviteChannel && (
-          <button className="channel-button" onClick={onInviteChannel} title="Convidar usuari al canal">
-            ➕ Convidar
-          </button>
-        )}
-        {canManageChannel && onConfigureChannel && (
-          <button className="channel-settings-btn" onClick={onConfigureChannel} title="Configuració del canal">
-            ⚙️
-          </button>
-        )}
+        {channel.type === 'voice' && <span className="voice-status">🎤 Connectat</span>}
       </div>
     </div>
   )

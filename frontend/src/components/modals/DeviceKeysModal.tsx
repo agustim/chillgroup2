@@ -408,7 +408,7 @@ export function DeviceKeysModal({
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Gestió de claus de dispositiu i canals">
+    <Modal isOpen={isOpen} onClose={onClose} title="Gestió de dispositius">
       <div className="device-keys-modal">
         {error && <div className="modal-error">{error}</div>}
         {success && <div className="modal-success">{success}</div>}
@@ -422,15 +422,6 @@ export function DeviceKeysModal({
             onClick={() => setActiveTab('device')}
           >
             Gestió dispositiu
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'channels'}
-            className={`device-keys-tab ${activeTab === 'channels' ? 'active' : ''}`}
-            onClick={() => setActiveTab('channels')}
-          >
-            Gestió canals
           </button>
         </div>
 
@@ -585,7 +576,7 @@ export function DeviceKeysModal({
         </>
         )}
 
-        {activeTab === 'channels' && (
+        {false && (
         <>
         <section className="device-keys-section">
           <h4>Claus simètriques de canals</h4>

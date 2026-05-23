@@ -9,6 +9,9 @@ import { CreateVoiceChannelModal } from './modals/CreateVoiceChannelModal'
 import { InviteMemberModal } from './modals/InviteMemberModal'
 import { ConfigureChannelModal } from './modals/ConfigureChannelModal'
 import { DeviceKeysModal } from './modals/DeviceKeysModal'
+import { ChannelKeysModal } from './modals/ChannelKeysModal'
+import { PermissionsModal } from './modals/PermissionsModal'
+import { ChangePasswordModal } from './modals/ChangePasswordModal'
 import { useLiveKit } from '../hooks/useLiveKit'
 import { Channel, Server, ServerFullInfo, VoiceParticipant } from '../types'
 import { getSocket } from '../lib/socket'
@@ -34,7 +37,7 @@ interface AppLayoutProps {
 }
 
 type PanelType = 'none' | 'serverConfig' | 'channelConfig' | 'devices'
-type ServerMenuAction = 'config' | 'invite' | 'createText' | 'createVoice' | 'devices' | null
+type ServerMenuAction = 'config' | 'invite' | 'createText' | 'createVoice' | null
 
 export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const { user, logout, currentDeviceId } = useAuth()
@@ -43,6 +46,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const [serverDetails, setServerDetails] = useState<ServerFullInfo | null>(null)
   const [channels, setChannels] = useState<Channel[]>([])
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null)
+  const [openTextChannelIds, setOpenTextChannelIds] = useState<string[]>([])
   const [voiceChannelId, setVoiceChannelId] = useState<string | null>(null)
   const [voiceChannelName, setVoiceChannelName] = useState<string>('')
   const [voicePresenceByChannel, setVoicePresenceByChannel] = useState<Record<string, VoiceParticipant[]>>({})
@@ -54,9 +58,11 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const [showCreateTextChannel, setShowCreateTextChannel] = useState(false)
   const [showCreateVoiceChannel, setShowCreateVoiceChannel] = useState(false)
   const [showInviteServer, setShowInviteServer] = useState(false)
-  const [showInviteChannel, setShowInviteChannel] = useState(false)
   const [showConfigureChannel, setShowConfigureChannel] = useState(false)
   const [showDeviceKeysModal, setShowDeviceKeysModal] = useState(false)
+  const [showChannelKeysModal, setShowChannelKeysModal] = useState(false)
+  const [showPermissionsModal, setShowPermissionsModal] = useState(false)
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false)
   
   // LiveKit hook
   const {
@@ -112,13 +118,14 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   }, [user, currentDeviceId])
 
   const selectedServerInfo = selectedServer ? servers.find((server) => server.serverId === selectedServer) : undefined
+  const resolvedSelectedChannel = selectedChannel
+    ? channels.find((channel) => channel.channelId === selectedChannel.channelId) ?? selectedChannel
+    : null
   const canManageServer =
     selectedServerInfo?.myRole === 'owner' ||
     selectedServerInfo?.myRole === 'admin' ||
     serverDetails?.myRole === 'owner' ||
     serverDetails?.myRole === 'admin'
-
-  const canManageChannel = serverDetails?.myRole === 'owner' || serverDetails?.myRole === 'admin' || false
 
   const fetchServers = async () => {
     const result = await serversList()
@@ -163,6 +170,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   useEffect(() => {
     if (selectedServer) {
       setSelectedChannel(null)
+      setOpenTextChannelIds([])
       setPanel('none')
       fetchServerDetails(selectedServer)
       fetchChannels(selectedServer)
@@ -229,20 +237,20 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   }, [voiceChannelId, liveKitMuted, liveKitDeafened, liveKitParticipants])
 
   useEffect(() => {
-    if (!selectedChannel || selectedChannel.type !== 'text') {
+    if (!resolvedSelectedChannel || resolvedSelectedChannel.type !== 'text') {
       return
     }
 
-    channelsMarkRead(selectedChannel.channelId).catch(() => {
+    channelsMarkRead(resolvedSelectedChannel.channelId).catch(() => {
       // Best effort: el socket reconcilia unread igualment.
     })
 
     setChannels((prev) =>
       prev.map((c) =>
-        c.channelId === selectedChannel.channelId ? { ...c, unreadCount: 0 } : c
+        c.channelId === resolvedSelectedChannel.channelId ? { ...c, unreadCount: 0 } : c
       )
     )
-  }, [selectedChannel?.channelId, selectedChannel?.type])
+  }, [resolvedSelectedChannel?.channelId, resolvedSelectedChannel?.type])
 
   const handleUnreadUpdated = (channelId: string, unreadCount: number) => {
     setChannels((prev) =>
@@ -256,6 +264,27 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
 
   const handleSelectServer = (serverId: string) => {
     setSelectedServer(serverId)
+  }
+
+  const handleOpenTextChannel = (channel: Channel) => {
+    setSelectedChannel(channel)
+    if (channel.type === 'text') {
+      setOpenTextChannelIds((current) =>
+        current.includes(channel.channelId) ? current : [...current, channel.channelId]
+      )
+    }
+  }
+
+  const handleCloseTextTab = (channelId: string) => {
+    setOpenTextChannelIds((current) => {
+      const next = current.filter((id) => id !== channelId)
+      if (selectedChannel?.channelId === channelId) {
+        const fallbackId = next[next.length - 1] ?? null
+        const fallbackChannel = fallbackId ? channels.find((channel) => channel.channelId === fallbackId) ?? null : null
+        setSelectedChannel(fallbackChannel)
+      }
+      return next
+    })
   }
 
   // ── Voice connection logic (LiveKit real) ─────────────────────────────
@@ -484,13 +513,8 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     }
   }
 
-  const handleInviteChannel = async () => {
-    if (!selectedChannel) return
-    setShowInviteChannel(true)
-  }
-
   const handleInviteChannelSubmit = async (username: string) => {
-    const channel = selectedChannel
+    const channel = resolvedSelectedChannel
     if (!channel) return
     const result = await channelInvite(channel.channelId, username)
     if (result.success) {
@@ -536,8 +560,23 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     setShowDeviceKeysModal(true)
   }
 
+  const handleManageChannelKeys = () => {
+    setShowChannelKeysModal(true)
+  }
+
+  const handleChangePassword = () => {
+    setShowChangePasswordModal(true)
+  }
+
+  const handleManagePermissions = () => {
+    setShowPermissionsModal(true)
+  }
+
   // Obrir modal de configuració de canal
-  const handleConfigureChannel = () => {
+  const handleConfigureChannel = (channel?: Channel) => {
+    if (channel) {
+      setSelectedChannel(channel)
+    }
     setShowConfigureChannel(true)
   }
 
@@ -586,11 +625,11 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
       case 'createVoice':
         setShowCreateVoiceChannel(true)
         break
-      case 'devices':
-        setShowDeviceKeysModal(true)
-        break
     }
   }
+
+  const openTextTabs = channels.filter((channel) => channel.type === 'text' && openTextChannelIds.includes(channel.channelId))
+  const activeVoiceChannel = voiceChannelId ? channels.find((channel) => channel.channelId === voiceChannelId) ?? null : null
 
   const mergedVoiceParticipants = voiceChannelId
     ? liveKitParticipants.map((participant) => {
@@ -652,12 +691,16 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
             if (channel.type === 'voice') {
               handleVoiceChannelClick(channel)
             } else {
-              setSelectedChannel(channel)
+              handleOpenTextChannel(channel)
             }
           }}
+          onConfigureChannel={handleConfigureChannel}
           username={username}
           onLogout={logout}
           onManageDevices={handleManageDevices}
+          onManageChannelKeys={handleManageChannelKeys}
+          onChangePassword={handleChangePassword}
+          onManagePermissions={handleManagePermissions}
           onCreateTextChannel={canManageServer ? () => setShowCreateTextChannel(true) : undefined}
           onCreateVoiceChannel={canManageServer ? () => setShowCreateVoiceChannel(true) : undefined}
           canCreateChannel={canManageServer}
@@ -665,32 +708,52 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
       )}
 
       <div className="main-content-area">
-        {selectedServer && (
-          <div className="server-actions">
-            {canManageServer && (
-              <>
-                <button onClick={() => setPanel('serverConfig')}>Configurar servidor</button>
-                <button onClick={handleInviteServerMember}>Convidar al servidor</button>
-              </>
+        {selectedServer && (openTextTabs.length > 0 || activeVoiceChannel) && (
+          <div className="main-content-tabs">
+            {openTextTabs.map((channel) => (
+              <div
+                key={channel.channelId}
+                className={`main-content-tab ${resolvedSelectedChannel?.channelId === channel.channelId ? 'active' : ''}`}
+                onClick={() => setSelectedChannel(channel)}
+              >
+                <span>{channel.type === 'voice' ? '🔊' : '#'}</span>
+                <span>{channel.name}</span>
+                <button
+                  type="button"
+                  className="main-content-tab-close"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    handleCloseTextTab(channel.channelId)
+                  }}
+                  title="Tancar pestanya"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            {activeVoiceChannel && (
+              <button
+                className={`main-content-tab ${resolvedSelectedChannel?.channelId === activeVoiceChannel.channelId ? 'active' : ''}`}
+                onClick={() => setSelectedChannel(activeVoiceChannel)}
+              >
+                <span>🔊</span>
+                <span>{activeVoiceChannel.name}</span>
+              </button>
             )}
-            <button onClick={handleManageDevices}>Gestió dispositius</button>
           </div>
         )}
 
         {feedback && <div className="feedback-banner">{feedback}</div>}
         {liveKitError && <div className="feedback-banner" style={{ backgroundColor: '#ff4444' }}>{liveKitError}</div>}
 
-        {selectedChannel ? (
+        {resolvedSelectedChannel ? (
           <>
             <MainContent
-              channel={selectedChannel}
+              channel={resolvedSelectedChannel}
               voiceConnection={voiceConnection}
               currentDeviceId={currentDeviceId}
               onLeaveVoice={handleLeaveVoiceChannel}
               onUnreadUpdated={handleUnreadUpdated}
-              onConfigureChannel={handleConfigureChannel}
-              onInviteChannel={handleInviteChannel}
-              canManageChannel={canManageChannel}
               localVideoTrack={localVideoTrack}
               localScreenTrack={localScreenTrack}
               remoteVideoTracks={remoteVideoTracks}
@@ -761,22 +824,13 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           />
         )}
 
-        {selectedChannel && (
-          <InviteMemberModal
-            isOpen={showInviteChannel}
-            onClose={() => setShowInviteChannel(false)}
-            onInvite={handleInviteChannelSubmit}
-            inviteType="channel"
-            targetName={selectedChannel.name}
-          />
-        )}
-
         <ConfigureChannelModal
           isOpen={showConfigureChannel}
           onClose={() => setShowConfigureChannel(false)}
-          channel={selectedChannel}
+          channel={resolvedSelectedChannel}
           onUpdate={handleConfigureChannelSubmit}
           onDelete={handleDeleteChannel}
+          onInviteChannel={handleInviteChannelSubmit}
         />
 
         {user && (
@@ -788,6 +842,27 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
             devices={user.devices ?? []}
           />
         )}
+
+        {user && (
+          <ChannelKeysModal
+            isOpen={showChannelKeysModal}
+            onClose={() => setShowChannelKeysModal(false)}
+            channels={channels}
+          />
+        )}
+
+        <PermissionsModal
+          isOpen={showPermissionsModal}
+          onClose={() => setShowPermissionsModal(false)}
+          server={serverDetails}
+          channels={channels}
+          currentDeviceId={currentDeviceId}
+        />
+
+        <ChangePasswordModal
+          isOpen={showChangePasswordModal}
+          onClose={() => setShowChangePasswordModal(false)}
+        />
       </div>
     </div>
   )

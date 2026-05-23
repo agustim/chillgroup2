@@ -86,22 +86,11 @@ describe('DeviceKeysModal', () => {
 
     expect(screen.getByText('KEM public key: kem-preview')).toBeInTheDocument()
     expect(screen.getByText('DSA public key: dsa-preview')).toBeInTheDocument()
-    expect(screen.getByText(/KEM: registrada/)).toBeInTheDocument()
-    expect(screen.getByText(/DSA: registrada/)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('tab', { name: 'Gestió canals' }))
-    expect(screen.getByText(/Bundles asimètrics de canals/)).toBeInTheDocument()
-    expect(screen.getByText(/Canal general · ch-1 · v1/)).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Exportar asimètriques' }))
+    expect(screen.getByText(/Keypair local:/)).toBeInTheDocument()
+    expect(screen.getByText(/Actual · Local \+ servidor/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Backup local' }))
     await waitFor(() => {
-      expect(screen.getByText(/Backup de claus asimètriques/)).toBeInTheDocument()
-    })
-
-    const asymImport = screen.getByPlaceholderText('Enganxa aquí JSON de bundles asimètrics')
-    fireEvent.change(asymImport, { target: { value: '{"version":1,"exportedAt":1,"channels":[]}' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Importar asimètriques' }))
-    await waitFor(() => {
-      expect(screen.getByText(/Importades 1 claus asimètriques de canals/)).toBeInTheDocument()
+      expect(screen.getByText(/Backup de claus preparat/)).toBeInTheDocument()
     })
   })
 })

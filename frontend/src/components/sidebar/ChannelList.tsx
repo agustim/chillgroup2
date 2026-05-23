@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Channel, VoiceConnection, VoiceParticipant } from '../../types'
 import { EncryptionIcon } from '../shared/EncryptionIcon'
 
@@ -16,9 +16,13 @@ interface ChannelListProps {
   onToggleCamera?: () => void
   onToggleScreenShare?: () => void
   onSelectChannel: (channel: Channel) => void
+  onConfigureChannel?: (channel: Channel) => void
   username: string
-  onLogout?: () => void
   onManageDevices?: () => void
+  onManageChannelKeys?: () => void
+  onChangePassword?: () => void
+  onManagePermissions?: () => void
+  onLogout?: () => void
   onCreateTextChannel?: () => void
   onCreateVoiceChannel?: () => void
   canCreateChannel?: boolean
@@ -38,16 +42,33 @@ export function ChannelList({
   onToggleCamera,
   onToggleScreenShare,
   onSelectChannel,
+  onConfigureChannel,
   username,
-  onLogout,
   onManageDevices,
+  onManageChannelKeys,
+  onChangePassword,
+  onManagePermissions,
+  onLogout,
   onCreateTextChannel,
   onCreateVoiceChannel,
   canCreateChannel = false,
 }: ChannelListProps) {
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
+  const userActionsRef = useRef<HTMLDivElement | null>(null)
   const voiceControlsEnabled = !!voiceConnection
   const textChannels = channels.filter((c) => c.type === 'text')
   const voiceChannels = channels.filter((c) => c.type === 'voice')
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (userActionsRef.current && !userActionsRef.current.contains(event.target as Node)) {
+        setIsUserMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   // Get participants for a voice channel (from the active connection or mock)
   const getParticipants = (channel: Channel): VoiceParticipant[] => {
@@ -67,16 +88,22 @@ export function ChannelList({
       <div className="channel-list-user">
         <div className="user-avatar">{username.charAt(0).toUpperCase()}</div>
         <span className="user-name">{username}</span>
-        <div className="user-actions">
-          {onLogout && (
-            <button className="logout-btn" onClick={onLogout} title="Tancar sessió">
-              🚪
-            </button>
-          )}
-          {onManageDevices && (
-            <button className="device-btn" onClick={onManageDevices} title="Gestió de dispositius">
-              🖥️
-            </button>
+        <div className="user-actions" ref={userActionsRef}>
+          <button
+            className={`user-actions-toggle ${isUserMenuOpen ? 'active' : ''}`}
+            onClick={() => setIsUserMenuOpen((current) => !current)}
+            title="Menú d'usuari"
+          >
+            ⚙️
+          </button>
+          {isUserMenuOpen && (
+            <div className="user-actions-menu">
+              <button onClick={() => { setIsUserMenuOpen(false); onManageDevices?.() }}>Gestió de dispositius</button>
+              <button onClick={() => { setIsUserMenuOpen(false); onManageChannelKeys?.() }}>Gestió claus-canals</button>
+              <button onClick={() => { setIsUserMenuOpen(false); onChangePassword?.() }}>Canviar password</button>
+              <button onClick={() => { setIsUserMenuOpen(false); onManagePermissions?.() }}>Permisos</button>
+              <button onClick={() => { setIsUserMenuOpen(false); onLogout?.() }}>Sortir</button>
+            </div>
           )}
         </div>
       </div>
@@ -96,7 +123,7 @@ export function ChannelList({
           )}
         </div>
         {textChannels.map((channel) => (
-          <button
+          <div
             key={channel.channelId}
             className={`channel-item ${selectedChannel?.channelId === channel.channelId ? 'active' : ''}`}
             onClick={() => onSelectChannel(channel)}
@@ -107,7 +134,19 @@ export function ChannelList({
               <span className="channel-unread-badge">{channel.unreadCount}</span>
             )}
             <EncryptionIcon type={channel.encryptionType} />
-          </button>
+            {onConfigureChannel && (
+              <button
+                className="channel-item-settings-btn"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onConfigureChannel(channel)
+                }}
+                title="Configuració del canal"
+              >
+                ⚙️
+              </button>
+            )}
+          </div>
         ))}
       </div>
 
@@ -131,14 +170,26 @@ export function ChannelList({
 
           return (
             <div key={channel.channelId} className="voice-channel-wrapper">
-              <button
+              <div
                 className={`channel-item voice ${selectedChannel?.channelId === channel.channelId ? 'active' : ''}`}
                 onClick={() => onSelectChannel(channel)}
               >
                 <span className="channel-voice-icon">🔊</span>
                 <span className="channel-name">{channel.name}</span>
                 <EncryptionIcon type={channel.encryptionType} />
-              </button>
+                {onConfigureChannel && (
+                  <button
+                    className="channel-item-settings-btn"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onConfigureChannel(channel)
+                    }}
+                    title="Configuració del canal"
+                  >
+                    ⚙️
+                  </button>
+                )}
+              </div>
               
               {/* Show connected users indented below the channel */}
               {participants.length > 0 && (

@@ -23,7 +23,7 @@ export function useServerMenuContext() {
   return useContext(ServerMenuContext)
 }
 
-type ServerMenuAction = 'config' | 'invite' | 'createText' | 'createVoice' | 'devices' | null
+type ServerMenuAction = 'config' | 'invite' | 'createText' | 'createVoice' | null
 
 interface ServerBarProps {
   servers: Server[]
@@ -140,9 +140,6 @@ export function ServerBar({ servers, selectedServer, onSelectServer, onCreateSer
           </button>
           <button className="server-menu-item" onClick={() => handleMenuAction('createVoice')}>
             🔊 Crear canal de veu
-          </button>
-          <button className="server-menu-item" onClick={() => handleMenuAction('devices')}>
-            🖥️ Gestió de dispositius
           </button>
         </div>
       )}

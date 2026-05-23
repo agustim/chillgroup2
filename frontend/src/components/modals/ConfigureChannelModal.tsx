@@ -9,6 +9,7 @@ interface ConfigureChannelModalProps {
   channel: Channel | null
   onUpdate: (name: string, messageTTL: number | null, isPrivate: boolean) => Promise<void>
   onDelete: (channelId: string) => Promise<void>
+  onInviteChannel?: (username: string) => Promise<void>
 }
 
 export function ConfigureChannelModal({
@@ -17,6 +18,7 @@ export function ConfigureChannelModal({
   channel,
   onUpdate,
   onDelete,
+  onInviteChannel,
 }: ConfigureChannelModalProps) {
   const [name, setName] = useState('')
   const [messageTTL, setMessageTTL] = useState('')
@@ -26,6 +28,10 @@ export function ConfigureChannelModal({
   const [success, setSuccess] = useState('')
   const [deleting, setDeleting] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [inviteUsername, setInviteUsername] = useState('')
+  const [inviting, setInviting] = useState(false)
+  const [inviteError, setInviteError] = useState('')
+  const [inviteSuccess, setInviteSuccess] = useState('')
 
   // Quan s'obre el modal, carregar els valors actuals del canal
   useEffect(() => {
@@ -38,6 +44,10 @@ export function ConfigureChannelModal({
     setSuccess('')
     setShowDeleteConfirm(false)
     setDeleting(false)
+    setInviteUsername('')
+    setInviting(false)
+    setInviteError('')
+    setInviteSuccess('')
   }, [channel, isOpen])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -105,6 +115,32 @@ export function ConfigureChannelModal({
 
   const handleCancelDelete = () => {
     setShowDeleteConfirm(false)
+  }
+
+  const handleInvite = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!onInviteChannel) {
+      return
+    }
+
+    const trimmed = inviteUsername.trim()
+    if (!trimmed) {
+      setInviteError('El nom d\'usuari és obligatori')
+      return
+    }
+
+    setInviting(true)
+    setInviteError('')
+    setInviteSuccess('')
+    try {
+      await onInviteChannel(trimmed)
+      setInviteSuccess(`Invitació enviada a ${trimmed}`)
+      setInviteUsername('')
+    } catch {
+      setInviteError('No s\'ha pogut enviar la invitació')
+    } finally {
+      setInviting(false)
+    }
   }
 
   if (!channel) return null
@@ -182,6 +218,31 @@ export function ConfigureChannelModal({
             </div>
           </div>
         </div>
+
+        {onInviteChannel && (
+          <section className="modal-inline-section">
+            <h4>Convidar usuari</h4>
+            <form onSubmit={handleInvite} className="modal-form">
+              <div className="form-group">
+                <label htmlFor="channel-invite-username">Nom d'usuari</label>
+                <input
+                  id="channel-invite-username"
+                  type="text"
+                  value={inviteUsername}
+                  onChange={(e) => setInviteUsername(e.target.value)}
+                  placeholder="Nom d'usuari"
+                />
+              </div>
+              {inviteError && <div className="modal-error">{inviteError}</div>}
+              {inviteSuccess && <div className="modal-success">{inviteSuccess}</div>}
+              <div className="modal-form-actions" style={{ marginTop: 0 }}>
+                <Button type="submit" variant="secondary" size="sm" disabled={inviting}>
+                  {inviting ? 'Enviant...' : 'Convidar'}
+                </Button>
+              </div>
+            </form>
+          </section>
+        )}
 
         {showDeleteConfirm && (
           <div className="modal-error" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

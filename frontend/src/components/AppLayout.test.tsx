@@ -53,17 +53,26 @@ vi.mock('./sidebar/ServerBar', () => ({
 // but the old mock only used `onCreateChannel`. Also must render channel type info
 // (# Text, 🔊 Veu) for the form inputs test.
 vi.mock('./sidebar/ChannelList', () => ({
-  ChannelList: ({ channels, selectedChannel, onSelectChannel, onCreateTextChannel, canCreateChannel }: any) => (
+  ChannelList: ({ channels, selectedChannel, onSelectChannel, onCreateTextChannel, onConfigureChannel, canCreateChannel }: any) => (
     <div data-testid="channel-list">
       {channels.map((c: any) => (
-        <button
-          key={c.channelId}
-          onClick={() => onSelectChannel(c)}
-          data-channel-id={c.channelId}
-          className={selectedChannel?.channelId === c.channelId ? 'selected' : ''}
-        >
-          {c.type === 'voice' ? '🔊' : '#'} {c.name}
-        </button>
+        <div key={c.channelId}>
+          <button
+            onClick={() => onSelectChannel(c)}
+            data-channel-id={c.channelId}
+            className={selectedChannel?.channelId === c.channelId ? 'selected' : ''}
+          >
+            {c.type === 'voice' ? '🔊' : '#'} {c.name}
+          </button>
+          {onConfigureChannel && (
+            <button
+              data-testid="btn-channel-settings"
+              onClick={() => onConfigureChannel(c)}
+            >
+              ⚙️
+            </button>
+          )}
+        </div>
       ))}
       {/* Use the real prop names that AppLayout passes */}
       {canCreateChannel && onCreateTextChannel && (
@@ -76,39 +85,20 @@ vi.mock('./sidebar/ChannelList', () => ({
 }))
 
 vi.mock('./main/MainContent', () => ({
-  MainContent: ({ channel, onInviteChannel, onConfigureChannel, canManageChannel }: any) => (
+  MainContent: ({ channel }: any) => (
     <div data-testid="main-content">
       Main Content
-      {channel && canManageChannel && onInviteChannel && (
-        <button data-testid="btn-invite-channel" onClick={onInviteChannel}>Convidar canal</button>
-      )}
-      {channel && canManageChannel && onConfigureChannel && (
-        <button data-testid="btn-configure-channel" onClick={onConfigureChannel}>Configurar canal</button>
-      )}
+      {channel && <span data-testid="current-channel">{channel.name}</span>}
     </div>
   ),
 }))
 
-// Fix 2: The real ChannelHeader uses canManageChannel + onInviteChannel / onConfigureChannel props.
-// Default canManageChannel to true so invite/configure buttons render.
-// Use button titles matching the real component for text-based queries.
 vi.mock('./main/ChannelHeader', () => ({
-  ChannelHeader: ({ channel, canManageChannel, onConfigureChannel, onInviteChannel }: any) => (
+  ChannelHeader: ({ channel }: any) => (
     <div data-testid="channel-header">
       {channel && (
         <>
           <span data-testid="channel-name">{channel.name}</span>
-          {/* Real component uses these titles for the buttons */}
-          {canManageChannel !== false && onInviteChannel && (
-            <button data-testid="btn-invite-channel" title="Convidar usuari al canal" onClick={onInviteChannel}>
-              ➕ Convidar
-            </button>
-          )}
-          {canManageChannel !== false && onConfigureChannel && (
-            <button data-testid="btn-configure-channel" title="Configuració del canal" onClick={onConfigureChannel}>
-              ⚙️
-            </button>
-          )}
         </>
       )}
     </div>
@@ -157,11 +147,14 @@ vi.mock('./modals/InviteMemberModal', () => ({
 }))
 
 vi.mock('./modals/ConfigureChannelModal', () => ({
-  ConfigureChannelModal: ({ isOpen, channel }: any) =>
+  ConfigureChannelModal: ({ isOpen, channel, onInviteChannel }: any) =>
     isOpen && channel ? (
       <div role="dialog" aria-label="Configuració del canal">
         <h2>Configuració del canal</h2>
         <span>Configuració del canal</span>
+        <label htmlFor="channel-invite-username">Nom d'usuari</label>
+        <input id="channel-invite-username" type="text" />
+        <button data-testid="btn-invite-channel" onClick={() => onInviteChannel?.('pop')}>Convidar</button>
       </div>
     ) : null,
 }))
@@ -310,24 +303,13 @@ describe('AppLayout', () => {
       })
     })
 
-    it('InviteMemberModal servidor es obre amb el botó Convidar', async () => {
+    it('ConfigureChannelModal mostra la invitacio dins del modal', async () => {
       renderApp()
-      await waitFor(async () => {
-        fireEvent.click(screen.getByText(/Convidar al servidor/))
-        await waitFor(() => {
-          expect(screen.getByRole('dialog')).toBeTruthy()
-        })
-      })
-    })
-
-    it('InviteMemberModal canal es obre amb el botó del header', async () => {
-      renderApp()
-      const channelButton = await screen.findByRole('button', { name: /general/i })
-      fireEvent.click(channelButton)
-      const inviteButton = await screen.findByTestId('btn-invite-channel')
-      fireEvent.click(inviteButton)
+      const settingsButton = await screen.findByTestId('btn-channel-settings')
+      fireEvent.click(settingsButton)
       await waitFor(() => {
         expect(screen.getByRole('dialog')).toBeTruthy()
+        expect(screen.getByLabelText("Nom d'usuari")).toBeTruthy()
       })
     })
 
@@ -349,13 +331,11 @@ describe('AppLayout', () => {
       mockGetChannelKey.mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
 
       renderApp()
-      const channelButton = await screen.findByRole('button', { name: /general/i })
-      fireEvent.click(channelButton)
+      const settingsButton = await screen.findByTestId('btn-channel-settings')
+      fireEvent.click(settingsButton)
+
       const inviteButton = await screen.findByTestId('btn-invite-channel')
       fireEvent.click(inviteButton)
-
-      const submitButton = await screen.findByTestId('submit-invite')
-      fireEvent.click(submitButton)
 
       await waitFor(() => {
         expect(mockDistributeChannelKey).toHaveBeenCalledWith(
@@ -370,10 +350,8 @@ describe('AppLayout', () => {
 
     it('ConfigureChannelModal es obre amb el botó Configurar canal', async () => {
       renderApp()
-      const channelButton = await screen.findByRole('button', { name: /general/i })
-      fireEvent.click(channelButton)
-      const configureButton = await screen.findByTestId('btn-configure-channel')
-      fireEvent.click(configureButton)
+      const settingsButton = await screen.findByTestId('btn-channel-settings')
+      fireEvent.click(settingsButton)
       await waitFor(() => {
         expect(screen.getByRole('dialog', { name: 'Configuració del canal' })).toBeTruthy()
       })
@@ -403,14 +381,5 @@ describe('AppLayout', () => {
       })
     })
 
-    it('InviteMemberModal té el camp usuari', async () => {
-      renderApp()
-      await waitFor(async () => {
-        fireEvent.click(screen.getByText(/Convidar al servidor/))
-        await waitFor(() => {
-          expect(screen.getByRole('textbox')).toBeTruthy()
-        })
-      })
-    })
   })
 })

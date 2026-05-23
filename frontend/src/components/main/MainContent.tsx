@@ -14,9 +14,6 @@ interface MainContentProps {
   currentDeviceId?: string | null
   onLeaveVoice?: () => void
   onUnreadUpdated?: (channelId: string, unreadCount: number) => void
-  onConfigureChannel?: () => void
-  onInviteChannel?: () => void
-  canManageChannel?: boolean
   localVideoTrack?: any
   localScreenTrack?: any
   remoteVideoTracks?: Record<string, any[]>
@@ -28,9 +25,6 @@ export function MainContent({
   currentDeviceId,
   onLeaveVoice,
   onUnreadUpdated,
-  onConfigureChannel,
-  onInviteChannel,
-  canManageChannel = false,
   localVideoTrack,
   localScreenTrack,
   remoteVideoTracks = {},
@@ -188,9 +182,6 @@ export function MainContent({
         <div className="text-area">
           <ChannelHeader
             channel={channel}
-            canManageChannel={canManageChannel}
-            onConfigureChannel={onConfigureChannel}
-            onInviteChannel={onInviteChannel}
           />
           <div className="text-panel">
             <MessageList

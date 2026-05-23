@@ -324,6 +324,53 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
+  position: relative;
+}
+
+.user-actions-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  opacity: 0.7;
+  transition: opacity var(--transition-fast);
+}
+
+.user-actions-toggle:hover,
+.user-actions-toggle.active {
+  opacity: 1;
+}
+
+.user-actions-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 210px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--bg-active);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  padding: 6px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.user-actions-menu button {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.user-actions-menu button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .voice-user-btn {
@@ -440,6 +487,7 @@ body {
   font-size: 14px;
   font-family: inherit;
   transition: all var(--transition-fast);
+  position: relative;
 }
 
 .channel-item:hover {
@@ -486,6 +534,19 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.channel-item-settings-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+  opacity: 0.6;
+  color: inherit;
+}
+
+.channel-item-settings-btn:hover {
+  opacity: 1;
 }
 
 .encryption-icon {
@@ -550,16 +611,45 @@ body {
   color: var(--success);
 }
 
-.channel-settings-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 16px;
-  opacity: 0.6;
-  transition: opacity var(--transition-fast);
+
+.main-content-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--bg-header);
+  border-bottom: 1px solid var(--bg-active);
+  overflow-x: auto;
 }
 
-.channel-settings-btn:hover {
+.main-content-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid transparent;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  padding: 6px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.main-content-tab.active {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.main-content-tab-close {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0.75;
+}
+
+.main-content-tab-close:hover {
   opacity: 1;
 }
 
