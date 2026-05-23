@@ -13,6 +13,8 @@ interface MainContentProps {
   voiceConnection: VoiceConnection | null
   currentDeviceId?: string | null
   onLeaveVoice?: () => void
+  voiceAsTextMode?: boolean
+  onToggleVoiceAsTextMode?: () => void
   onUnreadUpdated?: (channelId: string, unreadCount: number) => void
   localVideoTrack?: any
   localScreenTrack?: any
@@ -24,6 +26,8 @@ export function MainContent({
   voiceConnection,
   currentDeviceId,
   onLeaveVoice,
+  voiceAsTextMode = false,
+  onToggleVoiceAsTextMode,
   onUnreadUpdated,
   localVideoTrack,
   localScreenTrack,
@@ -160,16 +164,20 @@ export function MainContent({
   }
 
   const isTextChannel = channel?.type === 'text'
+  const isVoiceChannel = channel?.type === 'voice'
+  const showVoicePanel = !!voiceConnection && (!voiceAsTextMode || isVoiceChannel || !channel)
 
   // Layout: voice-panel a l'esquerra (si connectat) + text-area a la dreta (si canal de text)
   return (
-    <div className={`main-content ${voiceConnection ? 'voice-active-layout' : ''}`}>
+    <div className={`main-content ${showVoicePanel ? 'voice-active-layout' : ''}`}>
       {/* Panell de veu (sempre visible si connectat, independentment del canal de text) */}
-      {voiceConnection && (
+      {showVoicePanel && (
         <div className="voice-panel">
           <VoiceArea
             connection={voiceConnection}
             onLeave={onLeaveVoice}
+            voiceAsTextMode={voiceAsTextMode}
+            onToggleVoiceAsTextMode={onToggleVoiceAsTextMode}
             localVideoTrack={localVideoTrack}
             localScreenTrack={localScreenTrack}
             remoteVideoTracks={remoteVideoTracks}
@@ -205,7 +213,7 @@ export function MainContent({
       )}
 
       {/* Si en veu però sense canal de text seleccionat */}
-      {voiceConnection && !isTextChannel && (
+      {voiceConnection && !isTextChannel && !voiceAsTextMode && (
         <div className="text-area empty-text-area">
           <div className="empty-state">
             <p>Selecciona un canal de text per xatejar</p>

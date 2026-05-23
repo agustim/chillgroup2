@@ -47,6 +47,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const [channels, setChannels] = useState<Channel[]>([])
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null)
   const [openTextChannelIds, setOpenTextChannelIds] = useState<string[]>([])
+  const [voiceAsTextMode, setVoiceAsTextMode] = useState(false)
   const [voiceChannelId, setVoiceChannelId] = useState<string | null>(null)
   const [voiceChannelName, setVoiceChannelName] = useState<string>('')
   const [voicePresenceByChannel, setVoicePresenceByChannel] = useState<Record<string, VoiceParticipant[]>>({})
@@ -630,6 +631,47 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
 
   const openTextTabs = channels.filter((channel) => channel.type === 'text' && openTextChannelIds.includes(channel.channelId))
   const activeVoiceChannel = voiceChannelId ? channels.find((channel) => channel.channelId === voiceChannelId) ?? null : null
+  const textTabNodes = openTextTabs.map((channel) => (
+    <div
+      key={channel.channelId}
+      className={`main-content-tab ${resolvedSelectedChannel?.channelId === channel.channelId ? 'active' : ''}`}
+      onClick={() => setSelectedChannel(channel)}
+    >
+      <span>#</span>
+      <span>{channel.name}</span>
+      <button
+        type="button"
+        className="main-content-tab-close"
+        onClick={(event) => {
+          event.stopPropagation()
+          handleCloseTextTab(channel.channelId)
+        }}
+        title="Tancar pestanya"
+      >
+        ✕
+      </button>
+    </div>
+  ))
+  const voiceTabNode = activeVoiceChannel ? (
+    <div
+      className={`main-content-tab ${resolvedSelectedChannel?.channelId === activeVoiceChannel.channelId ? 'active' : ''}`}
+      onClick={() => setSelectedChannel(activeVoiceChannel)}
+    >
+      <span>🔊</span>
+      <span>{activeVoiceChannel.name}</span>
+      <button
+        type="button"
+        className="main-content-tab-close"
+        onClick={(event) => {
+          event.stopPropagation()
+          handleLeaveVoiceChannel()
+        }}
+        title="Surt del canal de veu"
+      >
+        ✕
+      </button>
+    </div>
+  ) : null
 
   const mergedVoiceParticipants = voiceChannelId
     ? liveKitParticipants.map((participant) => {
@@ -710,36 +752,8 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
       <div className="main-content-area">
         {selectedServer && (openTextTabs.length > 0 || activeVoiceChannel) && (
           <div className="main-content-tabs">
-            {openTextTabs.map((channel) => (
-              <div
-                key={channel.channelId}
-                className={`main-content-tab ${resolvedSelectedChannel?.channelId === channel.channelId ? 'active' : ''}`}
-                onClick={() => setSelectedChannel(channel)}
-              >
-                <span>{channel.type === 'voice' ? '🔊' : '#'}</span>
-                <span>{channel.name}</span>
-                <button
-                  type="button"
-                  className="main-content-tab-close"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    handleCloseTextTab(channel.channelId)
-                  }}
-                  title="Tancar pestanya"
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-            {activeVoiceChannel && (
-              <button
-                className={`main-content-tab ${resolvedSelectedChannel?.channelId === activeVoiceChannel.channelId ? 'active' : ''}`}
-                onClick={() => setSelectedChannel(activeVoiceChannel)}
-              >
-                <span>🔊</span>
-                <span>{activeVoiceChannel.name}</span>
-              </button>
-            )}
+            {textTabNodes}
+            {voiceTabNode}
           </div>
         )}
 
@@ -757,6 +771,8 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
               localVideoTrack={localVideoTrack}
               localScreenTrack={localScreenTrack}
               remoteVideoTracks={remoteVideoTracks}
+              voiceAsTextMode={voiceAsTextMode}
+              onToggleVoiceAsTextMode={() => setVoiceAsTextMode((prev) => !prev)}
             />
           </>
         ) : voiceConnection ? (
@@ -768,6 +784,8 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
             localVideoTrack={localVideoTrack}
             localScreenTrack={localScreenTrack}
             remoteVideoTracks={remoteVideoTracks}
+            voiceAsTextMode={voiceAsTextMode}
+            onToggleVoiceAsTextMode={() => setVoiceAsTextMode((prev) => !prev)}
           />
         ) : (
           <div className="welcome-screen">

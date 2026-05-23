@@ -4,6 +4,8 @@ import { VoiceConnection } from '../../types'
 interface VoiceAreaProps {
   connection?: VoiceConnection
   onLeave?: () => void
+  voiceAsTextMode?: boolean
+  onToggleVoiceAsTextMode?: () => void
   localVideoTrack?: any
   localScreenTrack?: any
   remoteVideoTracks?: Record<string, any[]>
@@ -59,6 +61,8 @@ function ParticipantTile({
 export function VoiceArea({
   connection,
   onLeave,
+  voiceAsTextMode = false,
+  onToggleVoiceAsTextMode,
   localVideoTrack,
   localScreenTrack,
   remoteVideoTracks = {},
@@ -97,6 +101,13 @@ export function VoiceArea({
 
         <div className="voice-header-controls">
           <button
+            className={`voice-control-btn voice-mode-btn ${voiceAsTextMode ? 'active-on' : 'active-off'}`}
+            onClick={onToggleVoiceAsTextMode}
+            title={voiceAsTextMode ? 'Mode veu com text activat' : 'Mode fixat activat'}
+          >
+            {voiceAsTextMode ? 'TAB' : 'FIX'}
+          </button>
+          <button
             className="voice-control-btn"
             onClick={zoomOut}
             title="Fer més petits els participants"
@@ -121,9 +132,7 @@ export function VoiceArea({
           </button>
         </div>
 
-        <button className="leave-voice-btn" onClick={onLeave} title="Surt del canal de veu">
-          ✕ Surt
-        </button>
+
       </div>
 
       {/* Grid de participants — creix dinàmicament */}
