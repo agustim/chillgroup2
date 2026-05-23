@@ -21,5 +21,3 @@ pub use channel::ChannelType;
 pub use channel::EncryptionType;
 #[allow(dead_code)]
 pub use message::Message;
-#[allow(dead_code)]
-pub use key::ChannelKey;
