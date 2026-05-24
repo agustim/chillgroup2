@@ -50,6 +50,15 @@ export interface ServerMember {
   joinedAt: string
 }
 
+export interface Friend {
+  userId: string
+  username: string
+}
+
+export interface FriendPresence extends Friend {
+  isOnline: boolean
+}
+
 export type ChannelType = 'text' | 'voice'
 export type EncryptionType = 'none' | 'symmetric' | 'asymmetric'
 

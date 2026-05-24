@@ -53,8 +53,9 @@ vi.mock('./sidebar/ServerBar', () => ({
 // but the old mock only used `onCreateChannel`. Also must render channel type info
 // (# Text, 🔊 Veu) for the form inputs test.
 vi.mock('./sidebar/ChannelList', () => ({
-  ChannelList: ({ channels, selectedChannel, onSelectChannel, onCreateTextChannel, onConfigureChannel, canCreateChannel }: any) => (
+  ChannelList: ({ channels, selectedChannel, onSelectChannel, onCreateTextChannel, onConfigureChannel, onManageFriends, canCreateChannel, friends }: any) => (
     <div data-testid="channel-list">
+      <button data-testid="btn-manage-friends" onClick={onManageFriends}>Gestió d'amics</button>
       {channels.map((c: any) => (
         <div key={c.channelId}>
           <button
@@ -78,10 +79,24 @@ vi.mock('./sidebar/ChannelList', () => ({
       {canCreateChannel && onCreateTextChannel && (
         <button data-testid="btn-create-channel" title="Crear canal de text" onClick={onCreateTextChannel}>+ Canal</button>
       )}
+      <div data-testid="friends-count">{friends?.length ?? 0}</div>
       <span data-testid="channel-types"># Text</span>
       <span data-testid="channel-types-voice">🔊 Veu</span>
     </div>
   ),
+}))
+
+vi.mock('./modals/FriendsModal', () => ({
+  FriendsModal: ({ isOpen, friends, knownUsers, onAddFriend, onRemoveFriend }: any) =>
+    isOpen ? (
+      <div role="dialog" aria-label="Gestió d'amics">
+        <h2>Gestió d'amics</h2>
+        <span data-testid="friends-total">{friends.length}</span>
+        <span data-testid="known-users-total">{knownUsers.length}</span>
+        <button data-testid="btn-add-friend" onClick={() => onAddFriend({ userId: 'friend-1', username: 'amic' })}>Afegir</button>
+        <button data-testid="btn-remove-friend" onClick={() => onRemoveFriend('friend-1')}>Treure</button>
+      </div>
+    ) : null,
 }))
 
 vi.mock('./main/MainContent', () => ({
@@ -354,6 +369,17 @@ describe('AppLayout', () => {
       fireEvent.click(settingsButton)
       await waitFor(() => {
         expect(screen.getByRole('dialog', { name: 'Configuració del canal' })).toBeTruthy()
+      })
+    })
+
+    it('FriendsModal es obre amb l accio Gestió d amics', async () => {
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('btn-manage-friends')).toBeTruthy()
+      })
+      fireEvent.click(screen.getByTestId('btn-manage-friends'))
+      await waitFor(() => {
+        expect(screen.getByRole('dialog', { name: "Gestió d'amics" })).toBeTruthy()
       })
     })
   })

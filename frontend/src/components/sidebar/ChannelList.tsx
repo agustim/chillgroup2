@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Channel, VoiceConnection, VoiceParticipant } from '../../types'
+import { Channel, FriendPresence, VoiceConnection, VoiceParticipant } from '../../types'
 import { EncryptionIcon } from '../shared/EncryptionIcon'
 
 interface ChannelListProps {
@@ -20,12 +20,14 @@ interface ChannelListProps {
   username: string
   onManageDevices?: () => void
   onManageChannelKeys?: () => void
+  onManageFriends?: () => void
   onChangePassword?: () => void
   onManagePermissions?: () => void
   onLogout?: () => void
   onCreateTextChannel?: () => void
   onCreateVoiceChannel?: () => void
   canCreateChannel?: boolean
+  friends?: FriendPresence[]
 }
 
 export function ChannelList({
@@ -46,12 +48,14 @@ export function ChannelList({
   username,
   onManageDevices,
   onManageChannelKeys,
+  onManageFriends,
   onChangePassword,
   onManagePermissions,
   onLogout,
   onCreateTextChannel,
   onCreateVoiceChannel,
   canCreateChannel = false,
+  friends = [],
 }: ChannelListProps) {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const userActionsRef = useRef<HTMLDivElement | null>(null)
@@ -100,6 +104,7 @@ export function ChannelList({
             <div className="user-actions-menu">
               <button onClick={() => { setIsUserMenuOpen(false); onManageDevices?.() }}>Gestió de dispositius</button>
               <button onClick={() => { setIsUserMenuOpen(false); onManageChannelKeys?.() }}>Gestió claus-canals</button>
+              <button onClick={() => { setIsUserMenuOpen(false); onManageFriends?.() }}>Gestió d'amics</button>
               <button onClick={() => { setIsUserMenuOpen(false); onChangePassword?.() }}>Canviar password</button>
               <button onClick={() => { setIsUserMenuOpen(false); onManagePermissions?.() }}>Permisos</button>
               <button onClick={() => { setIsUserMenuOpen(false); onLogout?.() }}>Sortir</button>
@@ -209,6 +214,31 @@ export function ChannelList({
             </div>
           )
         })}
+      </div>
+
+      <div className="channel-category friends-category">
+        <div className="category-header">
+          <span className="category-name">💛 AMICS</span>
+        </div>
+        {friends.length > 0 ? (
+          <div className="friends-list">
+            {friends.map((friend) => (
+              <div key={friend.userId} className="friend-item">
+                <div className={`friend-avatar ${friend.isOnline ? 'online' : 'offline'}`}>
+                  {friend.username.charAt(0).toUpperCase()}
+                </div>
+                <div className="friend-meta">
+                  <span className="friend-name">{friend.username}</span>
+                  <span className={`friend-status ${friend.isOnline ? 'online' : 'offline'}`}>
+                    {friend.isOnline ? 'Actiu' : 'Inactiu'}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="friends-empty-state">Encara no tens amics guardats.</p>
+        )}
       </div>
 
       <div className="channel-list-bottom-controls">

@@ -373,6 +373,80 @@ body {
   color: var(--text-primary);
 }
 
+.channel-category.friends-category {
+  gap: 8px;
+}
+
+.friends-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.friend-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--bg-active);
+}
+
+.friend-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-on-accent);
+  flex-shrink: 0;
+}
+
+.friend-avatar.online {
+  background: var(--success);
+}
+
+.friend-avatar.offline {
+  background: var(--bg-active);
+  color: var(--text-secondary);
+}
+
+.friend-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.friend-name {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.friend-status {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.friend-status.online {
+  color: var(--success);
+}
+
+.friend-status.offline {
+  color: var(--text-muted);
+}
+
+.friends-empty-state {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 0 10px;
+}
+
 .voice-user-btn {
   background: var(--bg-input);
   border: none;
@@ -1486,6 +1560,48 @@ body {
   color: var(--text-primary);
   font-family: monospace;
   font-size: 12px;
+}
+
+.friends-modal {
+  gap: 12px;
+}
+
+.friends-search-group {
+  margin-bottom: 4px;
+}
+
+.friend-status-pill {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.friend-status-pill.online {
+  background: rgba(35, 165, 89, 0.16);
+  color: var(--success);
+}
+
+.friend-status-pill.offline {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+}
+
+.friends-search-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--bg-active);
+}
+
+.friends-search-empty p {
+  margin: 0;
 }
 
 /* ── Voice Channel Participants (sidebar) ───────── */
