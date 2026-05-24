@@ -100,6 +100,31 @@ async fn emit_friend_presence_update(
     }
 }
 
+async fn emit_server_member_presence_update(
+    db: &DatabasePool,
+    io: &SocketIo,
+    user_id: Uuid,
+    username: &str,
+    status: &str,
+) {
+    let Ok(server_ids) = db.list_server_ids_for_user(user_id).await else {
+        return;
+    };
+
+    for server_id in server_ids {
+        let payload = serde_json::json!({
+            "serverId": server_id,
+            "userId": user_id,
+            "username": username,
+            "status": status,
+        });
+        let room = format!("server:{}", server_id);
+        if let Err(e) = io.to(room).emit("server-member-presence-updated", &payload).await {
+            tracing::warn!("Error enviant server-member-presence-updated: {:?}", e);
+        }
+    }
+}
+
 async fn register_user_socket(
     db: &DatabasePool,
     io: &SocketIo,
@@ -118,6 +143,7 @@ async fn register_user_socket(
 
     if should_broadcast {
         emit_friend_presence_update(db, io, user_id, username, "online").await;
+        emit_server_member_presence_update(db, io, user_id, username, "online").await;
     }
 }
 
@@ -146,6 +172,7 @@ async fn unregister_user_socket(
 
     if should_broadcast {
         emit_friend_presence_update(db, io, user_id, username, "offline").await;
+        emit_server_member_presence_update(db, io, user_id, username, "offline").await;
     }
 }
 
@@ -208,6 +235,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
             info!("Socket autenticat correctament: {}", socket.id);
             socket.join(format!("user:{}", claims.user_id));
+            if let Ok(server_ids) = db.list_server_ids_for_user(claims.user_id).await {
+                for server_id in server_ids {
+                    socket.join(format!("server:{}", server_id));
+                }
+            }
             register_user_socket(
                 &db,
                 &io,
@@ -228,6 +260,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 if let Some(channel_id) = data.get("channelId").and_then(|v| v.as_str()) {
                     socket.leave(format!("channel:{}", channel_id));
                     info!("Socket {} ha sortit de channel:{}", socket.id, channel_id);
+                }
+            });
+
+            let db_for_server_room = db.clone();
+            let user_id_for_server_room = claims.user_id;
+            socket.on("join-server-presence", move |socket: SocketRef, Data(data): Data<serde_json::Value>| {
+                let db = db_for_server_room.clone();
+                async move {
+                    let Some(server_id_str) = data.get("serverId").and_then(|v| v.as_str()) else {
+                        return;
+                    };
+                    let Ok(server_id) = Uuid::parse_str(server_id_str) else {
+                        return;
+                    };
+
+                    let Ok(role) = db.is_server_member(server_id, user_id_for_server_room).await else {
+                        return;
+                    };
+                    if role.is_none() {
+                        return;
+                    }
+
+                    socket.join(format!("server:{}", server_id));
                 }
             });
 
@@ -440,6 +495,60 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
                     if let Err(e) = socket.emit("voice-presence-snapshot", &payload) {
                         tracing::warn!("Error enviant voice-presence-snapshot: {:?}", e);
+                    }
+                }
+            });
+
+            let db_for_member_presence_snapshot = db.clone();
+            let user_presence_for_member_snapshot = user_presence.clone();
+            let user_id_for_member_snapshot = claims.user_id;
+            socket.on("get-server-member-presence", move |socket: SocketRef, Data(data): Data<serde_json::Value>| {
+                let db = db_for_member_presence_snapshot.clone();
+                let user_presence = user_presence_for_member_snapshot.clone();
+                async move {
+                    let Some(server_id_str) = data.get("serverId").and_then(|v| v.as_str()) else {
+                        return;
+                    };
+                    let Ok(server_id) = Uuid::parse_str(server_id_str) else {
+                        return;
+                    };
+
+                    let Ok(role) = db.is_server_member(server_id, user_id_for_member_snapshot).await else {
+                        return;
+                    };
+                    if role.is_none() {
+                        return;
+                    }
+
+                    let Ok(Some(server_info)) = db.get_server_full_info(server_id, user_id_for_member_snapshot).await else {
+                        return;
+                    };
+
+                    let presence = user_presence.read().await;
+                    let members: Vec<serde_json::Value> = server_info
+                        .members
+                        .into_iter()
+                        .map(|member| {
+                            let status = if presence.online_sockets.contains_key(&member.user_id) {
+                                "online"
+                            } else {
+                                "offline"
+                            };
+                            serde_json::json!({
+                                "userId": member.user_id,
+                                "username": member.username,
+                                "status": status,
+                            })
+                        })
+                        .collect();
+
+                    let payload = serde_json::json!({
+                        "serverId": server_id,
+                        "members": members,
+                    });
+
+                    if let Err(e) = socket.emit("server-member-presence-snapshot", &payload) {
+                        tracing::warn!("Error enviant server-member-presence-snapshot: {:?}", e);
                     }
                 }
             });

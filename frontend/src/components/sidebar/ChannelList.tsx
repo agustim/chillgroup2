@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Channel, FriendPresence, VoiceConnection, VoiceParticipant } from '../../types'
+import { Channel, FriendPresence, ServerMember, VoiceConnection, VoiceParticipant } from '../../types'
 import { EncryptionIcon } from '../shared/EncryptionIcon'
 
 interface ChannelListProps {
@@ -28,6 +28,8 @@ interface ChannelListProps {
   onCreateVoiceChannel?: () => void
   canCreateChannel?: boolean
   friends?: FriendPresence[]
+  serverMembers?: ServerMember[]
+  serverMemberPresenceById?: Record<string, boolean>
 }
 
 export function ChannelList({
@@ -56,6 +58,8 @@ export function ChannelList({
   onCreateVoiceChannel,
   canCreateChannel = false,
   friends = [],
+  serverMembers = [],
+  serverMemberPresenceById = {},
 }: ChannelListProps) {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const userActionsRef = useRef<HTMLDivElement | null>(null)
@@ -238,6 +242,34 @@ export function ChannelList({
           </div>
         ) : (
           <p className="friends-empty-state">Encara no tens amics guardats.</p>
+        )}
+      </div>
+
+      <div className="channel-category server-members-category friends-category">
+        <div className="category-header">
+          <span className="category-name">👥 USUARIS DEL SERVIDOR</span>
+        </div>
+        {serverMembers.length > 0 ? (
+          <div className="friends-list">
+            {serverMembers.map((member) => {
+              const isActive = !!serverMemberPresenceById[member.userId]
+              return (
+                <div key={member.userId} className="friend-item">
+                  <div className={`friend-avatar ${isActive ? 'online' : 'offline'}`}>
+                    {member.username.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="friend-meta">
+                    <span className="friend-name">{member.username}</span>
+                    <span className={`friend-status ${isActive ? 'online' : 'offline'}`}>
+                      {isActive ? 'Actiu' : 'Inactiu'}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <p className="friends-empty-state">Aquest servidor encara no té membres visibles.</p>
         )}
       </div>
 

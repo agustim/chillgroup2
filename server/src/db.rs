@@ -1028,6 +1028,25 @@ impl DatabasePool {
         }
     }
 
+    pub async fn list_server_ids_for_user(&self, user_id: Uuid) -> Result<Vec<Uuid>, sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let rows = sqlx::query("SELECT server_id FROM server_members WHERE user_id = $1")
+                    .bind(user_id)
+                    .fetch_all(pool)
+                    .await?;
+                Ok(rows.into_iter().map(|r| r.get(0)).collect())
+            }
+            DatabasePool::Sqlite(pool) => {
+                let rows = sqlx::query("SELECT server_id FROM server_members WHERE user_id = ?")
+                    .bind(user_id)
+                    .fetch_all(pool)
+                    .await?;
+                Ok(rows.into_iter().map(|r| r.get(0)).collect())
+            }
+        }
+    }
+
     pub async fn create_channel(&self, channel_id: Uuid, server_id: Uuid, name: &str, channel_type: &str, encryption_type: &str, message_ttl: Option<i32>, is_private: bool) -> Result<(), sqlx::Error> {
         match self {
             DatabasePool::Postgres(pool) => {
