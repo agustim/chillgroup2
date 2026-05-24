@@ -19,8 +19,8 @@ Aquesta carpeta conté **tota la especificació tècnica** necessària per const
 | [DEVELOPMENT.md](DEVELOPMENT.md) | 834 | Pla de 7 fases, workspace Cargo, Docker |
 | [FRONTEND.md](FRONTEND.md) | 1077 | Layout, CSS variables, temes, fonts, storage, components |
 | [TESTING.md](TESTING.md) | 1264 | TDD, Playwright E2E, fixtures, escenaris, CI/CD |
-| [API.md](API.md) | 951 | 27 endpoints amb request/response JSON exactes |
-| [SOCKET.md](SOCKET.md) | 708 | 18 events, payloads, rooms, protocol temps real |
+| [API.md](API.md) | 951 | 27 endpoints amb request/response JSON exactes, incloent amics i cerca global |
+| [SOCKET.md](SOCKET.md) | 708 | 18 events, payloads, rooms, protocol temps real, incloent presència d'amics |
 | [ERRORS.md](ERRORS.md) | 825 | 53 codis d'error, Rust type, TypeScript handling |
 
 ## Com Llegir

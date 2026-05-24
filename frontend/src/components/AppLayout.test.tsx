@@ -3,6 +3,13 @@ import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-li
 import '@testing-library/jest-dom'
 import { AppLayout } from './AppLayout'
 
+const mockLogout = vi.fn()
+const mockSocket = {
+  on: vi.fn(),
+  off: vi.fn(),
+  emit: vi.fn(),
+}
+
 vi.mock('../contexts/AuthContext', () => ({
   useAuth: () => ({
     user: {
@@ -13,7 +20,13 @@ vi.mock('../contexts/AuthContext', () => ({
       quotas: { maxServers: 10, maxChannelsPerServer: 50, maxMessagesPerMinute: 30 },
     },
     currentDeviceId: 'dev-1',
+    logout: mockLogout,
   }),
+}))
+
+vi.mock('../lib/socket', () => ({
+  getSocket: vi.fn(() => mockSocket),
+  disconnectSocket: vi.fn(),
 }))
 
 vi.mock('../lib/storage', () => ({
@@ -53,9 +66,10 @@ vi.mock('./sidebar/ServerBar', () => ({
 // but the old mock only used `onCreateChannel`. Also must render channel type info
 // (# Text, 🔊 Veu) for the form inputs test.
 vi.mock('./sidebar/ChannelList', () => ({
-  ChannelList: ({ channels, selectedChannel, onSelectChannel, onCreateTextChannel, onConfigureChannel, onManageFriends, canCreateChannel, friends }: any) => (
+  ChannelList: ({ channels, selectedChannel, onSelectChannel, onCreateTextChannel, onConfigureChannel, onManageFriends, onLogout, canCreateChannel, friends }: any) => (
     <div data-testid="channel-list">
       <button data-testid="btn-manage-friends" onClick={onManageFriends}>Gestió d'amics</button>
+      <button data-testid="btn-logout" onClick={onLogout}>Sortir</button>
       {channels.map((c: any) => (
         <div key={c.channelId}>
           <button
@@ -205,6 +219,7 @@ import {
   friendsRemove,
   usersSearch,
 } from '../lib/api'
+import { disconnectSocket } from '../lib/socket'
 import { getLatestChannelKey, getChannelKey } from '../lib/storage'
 import { distributeChannelKey } from '../lib/channel-crypto'
 
@@ -221,6 +236,7 @@ const mockFriendsList = vi.mocked(friendsList)
 const mockFriendsAdd = vi.mocked(friendsAdd)
 const mockFriendsRemove = vi.mocked(friendsRemove)
 const mockUsersSearch = vi.mocked(usersSearch)
+const mockDisconnectSocket = vi.mocked(disconnectSocket)
 const mockGetLatestChannelKey = vi.mocked(getLatestChannelKey)
 const mockGetChannelKey = vi.mocked(getChannelKey)
 const mockDistributeChannelKey = vi.mocked(distributeChannelKey)
@@ -264,6 +280,8 @@ describe('AppLayout', () => {
     mockFriendsAdd.mockResolvedValue({ success: true, data: undefined })
     mockFriendsRemove.mockResolvedValue({ success: true, data: undefined })
     mockUsersSearch.mockResolvedValue({ success: true, data: [] })
+    mockDisconnectSocket.mockClear()
+    mockLogout.mockClear()
     mockGetLatestChannelKey.mockResolvedValue(null)
     mockGetChannelKey.mockResolvedValue(null)
     mockDistributeChannelKey.mockResolvedValue(undefined)
@@ -396,6 +414,18 @@ describe('AppLayout', () => {
       fireEvent.click(screen.getByTestId('btn-manage-friends'))
       await waitFor(() => {
         expect(screen.getByRole('dialog', { name: "Gestió d'amics" })).toBeTruthy()
+      })
+    })
+
+    it('la sortida tanca el socket compartit', async () => {
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('btn-logout')).toBeTruthy()
+      })
+      fireEvent.click(screen.getByTestId('btn-logout'))
+      await waitFor(() => {
+        expect(mockDisconnectSocket).toHaveBeenCalled()
+        expect(mockLogout).toHaveBeenCalled()
       })
     })
   })

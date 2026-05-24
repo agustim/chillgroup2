@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, ReactNode } fr
 import { ml_kem1024 } from '@noble/post-quantum/ml-kem.js'
 import { User } from '../types'
 import { authLogin, authRegister, authMe, authRefresh, deviceUpdatePublicKey } from '../lib/api'
+import { disconnectSocket } from '../lib/socket'
 import { getStoredDeviceId, persistDeviceId } from '../lib/device-identity'
 import { generateAndStoreDeviceKeypair, hasLocalDeviceKeypair } from '../lib/device-keys'
 
@@ -82,6 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
     setToken(null)
     setError(null)
+    disconnectSocket()
     try {
       sessionStorage.removeItem('chillgroup-token')
     } catch {

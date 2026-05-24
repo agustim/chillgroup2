@@ -181,6 +181,85 @@ Obtenir informació de l'usuari actual (autenticat).
 
 ---
 
+## Amics i Cerca Global
+
+### GET `/api/friends`
+
+Llistar els amics desats de l'usuari autenticat, amb el seu estat de presència actual.
+
+**Headers:** `Authorization: Bearer <JWT>`
+
+**Response 200 OK:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "userId": "550e8400-e29b-41d4-a716-446655440002",
+      "username": "marcus",
+      "status": "online"
+    }
+  ]
+}
+```
+
+---
+
+### POST `/api/friends`
+
+Afegir un amic per `username`. L'amic queda guardat de manera persistent.
+
+**Headers:** `Authorization: Bearer <JWT>`
+**Request Body:**
+```json
+{
+  "username": "marcus"
+}
+```
+
+**Response 204 No Content:**
+La relació s'ha creat o ja existia.
+
+---
+
+### DELETE `/api/friends/:friendUserId`
+
+Eliminar un amic desat.
+
+**Headers:** `Authorization: Bearer <JWT>`
+**Path Params:** `{ "friendUserId": "string" }`
+
+**Response 204 No Content:**
+La relació s'ha eliminat si existia.
+
+---
+
+### GET `/api/users/search`
+
+Buscar usuaris de manera global a tota l'eina, no només dins del servidor actual.
+
+**Headers:** `Authorization: Bearer <JWT>`
+**Query Params:**
+- `q` (string, obligatori): text de cerca
+- `limit` (number, opcional): màxim de resultats, per defecte 20
+
+**Response 200 OK:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "userId": "550e8400-e29b-41d4-a716-446655440002",
+      "username": "marcus",
+      "isFriend": true,
+      "status": "offline"
+    }
+  ]
+}
+```
+
+---
+
 ## Dispositius
 
 ### GET `/api/user/me/devices`

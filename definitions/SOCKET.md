@@ -150,6 +150,28 @@ socket.on('message', (msg) => {
 
 ### Presència
 
+#### `friend-presence-updated` — Canvi d'estat d'un amic
+
+**Emès quan:** Un usuari amb relació d'amistat activa es connecta o es desconnecta.
+
+**Target:** Clients de la room `user:{ownerUserId}` que tenen aquest usuari com a amic
+
+**Payload:**
+```json
+{
+  "userId": "550e8400-e29b-41d4-a716-446655440000",
+  "username": "agusti",
+  "status": "online"
+}
+```
+
+**Client reacciona:**
+```typescript
+socket.on('friend-presence-updated', (friend) => {
+  updateFriendStatus(friend.userId, friend.status)
+})
+```
+
 #### `user-joined-channel` — Un usuari s'uneix a un canal
 
 **Emès quan:** Un usuari entra a un canal de text per primera vegada (via `join-channel`).
@@ -681,6 +703,7 @@ io.ns("/", move |sock: Socket<SocketRef>| {
 | `message` | Nou missatge | Room: canal |
 | `message-edited` | Missatge editat | Room: canal |
 | `message-deleted` | Missatge eliminat | Room: canal |
+| `friend-presence-updated` | Estat d'un amic | Room: user |
 | `user-joined-channel` | Usuari entra al canal | Room: canal |
 | `user-left-channel` | Usuari surt del canal | Room: canal |
 | `channel-users` | Llista d'usuaris canal | Individual (resposta) |

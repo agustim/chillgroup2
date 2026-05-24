@@ -4,6 +4,8 @@
 
 ChillGroup és una plataforma de comunicació en temps real (text, àudio i vídeo) amb canals de veu i text, inspirada en Discord però amb un enfocament fort en la privadesa i la seguretat criptogràfica.
 
+També inclou gestió persistent d'amics, cerca global d'usuaris i presència en temps real per saber qui està actiu.
+
 ## Objectiu
 
 Crear una eina de xat moderna, quantum-resistent, amb tres nivells de seguretat escollibles per canal:
@@ -48,8 +50,9 @@ Crear una eina de xat moderna, quantum-resistent, amb tres nivells de seguretat 
 2. Crea un Server (espai de treball)
 3. Crea Canals (text/veio) amb tipus de criptografia
 4. Convida membres (per username o link)
-5. Xat en temps real (missatges encriptats segons nivell del canal)
-6. Voces/Video via LiveKit (E2EE amb session keys)
+5. Gestiona una llista d'amics persistent i cerca usuaris de tota l'eina
+6. Xat en temps real (missatges encriptats segons nivell del canal)
+7. Voces/Video via LiveKit (E2EE amb session keys)
 ```
 
 ## Principis de Disseny

@@ -15,7 +15,7 @@ import { ChangePasswordModal } from './modals/ChangePasswordModal'
 import { FriendsModal } from './modals/FriendsModal'
 import { useLiveKit } from '../hooks/useLiveKit'
 import { Channel, FriendPresence, Server, ServerFullInfo, VoiceParticipant } from '../types'
-import { getSocket } from '../lib/socket'
+import { disconnectSocket, getSocket } from '../lib/socket'
 import { hasLocalDeviceKeypair } from '../lib/device-keys'
 import { ensureChannelKey, distributeChannelKey } from '../lib/channel-crypto'
 import { getChannelKey, getLatestChannelKey } from '../lib/storage'
@@ -650,6 +650,12 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     return result.success ? result.data : []
   }
 
+  const handleLogout = () => {
+    disconnectLiveKit()
+    disconnectSocket()
+    logout()
+  }
+
   // Obrir modal de configuració de canal
   const handleConfigureChannel = (channel?: Channel) => {
     if (channel) {
@@ -815,7 +821,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           }}
           onConfigureChannel={handleConfigureChannel}
           username={username}
-          onLogout={logout}
+          onLogout={handleLogout}
           onManageDevices={handleManageDevices}
           onManageChannelKeys={handleManageChannelKeys}
           onManageFriends={handleManageFriends}
