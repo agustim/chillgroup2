@@ -89,6 +89,8 @@ export function useLiveKit(): UseLiveKitResult {
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map())
   const remoteVideoTracksRef = useRef<Map<string, any[]>>(new Map())
   const isDeafenedRef = useRef(false)
+  const isCameraOnRef = useRef(false)
+  const isScreenSharingRef = useRef(false)
   const [isConnected, setIsConnected] = useState(false)
   const [isPublishing, setIsPublishing] = useState(false)
   const [isMuted, setIsMuted] = useState(true)
@@ -248,6 +250,7 @@ export function useLiveKit(): UseLiveKitResult {
         localVideoTrackRef.current.stop()
         localVideoTrackRef.current = null
         setLocalVideoTrack(null)
+        isCameraOnRef.current = false
         setIsCameraOn(false)
       } else {
         // Encendre càmera
@@ -257,6 +260,7 @@ export function useLiveKit(): UseLiveKitResult {
           await roomRef.current.localParticipant.publishTrack(videoTrack)
         }
         setLocalVideoTrack(videoTrack)
+        isCameraOnRef.current = true
         setIsCameraOn(true)
       }
       updateParticipants()
@@ -275,6 +279,7 @@ export function useLiveKit(): UseLiveKitResult {
         localScreenTrackRef.current.stop()
         localScreenTrackRef.current = null
         setLocalScreenTrack(null)
+        isScreenSharingRef.current = false
         setIsScreenSharing(false)
       } else {
         const tracks = await createLocalScreenTracks({ audio: false })
@@ -285,6 +290,7 @@ export function useLiveKit(): UseLiveKitResult {
         localScreenTrackRef.current = videoTrack
         setLocalScreenTrack(videoTrack)
         await roomRef.current.localParticipant.publishTrack(videoTrack)
+        isScreenSharingRef.current = true
         setIsScreenSharing(true)
 
         // Si l'usuari atura el share des del navegador, sincronitzem estat.
@@ -303,6 +309,7 @@ export function useLiveKit(): UseLiveKitResult {
           }
           localScreenTrackRef.current = null
           setLocalScreenTrack(null)
+          isScreenSharingRef.current = false
           setIsScreenSharing(false)
         }, { once: true })
       }
@@ -321,8 +328,18 @@ export function useLiveKit(): UseLiveKitResult {
     try {
       setError(null)
 
+      // Evita re-publicar càmera/pantalla per estat antic quan fem switch de canal.
+      let shouldRestoreCamera = isCameraOnRef.current
+      let shouldRestoreScreenShare = isScreenSharingRef.current
+
       // Desconnectar si ja hi som
       if (roomRef.current) {
+        shouldRestoreCamera = false
+        shouldRestoreScreenShare = false
+        isCameraOnRef.current = false
+        isScreenSharingRef.current = false
+        setIsCameraOn(false)
+        setIsScreenSharing(false)
         roomRef.current.disconnect()
         roomRef.current = null
       }
@@ -470,6 +487,10 @@ export function useLiveKit(): UseLiveKitResult {
         }
         setIsConnected(false)
         setIsPublishing(false)
+        isCameraOnRef.current = false
+        isScreenSharingRef.current = false
+        setIsCameraOn(false)
+        setIsScreenSharing(false)
         localAudioTrackRef.current = null
       })
 
@@ -500,7 +521,7 @@ export function useLiveKit(): UseLiveKitResult {
       setIsPublishing(!isMuted)
 
       // Aplicar estat per defecte/persistit de la càmera (OFF per defecte)
-      if (isCameraOn) {
+      if (shouldRestoreCamera) {
         const videoTrack = await createLocalVideoTrack()
         localVideoTrackRef.current = videoTrack
         await room.localParticipant?.publishTrack(videoTrack)
@@ -508,7 +529,7 @@ export function useLiveKit(): UseLiveKitResult {
       }
 
       // Aplicar estat per defecte/persistit de screen share
-      if (isScreenSharing) {
+      if (shouldRestoreScreenShare) {
         const tracks = await createLocalScreenTracks({ audio: false })
         const screenTrack = tracks.find((t: any) => t.kind === 'video')
         if (screenTrack) {
@@ -576,6 +597,10 @@ export function useLiveKit(): UseLiveKitResult {
     }
     setIsConnected(false)
     setIsPublishing(false)
+    isCameraOnRef.current = false
+    isScreenSharingRef.current = false
+    setIsCameraOn(false)
+    setIsScreenSharing(false)
     setParticipants([])
   }, [])
 
