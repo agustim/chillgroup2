@@ -1028,6 +1028,60 @@ body {
   grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
   gap: calc(10px * var(--participant-zoom));
 }
+.participants-focus-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(220px, 1fr);
+  gap: 12px;
+  min-height: 420px;
+}
+
+.participants-focus-main .participant-tile {
+  height: 100%;
+  min-height: 420px;
+}
+
+.participants-focus-main .participant-video {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+}
+
+.participants-focus-strip {
+  display: flex;
+  flex-direction: column;
+  gap: calc(10px * var(--participant-zoom));
+  max-height: 72vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.participants-focus-strip .participant-tile {
+  min-height: calc(120px * var(--participant-zoom));
+}
+
+@media (max-width: 980px) {
+  .participants-focus-layout {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+
+  .participants-focus-main .participant-tile {
+    min-height: 280px;
+  }
+
+  .participants-focus-strip {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-height: none;
+    padding-bottom: 4px;
+  }
+
+  .participants-focus-strip .participant-tile {
+    min-width: calc(190px * var(--participant-zoom));
+    flex: 0 0 calc(190px * var(--participant-zoom));
+  }
+}
 
 .participant-tile {
   background: var(--bg-tile);
@@ -1040,6 +1094,38 @@ body {
   position: relative;
   transition: all var(--transition-fast);
   overflow: hidden;
+}
+
+.participant-tile.pinned {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.participant-tile-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+  z-index: 2;
+}
+
+.participant-action-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--bg-active);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  color: var(--text-on-accent);
+  cursor: pointer;
+}
+
+.participant-action-btn:hover {
+  background: rgba(0, 0, 0, 0.65);
+}
+
+.participant-action-btn.active-on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 .participant-tile.speaking {
