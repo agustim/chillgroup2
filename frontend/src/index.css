@@ -535,6 +535,20 @@ body {
   gap: 4px;
 }
 
+.category-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  min-width: 0;
+}
+
 .category-name {
   display: flex;
   align-items: center;
@@ -545,6 +559,13 @@ body {
   color: var(--text-muted);
   padding: 8px 4px;
   letter-spacing: 0.5px;
+}
+
+.category-chevron {
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-muted);
+  flex-shrink: 0;
 }
 
 .channel-item {

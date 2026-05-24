@@ -62,6 +62,12 @@ export function ChannelList({
   serverMemberPresenceById = {},
 }: ChannelListProps) {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
+  const [collapsedSections, setCollapsedSections] = useState({
+    text: false,
+    voice: false,
+    friends: false,
+    members: false,
+  })
   const userActionsRef = useRef<HTMLDivElement | null>(null)
   const voiceControlsEnabled = !!voiceConnection
   const textChannels = channels.filter((c) => c.type === 'text')
@@ -86,8 +92,11 @@ export function ChannelList({
     return voicePresenceByChannel[channel.channelId] ?? []
   }
 
-  const isInVoiceChannel = (channelId: string): boolean => {
-    return voiceConnection !== null && voiceConnection.channelId === channelId
+  const toggleSection = (section: 'text' | 'voice' | 'friends' | 'members') => {
+    setCollapsedSections((current) => ({
+      ...current,
+      [section]: !current[section],
+    }))
   }
 
   return (
@@ -120,7 +129,15 @@ export function ChannelList({
       {/* Text Channels */}
       <div className="channel-category">
         <div className="category-header">
-          <span className="category-name"># CANALS DE TEXT</span>
+          <button
+            className="category-toggle"
+            onClick={() => toggleSection('text')}
+            aria-expanded={!collapsedSections.text}
+            title={collapsedSections.text ? 'Desplegar secció' : 'Plegar secció'}
+          >
+            <span className="category-name"># CANALS DE TEXT</span>
+            <span className="category-chevron">{collapsedSections.text ? '🔻' : '🔺'}</span>
+          </button>
           {canCreateChannel && onCreateTextChannel && (
             <button
               className="create-channel-btn"
@@ -131,7 +148,7 @@ export function ChannelList({
             </button>
           )}
         </div>
-        {textChannels.map((channel) => (
+        {!collapsedSections.text && textChannels.map((channel) => (
           <div
             key={channel.channelId}
             className={`channel-item ${selectedChannel?.channelId === channel.channelId ? 'active' : ''}`}
@@ -162,7 +179,15 @@ export function ChannelList({
       {/* Voice Channels */}
       <div className="channel-category">
         <div className="category-header">
-          <span className="category-name">🔊 CANALS DE VEUS</span>
+          <button
+            className="category-toggle"
+            onClick={() => toggleSection('voice')}
+            aria-expanded={!collapsedSections.voice}
+            title={collapsedSections.voice ? 'Desplegar secció' : 'Plegar secció'}
+          >
+            <span className="category-name">🔊 CANALS DE VEUS</span>
+            <span className="category-chevron">{collapsedSections.voice ? '🔻' : '🔺'}</span>
+          </button>
           {canCreateChannel && onCreateVoiceChannel && (
             <button
               className="create-channel-btn"
@@ -173,9 +198,8 @@ export function ChannelList({
             </button>
           )}
         </div>
-        {voiceChannels.map((channel) => {
+        {!collapsedSections.voice && voiceChannels.map((channel) => {
           const participants = getParticipants(channel)
-          const connected = isInVoiceChannel(channel.channelId)
 
           return (
             <div key={channel.channelId} className="voice-channel-wrapper">
@@ -222,9 +246,17 @@ export function ChannelList({
 
       <div className="channel-category friends-category">
         <div className="category-header">
-          <span className="category-name">💛 AMICS</span>
+          <button
+            className="category-toggle"
+            onClick={() => toggleSection('friends')}
+            aria-expanded={!collapsedSections.friends}
+            title={collapsedSections.friends ? 'Desplegar secció' : 'Plegar secció'}
+          >
+            <span className="category-name">💛 AMICS</span>
+            <span className="category-chevron">{collapsedSections.friends ? '🔻' : '🔺'}</span>
+          </button>
         </div>
-        {friends.length > 0 ? (
+        {!collapsedSections.friends && (friends.length > 0 ? (
           <div className="friends-list">
             {friends.map((friend) => (
               <div key={friend.userId} className="friend-item">
@@ -242,14 +274,22 @@ export function ChannelList({
           </div>
         ) : (
           <p className="friends-empty-state">Encara no tens amics guardats.</p>
-        )}
+        ))}
       </div>
 
       <div className="channel-category server-members-category friends-category">
         <div className="category-header">
-          <span className="category-name">👥 USUARIS DEL SERVIDOR</span>
+          <button
+            className="category-toggle"
+            onClick={() => toggleSection('members')}
+            aria-expanded={!collapsedSections.members}
+            title={collapsedSections.members ? 'Desplegar secció' : 'Plegar secció'}
+          >
+            <span className="category-name">👥 USUARIS DEL SERVIDOR</span>
+            <span className="category-chevron">{collapsedSections.members ? '🔻' : '🔺'}</span>
+          </button>
         </div>
-        {serverMembers.length > 0 ? (
+        {!collapsedSections.members && (serverMembers.length > 0 ? (
           <div className="friends-list">
             {serverMembers.map((member) => {
               const isActive = !!serverMemberPresenceById[member.userId]
@@ -270,7 +310,7 @@ export function ChannelList({
           </div>
         ) : (
           <p className="friends-empty-state">Aquest servidor encara no té membres visibles.</p>
-        )}
+        ))}
       </div>
 
       <div className="channel-list-bottom-controls">
