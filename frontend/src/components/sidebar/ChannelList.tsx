@@ -72,6 +72,21 @@ export function ChannelList({
   const voiceControlsEnabled = !!voiceConnection
   const textChannels = channels.filter((c) => c.type === 'text')
   const voiceChannels = channels.filter((c) => c.type === 'voice')
+  const sortedFriends = [...friends].sort((a, b) => {
+    if (a.isOnline === b.isOnline) {
+      return a.username.localeCompare(b.username)
+    }
+    return a.isOnline ? -1 : 1
+  })
+  const sortedServerMembers = [...serverMembers].sort((a, b) => {
+    const aIsOnline = !!serverMemberPresenceById[a.userId]
+    const bIsOnline = !!serverMemberPresenceById[b.userId]
+
+    if (aIsOnline === bIsOnline) {
+      return a.username.localeCompare(b.username)
+    }
+    return aIsOnline ? -1 : 1
+  })
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -258,16 +273,16 @@ export function ChannelList({
         </div>
         {!collapsedSections.friends && (friends.length > 0 ? (
           <div className="friends-list">
-            {friends.map((friend) => (
+            {sortedFriends.map((friend) => (
               <div key={friend.userId} className="friend-item">
-                <div className={`friend-avatar ${friend.isOnline ? 'online' : 'offline'}`}>
+                <div
+                  className={`friend-avatar ${friend.isOnline ? 'online' : 'offline'}`}
+                  title={friend.isOnline ? 'Actiu' : 'Inactiu'}
+                >
                   {friend.username.charAt(0).toUpperCase()}
                 </div>
                 <div className="friend-meta">
                   <span className="friend-name">{friend.username}</span>
-                  <span className={`friend-status ${friend.isOnline ? 'online' : 'offline'}`}>
-                    {friend.isOnline ? 'Actiu' : 'Inactiu'}
-                  </span>
                 </div>
               </div>
             ))}
@@ -291,18 +306,18 @@ export function ChannelList({
         </div>
         {!collapsedSections.members && (serverMembers.length > 0 ? (
           <div className="friends-list">
-            {serverMembers.map((member) => {
+            {sortedServerMembers.map((member) => {
               const isActive = !!serverMemberPresenceById[member.userId]
               return (
                 <div key={member.userId} className="friend-item">
-                  <div className={`friend-avatar ${isActive ? 'online' : 'offline'}`}>
+                  <div
+                    className={`friend-avatar ${isActive ? 'online' : 'offline'}`}
+                    title={isActive ? 'Actiu' : 'Inactiu'}
+                  >
                     {member.username.charAt(0).toUpperCase()}
                   </div>
                   <div className="friend-meta">
                     <span className="friend-name">{member.username}</span>
-                    <span className={`friend-status ${isActive ? 'online' : 'offline'}`}>
-                      {isActive ? 'Actiu' : 'Inactiu'}
-                    </span>
                   </div>
                 </div>
               )
