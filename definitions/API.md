@@ -981,6 +981,38 @@ torna a entrar a un canal.
 
 ## Missatges Directes (DM)
 
+### DM v2 (canal 1:1 asimètric)
+
+Implementació nova basada en canal privat 1:1.
+
+#### POST `/api/dm/channels/open`
+
+Obre (o crea) un canal DM 1:1 amb un altre usuari.
+
+**Request Body:**
+```json
+{
+  "targetUserId": "550e8400-e29b-41d4-a716-446655440002",
+  "messageTTL": 86400
+}
+```
+
+#### GET `/api/dm/channels`
+
+Llistar canals DM de l'usuari autenticat.
+
+#### GET `/api/dm/channels/:channelId/messages`
+
+Llistar missatges d'un DM específic.
+
+#### POST `/api/dm/channels/:channelId/messages`
+
+Enviar un missatge al DM.
+
+#### PUT `/api/dm/channels/:channelId/settings`
+
+Actualitzar configuració del DM (actualment `messageTTL`).
+
 > Nota: aquesta secció descriu els endpoints actuals (legacy).
 > El model objectiu per a implementació nova és a `definitions/DM.md`:
 > DM 1:1 com a canal privat asimètric amb `message_ttl`.

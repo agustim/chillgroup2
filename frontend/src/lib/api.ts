@@ -199,6 +199,26 @@ export interface DirectMessage {
   deletedAt: string | null
 }
 
+export interface DmChannelOpenInfo {
+  dmChannelId: string
+  peerUserId: string
+  peerUsername: string
+  encryptionType: 'asymmetric'
+  messageTTL: number | null
+  keyVersionId: string | null
+  keyVersion: number | null
+  created: boolean
+}
+
+export interface DmChannelListItem {
+  dmChannelId: string
+  peerUserId: string
+  peerUsername: string
+  messageTTL: number | null
+  unreadCount: number
+  lastMessageAt: string | null
+}
+
 export interface ChannelInfo {
   channelId: string
   name: string
@@ -482,6 +502,91 @@ export async function dmSend(recipientUserId: string, encryptedPayload: string, 
     is_direct: true,
     recipient_user_id: recipientUserId,
   })
+}
+
+export async function dmChannelOpen(targetUserId: string, messageTTL?: number | null): Promise<ApiResult<DmChannelOpenInfo>> {
+  const result = await apiRequest<any>('POST', '/api/dm/channels/open', {
+    target_user_id: targetUserId,
+    message_ttl: messageTTL ?? null,
+  })
+  if (!result.success) return result
+  const d = result.data
+  return {
+    success: true,
+    data: {
+      dmChannelId: d.dm_channel_id ?? d.dmChannelId,
+      peerUserId: d.peer_user_id ?? d.peerUserId,
+      peerUsername: d.peer_username ?? d.peerUsername,
+      encryptionType: 'asymmetric',
+      messageTTL: d.message_ttl ?? d.messageTTL ?? null,
+      keyVersionId: d.key_version_id ?? d.keyVersionId ?? null,
+      keyVersion: d.key_version ?? d.keyVersion ?? null,
+      created: d.created ?? false,
+    },
+  }
+}
+
+export async function dmChannelsList(): Promise<ApiResult<DmChannelListItem[]>> {
+  const result = await apiRequest<any[]>('GET', '/api/dm/channels')
+  if (!result.success) return result
+  const data = Array.isArray(result.data) ? result.data : []
+  return {
+    success: true,
+    data: data.map((d: any) => ({
+      dmChannelId: d.dm_channel_id ?? d.dmChannelId,
+      peerUserId: d.peer_user_id ?? d.peerUserId,
+      peerUsername: d.peer_username ?? d.peerUsername,
+      messageTTL: d.message_ttl ?? d.messageTTL ?? null,
+      unreadCount: d.unread_count ?? d.unreadCount ?? 0,
+      lastMessageAt: d.last_message_at ?? d.lastMessageAt ?? null,
+    })),
+  }
+}
+
+export async function dmMessagesList(channelId: string, limit = 50, before?: string): Promise<ApiResult<PaginatedMessages>> {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (before) params.set('before', before)
+  const result = await apiRequest<PaginatedMessages>('GET', `/api/dm/channels/${channelId}/messages?${params}`)
+  if (!result.success || !result.data) return result
+  return {
+    success: true,
+    data: {
+      data: result.data.data.map(mapMessageToTypes),
+      pagination: result.data.pagination,
+    },
+  }
+}
+
+export async function dmMessagesSend(
+  channelId: string,
+  encryptedPayload: string,
+  iv: string,
+  expiresAt?: string
+): Promise<ApiResult<Message>> {
+  const result = await apiRequest<any>('POST', `/api/dm/channels/${channelId}/messages`, {
+    encrypted_payload: encryptedPayload,
+    iv,
+    expires_at: expiresAt,
+  })
+  if (!result.success || !result.data) return result
+  return {
+    success: true,
+    data: mapMessageToTypes(result.data),
+  }
+}
+
+export async function dmChannelUpdateSettings(channelId: string, messageTTL: number | null): Promise<ApiResult<{ dmChannelId: string; messageTTL: number | null }>> {
+  const result = await apiRequest<any>('PUT', `/api/dm/channels/${channelId}/settings`, {
+    message_ttl: messageTTL,
+  })
+  if (!result.success) return result
+  return {
+    success: true,
+    data: {
+      dmChannelId: result.data.dm_channel_id ?? result.data.dmChannelId,
+      messageTTL: result.data.message_ttl ?? result.data.messageTTL ?? null,
+    },
+  }
 }
 
 export async function channelsList(serverId: string): Promise<ApiResult<Channel[]>> {

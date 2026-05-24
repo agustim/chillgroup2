@@ -19,6 +19,10 @@ import {
   messagesGet,
   messagesCheckNew,
   dmSend,
+  dmChannelOpen,
+  dmChannelsList,
+  dmMessagesSend,
+  dmChannelUpdateSettings,
   channelsList,
   channelsCreate,
   channelsGetKeys,
@@ -464,6 +468,95 @@ describe('API Client', () => {
       if (result.success) {
         expect(result.data.recipientUserId).toBe('user-2')
         expect(result.data.isDirect).toBe(true)
+      }
+    })
+
+    it('obre un canal DM v2', async () => {
+      setupMocks({
+        success: true,
+        data: {
+          dm_channel_id: 'dm-ch-1',
+          peer_user_id: 'user-2',
+          peer_username: 'marcus',
+          message_ttl: 3600,
+          key_version_id: 'kv-1',
+          key_version: 1,
+          created: true,
+        },
+      })
+
+      const result = await dmChannelOpen('user-2', 3600)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data.dmChannelId).toBe('dm-ch-1')
+        expect(result.data.peerUsername).toBe('marcus')
+        expect(result.data.created).toBe(true)
+      }
+    })
+
+    it('llista canals DM v2', async () => {
+      setupMocks({
+        success: true,
+        data: [
+          {
+            dm_channel_id: 'dm-ch-1',
+            peer_user_id: 'user-2',
+            peer_username: 'marcus',
+            message_ttl: 3600,
+            unread_count: 2,
+            last_message_at: '2026-01-01T00:00:00Z',
+          },
+        ],
+      })
+
+      const result = await dmChannelsList()
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data).toHaveLength(1)
+        expect(result.data[0].dmChannelId).toBe('dm-ch-1')
+        expect(result.data[0].unreadCount).toBe(2)
+      }
+    })
+
+    it('envia missatge per DM v2 channel', async () => {
+      setupMocks({
+        success: true,
+        data: {
+          id: 'msg-1',
+          channel_id: 'dm-ch-1',
+          sender_user_id: 'user-1',
+          sender_username: 'agusti',
+          sender_device_id: 'dev-1',
+          encrypted_payload: 'encrypted',
+          iv: 'iv',
+          timestamp: '2026-01-01T00:00:00Z',
+          expires_at: null,
+          edited_at: null,
+          deleted_at: null,
+        },
+      })
+
+      const result = await dmMessagesSend('dm-ch-1', 'encrypted', 'iv')
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data.channelId).toBe('dm-ch-1')
+      }
+    })
+
+    it('actualitza settings de DM v2', async () => {
+      setupMocks({
+        success: true,
+        data: {
+          dm_channel_id: 'dm-ch-1',
+          message_ttl: 1800,
+        },
+      })
+
+      const result = await dmChannelUpdateSettings('dm-ch-1', 1800)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data.dmChannelId).toBe('dm-ch-1')
+        expect(result.data.messageTTL).toBe(1800)
       }
     })
   })

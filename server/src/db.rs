@@ -174,10 +174,13 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
         r#"
         CREATE TABLE IF NOT EXISTS channels (
             id TEXT PRIMARY KEY,
-            server_id TEXT NOT NULL,
+            server_id TEXT,
             name TEXT NOT NULL,
             type TEXT NOT NULL CHECK(type IN ('text', 'voice')),
             encryption_type TEXT NOT NULL DEFAULT 'none' CHECK(encryption_type IN ('none', 'symmetric', 'asymmetric')),
+            scope TEXT NOT NULL DEFAULT 'server' CHECK(scope IN ('server', 'dm')),
+            dm_user_a_id TEXT,
+            dm_user_b_id TEXT,
             message_ttl INTEGER,
             is_private INTEGER NOT NULL DEFAULT 0,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -289,7 +292,122 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
             .map_err(|e| format!("Error creant taula: {}", e))?;
     }
 
+    migrate_sqlite_channels_for_dm(pool).await?;
+
+    for idx in [
+        "CREATE INDEX IF NOT EXISTS idx_channels_scope ON channels(scope)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_dm_pair ON channels(dm_user_a_id, dm_user_b_id) WHERE scope = 'dm'",
+    ] {
+        sqlx::query(idx)
+            .execute(pool)
+            .await
+            .map_err(|e| format!("Error creant índex DM SQLite: {}", e))?;
+    }
+
     info!("✅ Taules creades/verificades correctament");
+    Ok(())
+}
+
+async fn migrate_sqlite_channels_for_dm(pool: &sqlx::SqlitePool) -> Result<(), String> {
+    let table_info = sqlx::query("PRAGMA table_info(channels)")
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("Error llegint schema de channels a SQLite: {}", e))?;
+
+    if table_info.is_empty() {
+        return Ok(());
+    }
+
+    let mut has_scope = false;
+    let mut has_dm_user_a_id = false;
+    let mut has_dm_user_b_id = false;
+    let mut server_id_notnull = false;
+
+    for row in table_info {
+        let name: String = row.get(1);
+        let notnull: i64 = row.get(3);
+        match name.as_str() {
+            "scope" => has_scope = true,
+            "dm_user_a_id" => has_dm_user_a_id = true,
+            "dm_user_b_id" => has_dm_user_b_id = true,
+            "server_id" => server_id_notnull = notnull != 0,
+            _ => {}
+        }
+    }
+
+    if has_scope && has_dm_user_a_id && has_dm_user_b_id && !server_id_notnull {
+        return Ok(());
+    }
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| format!("Error iniciant migració DM SQLite: {}", e))?;
+
+    sqlx::query(
+        "CREATE TABLE channels_dm_migrated (
+            id TEXT PRIMARY KEY,
+            server_id TEXT,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL CHECK(type IN ('text', 'voice')),
+            encryption_type TEXT NOT NULL DEFAULT 'none' CHECK(encryption_type IN ('none', 'symmetric', 'asymmetric')),
+            scope TEXT NOT NULL DEFAULT 'server' CHECK(scope IN ('server', 'dm')),
+            dm_user_a_id TEXT,
+            dm_user_b_id TEXT,
+            message_ttl INTEGER,
+            is_private INTEGER NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (server_id) REFERENCES servers(id)
+        )",
+    )
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| format!("Error creant channels_dm_migrated: {}", e))?;
+
+    let scope_expr = if has_scope { "COALESCE(scope, 'server')" } else { "'server'" };
+    let dm_user_a_expr = if has_dm_user_a_id { "dm_user_a_id" } else { "NULL" };
+    let dm_user_b_expr = if has_dm_user_b_id { "dm_user_b_id" } else { "NULL" };
+
+    let copy_query = format!(
+        "INSERT INTO channels_dm_migrated (id, server_id, name, type, encryption_type, scope, dm_user_a_id, dm_user_b_id, message_ttl, is_private, created_at)
+         SELECT id, server_id, name, type, encryption_type, {scope_expr}, {dm_user_a_expr}, {dm_user_b_expr}, message_ttl, is_private, created_at
+         FROM channels"
+    );
+
+    sqlx::query(&copy_query)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Error copiant dades channels cap a schema DM: {}", e))?;
+
+    sqlx::query("DROP TABLE channels")
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Error eliminant taula channels antiga: {}", e))?;
+
+    sqlx::query("ALTER TABLE channels_dm_migrated RENAME TO channels")
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Error reanomenant taula channels migrada: {}", e))?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_channels_server_id ON channels(server_id)")
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Error recreant índex idx_channels_server_id: {}", e))?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_channels_scope ON channels(scope)")
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Error recreant índex idx_channels_scope: {}", e))?;
+
+    sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_dm_pair ON channels(dm_user_a_id, dm_user_b_id) WHERE scope = 'dm'")
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Error recreant índex idx_channels_dm_pair: {}", e))?;
+
+    tx.commit()
+        .await
+        .map_err(|e| format!("Error confirmant migració DM SQLite: {}", e))?;
+
     Ok(())
 }
 
@@ -298,6 +416,15 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
 pub enum DatabasePool {
     Postgres(Pool<Postgres>),
     Sqlite(Pool<Sqlite>),
+}
+
+#[derive(Debug, Clone)]
+pub struct DirectChannelSummary {
+    pub channel_id: Uuid,
+    pub peer_user_id: Uuid,
+    pub peer_username: String,
+    pub message_ttl: Option<i32>,
+    pub last_message_at: Option<DateTime<Utc>>,
 }
 
 impl DatabasePool {
@@ -340,6 +467,25 @@ impl DatabasePool {
                     .await
                     .map_err(|e| format!("Error SQLite: {}", e))?;
                 Ok(row.map(|r| (r.get(0), r.get(1), r.get(2))))
+            }
+        }
+    }
+
+    pub async fn find_username_by_user_id(&self, user_id: Uuid) -> Result<Option<String>, sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query("SELECT username FROM users WHERE id = $1")
+                    .bind(user_id)
+                    .fetch_optional(pool)
+                    .await?;
+                Ok(row.map(|r| r.get(0)))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query("SELECT username FROM users WHERE id = ?")
+                    .bind(user_id)
+                    .fetch_optional(pool)
+                    .await?;
+                Ok(row.map(|r| r.get(0)))
             }
         }
     }
@@ -978,9 +1124,13 @@ impl DatabasePool {
                     "SELECT EXISTS(\
                         SELECT 1 \
                         FROM channels c \
-                        JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = $2 \
+                        LEFT JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = $2 \
                         LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = $2 \
-                        WHERE c.id = $1 AND (c.is_private = 0 OR cm.user_id IS NOT NULL)\
+                        WHERE c.id = $1 AND (\
+                            (COALESCE(c.scope, 'server') = 'dm' AND cm.user_id IS NOT NULL) \
+                            OR \
+                            (COALESCE(c.scope, 'server') != 'dm' AND sm.user_id IS NOT NULL AND (c.is_private = 0 OR cm.user_id IS NOT NULL))\
+                        )\
                     )"
                 )
                 .bind(channel_id)
@@ -994,9 +1144,13 @@ impl DatabasePool {
                     "SELECT EXISTS(\
                         SELECT 1 \
                         FROM channels c \
-                        JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = ? \
+                        LEFT JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = ? \
                         LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = ? \
-                        WHERE c.id = ? AND (c.is_private = 0 OR cm.user_id IS NOT NULL)\
+                        WHERE c.id = ? AND (\
+                            (COALESCE(c.scope, 'server') = 'dm' AND cm.user_id IS NOT NULL) \
+                            OR \
+                            (COALESCE(c.scope, 'server') != 'dm' AND sm.user_id IS NOT NULL AND (c.is_private = 0 OR cm.user_id IS NOT NULL))\
+                        )\
                     )"
                 )
                 .bind(user_id)
@@ -1007,6 +1161,223 @@ impl DatabasePool {
                 Ok(row.get::<bool, _>(0))
             }
         }
+    }
+
+    pub async fn find_dm_channel_by_users(&self, user_a: Uuid, user_b: Uuid) -> Result<Option<Uuid>, sqlx::Error> {
+        let (low, high) = if user_a < user_b { (user_a, user_b) } else { (user_b, user_a) };
+
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(
+                    "SELECT id FROM channels
+                     WHERE scope = 'dm'
+                       AND LEAST(dm_user_a_id, dm_user_b_id) = $1
+                       AND GREATEST(dm_user_a_id, dm_user_b_id) = $2
+                     LIMIT 1",
+                )
+                .bind(low)
+                .bind(high)
+                .fetch_optional(pool)
+                .await?;
+                Ok(row.map(|r| r.get(0)))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query(
+                    "SELECT id FROM channels
+                     WHERE COALESCE(scope, 'server') = 'dm'
+                       AND ((dm_user_a_id = ? AND dm_user_b_id = ?) OR (dm_user_a_id = ? AND dm_user_b_id = ?))
+                     LIMIT 1",
+                )
+                .bind(low)
+                .bind(high)
+                .bind(high)
+                .bind(low)
+                .fetch_optional(pool)
+                .await?;
+                Ok(row.map(|r| r.get(0)))
+            }
+        }
+    }
+
+    pub async fn create_dm_channel(
+        &self,
+        channel_id: Uuid,
+        creator_user_id: Uuid,
+        target_user_id: Uuid,
+        message_ttl: Option<i32>,
+    ) -> Result<(), sqlx::Error> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let (dm_user_a_id, dm_user_b_id) = if creator_user_id < target_user_id {
+            (creator_user_id, target_user_id)
+        } else {
+            (target_user_id, creator_user_id)
+        };
+
+        let name = format!("dm-{}-{}", dm_user_a_id, dm_user_b_id);
+
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "INSERT INTO channels (id, server_id, name, type, encryption_type, scope, dm_user_a_id, dm_user_b_id, message_ttl, is_private, created_at)
+                     VALUES ($1, NULL, $2, 'text', 'asymmetric', 'dm', $3, $4, $5, true, $6)",
+                )
+                .bind(channel_id)
+                .bind(name)
+                .bind(dm_user_a_id)
+                .bind(dm_user_b_id)
+                .bind(message_ttl)
+                .bind(now)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "INSERT INTO channels (id, server_id, name, type, encryption_type, scope, dm_user_a_id, dm_user_b_id, message_ttl, is_private, created_at)
+                     VALUES (?, NULL, ?, 'text', 'asymmetric', 'dm', ?, ?, ?, 1, ?)",
+                )
+                .bind(channel_id)
+                .bind(name)
+                .bind(dm_user_a_id)
+                .bind(dm_user_b_id)
+                .bind(message_ttl)
+                .bind(now)
+                .execute(pool)
+                .await?;
+            }
+        }
+
+        self.add_channel_member(channel_id, creator_user_id).await?;
+        self.add_channel_member(channel_id, target_user_id).await?;
+
+        Ok(())
+    }
+
+    pub async fn list_dm_channels_for_user(&self, user_id: Uuid) -> Result<Vec<DirectChannelSummary>, sqlx::Error> {
+        let mut rows_out = Vec::new();
+
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let rows = sqlx::query(
+                    "SELECT
+                        c.id AS channel_id,
+                        CASE WHEN c.dm_user_a_id = $1 THEN c.dm_user_b_id ELSE c.dm_user_a_id END AS peer_user_id,
+                        u.username AS peer_username,
+                        c.message_ttl,
+                        MAX(m.timestamp) AS last_message_at
+                     FROM channels c
+                     JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = $1
+                     JOIN users u ON u.id = CASE WHEN c.dm_user_a_id = $1 THEN c.dm_user_b_id ELSE c.dm_user_a_id END
+                     LEFT JOIN messages m ON m.channel_id = c.id AND m.deleted_at IS NULL AND (m.expires_at IS NULL OR m.expires_at > NOW())
+                     WHERE c.scope = 'dm'
+                     GROUP BY c.id, peer_user_id, u.username, c.message_ttl
+                     ORDER BY last_message_at DESC NULLS LAST, c.created_at DESC",
+                )
+                .bind(user_id)
+                .fetch_all(pool)
+                .await?;
+
+                for row in rows {
+                    rows_out.push(DirectChannelSummary {
+                        channel_id: row.get(0),
+                        peer_user_id: row.get(1),
+                        peer_username: row.get(2),
+                        message_ttl: row.get(3),
+                        last_message_at: parse_datetime_utc(&row.get::<Option<String>, _>(4)),
+                    });
+                }
+            }
+            DatabasePool::Sqlite(pool) => {
+                let rows = sqlx::query(
+                    "SELECT
+                        c.id AS channel_id,
+                        CASE WHEN c.dm_user_a_id = ? THEN c.dm_user_b_id ELSE c.dm_user_a_id END AS peer_user_id,
+                        u.username AS peer_username,
+                        c.message_ttl,
+                        MAX(m.timestamp) AS last_message_at
+                     FROM channels c
+                     JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = ?
+                     JOIN users u ON u.id = CASE WHEN c.dm_user_a_id = ? THEN c.dm_user_b_id ELSE c.dm_user_a_id END
+                     LEFT JOIN messages m ON m.channel_id = c.id AND m.deleted_at IS NULL AND (m.expires_at IS NULL OR m.expires_at > datetime('now'))
+                     WHERE COALESCE(c.scope, 'server') = 'dm'
+                     GROUP BY c.id, peer_user_id, u.username, c.message_ttl, c.created_at
+                     ORDER BY last_message_at DESC, c.created_at DESC",
+                )
+                .bind(user_id)
+                .bind(user_id)
+                .bind(user_id)
+                .fetch_all(pool)
+                .await?;
+
+                for row in rows {
+                    rows_out.push(DirectChannelSummary {
+                        channel_id: row.get(0),
+                        peer_user_id: row.get(1),
+                        peer_username: row.get(2),
+                        message_ttl: row.get(3),
+                        last_message_at: parse_datetime_utc(&row.get::<Option<String>, _>(4)),
+                    });
+                }
+            }
+        }
+
+        Ok(rows_out)
+    }
+
+    pub async fn get_dm_channel_ttl_for_member(
+        &self,
+        channel_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<Option<Option<i32>>, sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(
+                    "SELECT c.message_ttl
+                     FROM channels c
+                     JOIN channel_members cm ON cm.channel_id = c.id
+                     WHERE c.id = $1 AND c.scope = 'dm' AND cm.user_id = $2
+                     LIMIT 1",
+                )
+                .bind(channel_id)
+                .bind(user_id)
+                .fetch_optional(pool)
+                .await?;
+                Ok(row.map(|r| r.get(0)))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query(
+                    "SELECT c.message_ttl
+                     FROM channels c
+                     JOIN channel_members cm ON cm.channel_id = c.id
+                     WHERE c.id = ? AND COALESCE(c.scope, 'server') = 'dm' AND cm.user_id = ?
+                     LIMIT 1",
+                )
+                .bind(channel_id)
+                .bind(user_id)
+                .fetch_optional(pool)
+                .await?;
+                Ok(row.map(|r| r.get(0)))
+            }
+        }
+    }
+
+    pub async fn update_dm_channel_ttl(&self, channel_id: Uuid, message_ttl: Option<i32>) -> Result<(), sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query("UPDATE channels SET message_ttl = $1 WHERE id = $2 AND scope = 'dm'")
+                    .bind(message_ttl)
+                    .bind(channel_id)
+                    .execute(pool)
+                    .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query("UPDATE channels SET message_ttl = ? WHERE id = ? AND COALESCE(scope, 'server') = 'dm'")
+                    .bind(message_ttl)
+                    .bind(channel_id)
+                    .execute(pool)
+                    .await?;
+            }
+        }
+        Ok(())
     }
 
     pub async fn list_server_member_ids(&self, server_id: Uuid) -> Result<Vec<Uuid>, sqlx::Error> {
