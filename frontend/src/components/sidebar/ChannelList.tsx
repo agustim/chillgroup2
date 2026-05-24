@@ -242,7 +242,7 @@ export function ChannelList({
           title={isScreenSharing ? 'Aturar compartir pantalla' : 'Compartir pantalla'}
           disabled={!voiceControlsEnabled}
         >
-          🔁
+          🖥️
         </button>
       </div>
     </div>
