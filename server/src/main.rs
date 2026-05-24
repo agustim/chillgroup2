@@ -27,7 +27,7 @@ use uuid::Uuid;
 
 use config::Config;
 use crate::db::DatabasePool;
-use middleware::AppState;
+use middleware::{AppState, auth::UserPresenceState};
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -75,6 +75,80 @@ async fn emit_voice_presence_update(
     }
 }
 
+async fn emit_friend_presence_update(
+    db: &DatabasePool,
+    io: &SocketIo,
+    user_id: Uuid,
+    username: &str,
+    status: &str,
+) {
+    let Ok(owner_ids) = db.list_friend_owner_ids_for_user(user_id).await else {
+        return;
+    };
+
+    let payload = serde_json::json!({
+        "userId": user_id,
+        "username": username,
+        "status": status,
+    });
+
+    for owner_id in owner_ids {
+        let room = format!("user:{}", owner_id);
+        if let Err(e) = io.to(room).emit("friend-presence-updated", &payload).await {
+            tracing::warn!("Error enviant friend-presence-updated: {:?}", e);
+        }
+    }
+}
+
+async fn register_user_socket(
+    db: &DatabasePool,
+    io: &SocketIo,
+    presence: &Arc<RwLock<UserPresenceState>>,
+    user_id: Uuid,
+    username: &str,
+    socket_id: &str,
+) {
+    let should_broadcast = {
+        let mut state = presence.write().await;
+        let sockets = state.online_sockets.entry(user_id).or_default();
+        let was_empty = sockets.is_empty();
+        sockets.insert(socket_id.to_string());
+        was_empty && !sockets.is_empty()
+    };
+
+    if should_broadcast {
+        emit_friend_presence_update(db, io, user_id, username, "online").await;
+    }
+}
+
+async fn unregister_user_socket(
+    db: &DatabasePool,
+    io: &SocketIo,
+    presence: &Arc<RwLock<UserPresenceState>>,
+    user_id: Uuid,
+    username: &str,
+    socket_id: &str,
+) {
+    let should_broadcast = {
+        let mut state = presence.write().await;
+        if let Some(sockets) = state.online_sockets.get_mut(&user_id) {
+            sockets.remove(socket_id);
+            if sockets.is_empty() {
+                state.online_sockets.remove(&user_id);
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    };
+
+    if should_broadcast {
+        emit_friend_presence_update(db, io, user_id, username, "offline").await;
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Carregar configuració abans d'inicialitzar tracing per poder aplicar BACKEND_DEBUG.
@@ -104,12 +178,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let jwt_secret = config.jwt_secret.clone();
     let socket_db = db_pool.clone();
     let voice_presence = Arc::new(RwLock::new(VoicePresenceState::default()));
+    let user_presence = Arc::new(RwLock::new(UserPresenceState::default()));
+    let user_presence_for_ns = user_presence.clone();
 
     io.ns("/", move |socket: SocketRef, Data(auth): Data<serde_json::Value>| {
         let secret = jwt_secret.clone();
         let db = socket_db.clone();
         let io = io_for_ns.clone();
         let voice_presence = voice_presence.clone();
+        let user_presence = user_presence_for_ns.clone();
         async move {
             let token = auth.get("token").and_then(|t| t.as_str()).unwrap_or("");
             let mut validation = Validation::new(Algorithm::HS256);
@@ -131,6 +208,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
             info!("Socket autenticat correctament: {}", socket.id);
             socket.join(format!("user:{}", claims.user_id));
+            register_user_socket(
+                &db,
+                &io,
+                &user_presence,
+                claims.user_id,
+                &claims.username,
+                &socket.id.to_string(),
+            ).await;
 
             socket.on("join-channel", |socket: SocketRef, Data(data): Data<serde_json::Value>| async move {
                 if let Some(channel_id) = data.get("channelId").and_then(|v| v.as_str()) {
@@ -362,10 +447,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             let db_for_disconnect = db.clone();
             let io_for_disconnect = io.clone();
             let presence_for_disconnect = voice_presence.clone();
+            let user_presence_for_disconnect = user_presence.clone();
+            let username_for_disconnect = claims.username.clone();
+            let user_id_for_disconnect = claims.user_id;
             socket.on_disconnect(move |socket: SocketRef| {
                 let db = db_for_disconnect.clone();
                 let io = io_for_disconnect.clone();
                 let presence = presence_for_disconnect.clone();
+                let user_presence = user_presence_for_disconnect.clone();
+                let username = username_for_disconnect.clone();
                 async move {
                     let socket_id = socket.id.to_string();
                     let mut affected_channel = None;
@@ -386,6 +476,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         };
                         emit_voice_presence_update(&db, &io, channel_id, users).await;
                     }
+
+                    unregister_user_socket(
+                        &db,
+                        &io,
+                        &user_presence,
+                        user_id_for_disconnect,
+                        &username,
+                        &socket_id,
+                    ).await;
                 }
             });
 
@@ -423,6 +522,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         db: db_pool.clone(),
         config,
         io: io.clone(),
+        user_presence: user_presence.clone(),
     };
 
     // Crear router amb tots els routers dels fitxers de routes
@@ -438,11 +538,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let message_routes = routes::messages::router(state.clone());
     let livekit_routes = routes::livekit::router(state.clone());
     let user_routes = routes::user::router(state.clone());
+    let friends_routes = routes::friends::router(state.clone());
 
     let protected_app = server_routes
         .merge(channel_routes)
         .merge(message_routes)
         .merge(livekit_routes)
+        .merge(friends_routes)
         .merge(user_routes)
         .layer(from_fn(middleware::extract_claims));
 

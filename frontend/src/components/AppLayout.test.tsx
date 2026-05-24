@@ -87,13 +87,13 @@ vi.mock('./sidebar/ChannelList', () => ({
 }))
 
 vi.mock('./modals/FriendsModal', () => ({
-  FriendsModal: ({ isOpen, friends, knownUsers, onAddFriend, onRemoveFriend }: any) =>
+  FriendsModal: ({ isOpen, friends, onAddFriend, onRemoveFriend, onSearchUsers }: any) =>
     isOpen ? (
       <div role="dialog" aria-label="Gestió d'amics">
         <h2>Gestió d'amics</h2>
         <span data-testid="friends-total">{friends.length}</span>
-        <span data-testid="known-users-total">{knownUsers.length}</span>
-        <button data-testid="btn-add-friend" onClick={() => onAddFriend({ userId: 'friend-1', username: 'amic' })}>Afegir</button>
+        <button data-testid="btn-search-friends" onClick={() => onSearchUsers?.('amic')}>Buscar</button>
+        <button data-testid="btn-add-friend" onClick={() => onAddFriend('amic')}>Afegir</button>
         <button data-testid="btn-remove-friend" onClick={() => onRemoveFriend('friend-1')}>Treure</button>
       </div>
     ) : null,
@@ -184,6 +184,10 @@ vi.mock('../lib/api', () => ({
   channelsMarkRead: vi.fn(),
   serverInviteMember: vi.fn(),
   channelInvite: vi.fn(),
+  friendsList: vi.fn(),
+  friendsAdd: vi.fn(),
+  friendsRemove: vi.fn(),
+  usersSearch: vi.fn(),
 }))
 
 import {
@@ -196,6 +200,10 @@ import {
   channelsMarkRead,
   serverInviteMember,
   channelInvite,
+  friendsList,
+  friendsAdd,
+  friendsRemove,
+  usersSearch,
 } from '../lib/api'
 import { getLatestChannelKey, getChannelKey } from '../lib/storage'
 import { distributeChannelKey } from '../lib/channel-crypto'
@@ -209,6 +217,10 @@ const mockChannelsUpdate = vi.mocked(channelsUpdate)
 const mockChannelsMarkRead = vi.mocked(channelsMarkRead)
 const mockServerInviteMember = vi.mocked(serverInviteMember)
 const mockChannelInvite = vi.mocked(channelInvite)
+const mockFriendsList = vi.mocked(friendsList)
+const mockFriendsAdd = vi.mocked(friendsAdd)
+const mockFriendsRemove = vi.mocked(friendsRemove)
+const mockUsersSearch = vi.mocked(usersSearch)
 const mockGetLatestChannelKey = vi.mocked(getLatestChannelKey)
 const mockGetChannelKey = vi.mocked(getChannelKey)
 const mockDistributeChannelKey = vi.mocked(distributeChannelKey)
@@ -248,6 +260,10 @@ describe('AppLayout', () => {
     mockChannelsMarkRead.mockResolvedValue({ success: true, data: undefined })
     mockServerInviteMember.mockResolvedValue({ success: true, data: { invitedUser: 'x' } })
     mockChannelInvite.mockResolvedValue({ success: true, data: { invitedUser: 'x' } })
+    mockFriendsList.mockResolvedValue({ success: true, data: [{ userId: 'friend-1', username: 'amic', status: 'online', isOnline: true }] })
+    mockFriendsAdd.mockResolvedValue({ success: true, data: undefined })
+    mockFriendsRemove.mockResolvedValue({ success: true, data: undefined })
+    mockUsersSearch.mockResolvedValue({ success: true, data: [] })
     mockGetLatestChannelKey.mockResolvedValue(null)
     mockGetChannelKey.mockResolvedValue(null)
     mockDistributeChannelKey.mockResolvedValue(undefined)

@@ -11,6 +11,9 @@ use axum::{
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use uuid::Uuid;
 use crate::config::Config;
 use crate::error::AppError;
@@ -34,11 +37,17 @@ pub struct AuthClaims {
 use crate::db::DatabasePool;
 use socketioxide::SocketIo;
 
+#[derive(Debug, Default)]
+pub struct UserPresenceState {
+    pub online_sockets: HashMap<Uuid, HashSet<String>>,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub db: DatabasePool,
     pub config: Config,
     pub io: SocketIo,
+    pub user_presence: Arc<RwLock<UserPresenceState>>,
 }
 
 // ── Generació de tokens ─────────────────────────────────────────

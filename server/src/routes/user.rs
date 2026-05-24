@@ -4,6 +4,7 @@
 
 use axum::{
     extract::Path,
+    extract::Query,
     extract::State,
     Json,
     Router,
@@ -20,6 +21,21 @@ use crate::{
     middleware::{AppState, AuthClaims},
     error::AppError,
 };
+
+#[derive(Debug, Deserialize)]
+pub struct UserSearchQuery {
+    pub q: Option<String>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserSearchResult {
+    pub user_id: Uuid,
+    pub username: String,
+    pub is_friend: bool,
+    pub status: String,
+}
 
 /// Obtenir informació de l'usuari autenticat
 ///
@@ -56,6 +72,38 @@ pub async fn get_user_me(
             "isAdmin": claims.is_admin,
             "deviceId": claims.device_id.to_string(),
         }
+    })))
+}
+
+#[axum::debug_handler]
+pub async fn search_users(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Query(query): Query<UserSearchQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let search = query.q.unwrap_or_default();
+    let limit = query.limit.unwrap_or(20).clamp(1, 50);
+
+    let results = state
+        .db
+        .search_users_for_user(claims.user_id, &search, limit)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+    let presence = state.user_presence.read().await;
+    let data: Vec<UserSearchResult> = results
+        .into_iter()
+        .map(|(user_id, username, is_friend)| UserSearchResult {
+            user_id,
+            username,
+            is_friend,
+            status: if presence.online_sockets.contains_key(&user_id) { "online".to_string() } else { "offline".to_string() },
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "data": data,
     })))
 }
 
@@ -186,6 +234,7 @@ pub async fn revoke_my_device(
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/user/me", axum::routing::get(get_user_me))
+    .route("/api/users/search", axum::routing::get(search_users))
         .route("/api/user/me/devices", axum::routing::get(list_my_devices))
         .route("/api/user/me/devices/{device_id}", axum::routing::delete(revoke_my_device))
         .route("/api/user/me/device/publickey", axum::routing::put(update_device_public_key))

@@ -2,55 +2,87 @@ import React, { useEffect, useMemo, useState } from 'react'
 
 import { Modal } from '../ui/Modal'
 import { Button } from '../shared/Button'
-import type { Friend, FriendPresence } from '../../types'
+import type { FriendPresence, UserSearchResult } from '../../types'
 
 interface FriendsModalProps {
   isOpen: boolean
   onClose: () => void
   friends: FriendPresence[]
-  knownUsers: FriendPresence[]
-  onAddFriend: (friend: Friend) => void
-  onRemoveFriend: (userId: string) => void
-}
-
-function normalizeName(name: string): string {
-  return name.trim().toLowerCase()
+  onAddFriend: (username: string) => Promise<void>
+  onRemoveFriend: (friendUserId: string) => Promise<void>
+  onSearchUsers: (query: string) => Promise<UserSearchResult[]>
 }
 
 export function FriendsModal({
   isOpen,
   onClose,
   friends,
-  knownUsers,
   onAddFriend,
   onRemoveFriend,
+  onSearchUsers,
 }: FriendsModalProps) {
   const [query, setQuery] = useState('')
+  const [results, setResults] = useState<UserSearchResult[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     if (!isOpen) {
       setQuery('')
+      setResults([])
+      setIsSearching(false)
+      setError('')
     }
   }, [isOpen])
 
-  const normalizedQuery = normalizeName(query)
+  const friendIds = useMemo(() => new Set(friends.map((friend) => friend.userId)), [friends])
 
-  const matchingUsers = useMemo(() => {
-    if (!normalizedQuery) return []
-    const friendIds = new Set(friends.map((friend) => friend.userId))
-    return knownUsers.filter((user) => {
-      if (friendIds.has(user.userId)) return false
-      return user.username.toLowerCase().includes(normalizedQuery)
-    })
-  }, [friends, knownUsers, normalizedQuery])
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
 
-  const canCreateLocalFriend = normalizedQuery.length >= 3
-    && !friends.some((friend) => friend.username.toLowerCase() === normalizedQuery)
-    && !knownUsers.some((user) => user.username.toLowerCase() === normalizedQuery)
+    const trimmed = query.trim()
+    if (trimmed.length < 2) {
+      setResults([])
+      setError('')
+      setIsSearching(false)
+      return
+    }
 
-  const handleAddFriend = (friend: Friend) => {
-    onAddFriend(friend)
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      setIsSearching(true)
+      setError('')
+      void onSearchUsers(trimmed)
+        .then((nextResults) => {
+          if (!cancelled) {
+            setResults(nextResults)
+          }
+        })
+        .catch((err) => {
+          if (!cancelled) {
+            setResults([])
+            setError(err instanceof Error ? err.message : 'No s\'ha pogut buscar usuaris')
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setIsSearching(false)
+          }
+        })
+    }, 250)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [isOpen, onSearchUsers, query])
+
+  const handleAddFriend = async (username: string) => {
+    await onAddFriend(username)
     setQuery('')
+    setResults([])
   }
 
   return (
@@ -64,12 +96,12 @@ export function FriendsModal({
                 <li key={friend.userId} className="device-keys-list-item">
                   <div className="device-keys-list-main">
                     <strong>{friend.username}</strong>
-                    <span className={`friend-status-pill ${friend.isOnline ? 'online' : 'offline'}`}>
-                      {friend.isOnline ? 'Actiu' : 'Inactiu'}
+                    <span className={`friend-status-pill ${friend.status}`}>
+                      {friend.status === 'online' ? 'Actiu' : 'Inactiu'}
                     </span>
                   </div>
                   <div className="device-keys-list-actions">
-                    <Button type="button" variant="ghost" onClick={() => onRemoveFriend(friend.userId)}>
+                    <Button type="button" variant="ghost" onClick={() => { void onRemoveFriend(friend.userId) }}>
                       Treure
                     </Button>
                   </div>
@@ -83,7 +115,7 @@ export function FriendsModal({
 
         <section className="device-keys-section">
           <h4>Buscar amics</h4>
-          <p>Escriu un nom per buscar gent del servidor i afegir-la a la llista.</p>
+          <p>Busca qualsevol usuari de l'eina, encara que no comparteixi servidor amb tu.</p>
 
           <div className="form-group friends-search-group">
             <label htmlFor="friend-search">Cerca</label>
@@ -92,47 +124,46 @@ export function FriendsModal({
               type="text"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Cerca per nom"
+              placeholder="Cerca per nom d'usuari"
               autoComplete="off"
               autoFocus
             />
           </div>
 
-          {matchingUsers.length > 0 ? (
-            <ul className="device-keys-list">
-              {matchingUsers.map((user) => (
-                <li key={user.userId} className="device-keys-list-item">
-                  <div className="device-keys-list-main">
-                    <strong>{user.username}</strong>
-                    <span className={`friend-status-pill ${user.isOnline ? 'online' : 'offline'}`}>
-                      {user.isOnline ? 'Actiu' : 'Inactiu'}
-                    </span>
-                  </div>
-                  <div className="device-keys-list-actions">
-                    <Button type="button" variant="primary" onClick={() => handleAddFriend({ userId: user.userId, username: user.username })}>
-                      Afegir
-                    </Button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : normalizedQuery ? (
-            <p>No s'han trobat coincidències entre els amics coneguts.</p>
-          ) : (
-            <p>Busca un nom per veure suggeriments.</p>
-          )}
+          {error && <div className="modal-error">{error}</div>}
 
-          {canCreateLocalFriend && (
-            <div className="friends-search-empty">
-              <p>Vols afegir <strong>{query.trim()}</strong> com a amic local?</p>
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => handleAddFriend({ userId: `local:${normalizeName(query)}`, username: query.trim() })}
-              >
-                Afegir contacte
-              </Button>
-            </div>
+          {isSearching && <p>Buscant...</p>}
+
+          {results.length > 0 ? (
+            <ul className="device-keys-list">
+              {results.map((user) => {
+                const alreadyFriend = user.isFriend || friendIds.has(user.userId)
+                return (
+                  <li key={user.userId} className="device-keys-list-item">
+                    <div className="device-keys-list-main">
+                      <strong>{user.username}</strong>
+                      <span className={`friend-status-pill ${user.status}`}>
+                        {user.status === 'online' ? 'Actiu' : 'Inactiu'}
+                      </span>
+                    </div>
+                    <div className="device-keys-list-actions">
+                      <Button
+                        type="button"
+                        variant={alreadyFriend ? 'ghost' : 'primary'}
+                        onClick={() => { if (!alreadyFriend) { void handleAddFriend(user.username) } }}
+                        disabled={alreadyFriend}
+                      >
+                        {alreadyFriend ? 'Ja és amic' : 'Afegir'}
+                      </Button>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          ) : query.trim().length >= 2 && !isSearching ? (
+            <p>No s'han trobat coincidències globals.</p>
+          ) : (
+            <p>Escriu almenys 2 caràcters per buscar.</p>
           )}
         </section>
       </div>

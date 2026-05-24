@@ -7,3 +7,4 @@ pub mod messages;
 pub mod livekit;
 pub mod health;
 pub mod user;
+pub mod friends;

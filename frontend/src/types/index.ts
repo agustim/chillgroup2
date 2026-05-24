@@ -53,11 +53,18 @@ export interface ServerMember {
 export interface Friend {
   userId: string
   username: string
+  status: PresenceStatus
 }
 
 export interface FriendPresence extends Friend {
   isOnline: boolean
 }
+
+export interface UserSearchResult extends Friend {
+  isFriend: boolean
+}
+
+export type PresenceStatus = 'online' | 'offline'
 
 export type ChannelType = 'text' | 'voice'
 export type EncryptionType = 'none' | 'symmetric' | 'asymmetric'

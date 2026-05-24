@@ -2,7 +2,7 @@
 //!
 //! Wrapper sobre fetch per a crides a l'API REST.
 
-import type { Server, ServerFullInfo, ServerMember, ServerRole, Channel } from '../types'
+import type { Channel, FriendPresence, PresenceStatus, Server, ServerFullInfo, ServerMember, ServerRole, UserSearchResult } from '../types'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
@@ -260,6 +260,27 @@ function mapChannel(channel: any): ChannelInfo {
 function mapInviteResponse(response: any) {
   return {
     invitedUser: response.invited_user,
+  }
+}
+
+function mapFriendPresence(friend: any): FriendPresence {
+  const status = (friend.status ?? friend.presenceStatus ?? 'offline') as PresenceStatus
+  return {
+    userId: friend.user_id ?? friend.userId,
+    username: friend.username,
+    status,
+    isOnline: status === 'online',
+  }
+}
+
+function mapUserSearchResult(user: any): UserSearchResult {
+  const status = (user.status ?? user.presenceStatus ?? 'offline') as PresenceStatus
+  return {
+    userId: user.user_id ?? user.userId,
+    username: user.username,
+    status,
+    isOnline: status === 'online',
+    isFriend: user.is_friend ?? user.isFriend ?? false,
   }
 }
 
@@ -636,6 +657,33 @@ export async function deviceUpdatePublicKey(kemPublicKey: string, dsaPublicKey: 
   })
   if (!result.success) return result
   return { success: true, data: undefined }
+}
+
+export async function friendsList(): Promise<ApiResult<FriendPresence[]>> {
+  const result = await apiRequest<any>('GET', '/api/friends')
+  if (!result.success) return result
+  const data = Array.isArray(result.data) ? result.data : (result.data?.data ?? [])
+  return { success: true, data: data.map(mapFriendPresence) }
+}
+
+export async function friendsAdd(username: string): Promise<ApiResult<void>> {
+  const result = await apiRequest<void>('POST', '/api/friends', { username })
+  if (!result.success) return result
+  return { success: true, data: undefined }
+}
+
+export async function friendsRemove(friendUserId: string): Promise<ApiResult<void>> {
+  const result = await apiRequest<void>('DELETE', `/api/friends/${friendUserId}`)
+  if (!result.success) return result
+  return { success: true, data: undefined }
+}
+
+export async function usersSearch(query: string): Promise<ApiResult<UserSearchResult[]>> {
+  const params = new URLSearchParams({ q: query, limit: '20' })
+  const result = await apiRequest<any>('GET', `/api/users/search?${params.toString()}`)
+  if (!result.success) return result
+  const data = Array.isArray(result.data) ? result.data : (result.data?.data ?? [])
+  return { success: true, data: data.map(mapUserSearchResult) }
 }
 
 // ── LiveKit ─────────────────────────────────────────────────────

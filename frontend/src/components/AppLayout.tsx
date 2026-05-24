@@ -14,12 +14,15 @@ import { PermissionsModal } from './modals/PermissionsModal'
 import { ChangePasswordModal } from './modals/ChangePasswordModal'
 import { FriendsModal } from './modals/FriendsModal'
 import { useLiveKit } from '../hooks/useLiveKit'
-import { Channel, Friend, FriendPresence, Server, ServerFullInfo, VoiceParticipant } from '../types'
+import { Channel, FriendPresence, Server, ServerFullInfo, VoiceParticipant } from '../types'
 import { getSocket } from '../lib/socket'
 import { hasLocalDeviceKeypair } from '../lib/device-keys'
 import { ensureChannelKey, distributeChannelKey } from '../lib/channel-crypto'
 import { getChannelKey, getLatestChannelKey } from '../lib/storage'
 import {
+  friendsAdd,
+  friendsList,
+  friendsRemove,
   serverInviteMember,
   serversCreate,
   serversGet,
@@ -30,6 +33,7 @@ import {
   channelInvite,
   channelsUpdate,
   channelDelete,
+  usersSearch,
 } from '../lib/api'
 
 interface AppLayoutProps {
@@ -39,37 +43,6 @@ interface AppLayoutProps {
 
 type PanelType = 'none' | 'serverConfig' | 'channelConfig' | 'devices'
 type ServerMenuAction = 'config' | 'invite' | 'createText' | 'createVoice' | null
-
-interface FriendRecord extends Friend {
-  isOnline: boolean
-}
-
-const FRIENDS_STORAGE_KEY = 'chillgroup-friends'
-
-function normalizeName(name: string): string {
-  return name.trim().toLowerCase()
-}
-
-function friendKey(friend: Friend) {
-  return normalizeName(friend.username)
-}
-
-function readStoredFriends(): FriendRecord[] {
-  try {
-    const raw = localStorage.getItem(FRIENDS_STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as Array<Partial<FriendRecord>>
-    return parsed
-      .filter((friend): friend is FriendRecord => !!friend?.userId && !!friend?.username)
-      .map((friend) => ({
-        userId: friend.userId,
-        username: friend.username,
-        isOnline: !!friend.isOnline,
-      }))
-  } catch {
-    return []
-  }
-}
 
 export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const { user, logout, currentDeviceId } = useAuth()
@@ -83,8 +56,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const [voiceChannelId, setVoiceChannelId] = useState<string | null>(null)
   const [voiceChannelName, setVoiceChannelName] = useState<string>('')
   const [voicePresenceByChannel, setVoicePresenceByChannel] = useState<Record<string, VoiceParticipant[]>>({})
-  const [friends, setFriends] = useState<FriendRecord[]>([])
-  const [friendsLoaded, setFriendsLoaded] = useState(false)
+  const [friends, setFriends] = useState<FriendPresence[]>([])
   const [panel, setPanel] = useState<PanelType>('none')
   const [feedback, setFeedback] = useState<string | null>(null)
   
@@ -131,20 +103,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   }, [feedback])
 
   useEffect(() => {
-    setFriends(readStoredFriends())
-    setFriendsLoaded(true)
-  }, [])
-
-  useEffect(() => {
-    if (!friendsLoaded) return
-    try {
-      localStorage.setItem(FRIENDS_STORAGE_KEY, JSON.stringify(friends))
-    } catch {
-      // Best effort: la llista d'amics és una preferència local.
-    }
-  }, [friends, friendsLoaded])
-
-  useEffect(() => {
     if (!user || !currentDeviceId) {
       return
     }
@@ -167,6 +125,23 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     }
   }, [user, currentDeviceId])
 
+  useEffect(() => {
+    let cancelled = false
+
+    const loadFriends = async () => {
+      const result = await friendsList()
+      if (!cancelled && result.success) {
+        setFriends(result.data)
+      }
+    }
+
+    void loadFriends()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const selectedServerInfo = selectedServer ? servers.find((server) => server.serverId === selectedServer) : undefined
   const resolvedSelectedChannel = selectedChannel
     ? channels.find((channel) => channel.channelId === selectedChannel.channelId) ?? selectedChannel
@@ -177,69 +152,22 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     serverDetails?.myRole === 'owner' ||
     serverDetails?.myRole === 'admin'
 
-  const activeFriendIds = useMemo(() => {
-    const ids = new Set<string>()
-    for (const participants of Object.values(voicePresenceByChannel)) {
-      for (const participant of participants) {
-        ids.add(participant.userId)
-      }
-    }
-    return ids
-  }, [voicePresenceByChannel])
-
-  const friendsWithPresence = useMemo(
-    () => friends.map((friend) => ({ ...friend, isOnline: activeFriendIds.has(friend.userId) })),
-    [friends, activeFriendIds]
-  )
-
-  const knownUsers = useMemo<FriendPresence[]>(() => {
-    const known = new Map<string, FriendPresence>()
-
-    for (const member of serverDetails?.members ?? []) {
-      if (member.userId === user?.userId) {
-        continue
-      }
-      known.set(member.userId, {
-        userId: member.userId,
-        username: member.username,
-        isOnline: activeFriendIds.has(member.userId),
-      })
-    }
-
-    for (const participants of Object.values(voicePresenceByChannel)) {
-      for (const participant of participants) {
-        if (participant.userId === user?.userId || known.has(participant.userId)) {
-          continue
-        }
-        known.set(participant.userId, {
-          userId: participant.userId,
-          username: participant.username,
-          isOnline: true,
-        })
-      }
-    }
-
-    return Array.from(known.values()).sort((left, right) => left.username.localeCompare(right.username))
-  }, [activeFriendIds, serverDetails?.members, user?.userId, voicePresenceByChannel])
-
   useEffect(() => {
-    if (!friendsLoaded || friends.length > 0 || (serverDetails?.members ?? []).length === 0) {
-      return
+    const socket = getSocket()
+    const handleFriendPresenceUpdated = (payload: { userId: string; username: string; status: string }) => {
+      const status = payload.status === 'online' ? 'online' : 'offline'
+      setFriends((current) => current.map((friend) => (
+        friend.userId === payload.userId
+          ? { ...friend, username: payload.username, status, isOnline: status === 'online' }
+          : friend
+      )))
     }
 
-    const seedFriends = (serverDetails?.members ?? [])
-      .filter((member) => member.userId !== user?.userId)
-      .slice(0, 6)
-      .map((member) => ({
-        userId: member.userId,
-        username: member.username,
-        isOnline: activeFriendIds.has(member.userId),
-      }))
-
-    if (seedFriends.length > 0) {
-      setFriends(seedFriends)
+    socket.on('friend-presence-updated', handleFriendPresenceUpdated)
+    return () => {
+      socket.off('friend-presence-updated', handleFriendPresenceUpdated)
     }
-  }, [activeFriendIds, friends.length, friendsLoaded, serverDetails?.members, user?.userId])
+  }, [])
 
   const fetchServers = async () => {
     const result = await serversList()
@@ -690,30 +618,36 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     setShowPermissionsModal(true)
   }
 
-  const handleAddFriend = (friend: Friend) => {
-    const normalized = friendKey(friend)
-    setFriends((current) => {
-      if (current.some((entry) => friendKey(entry) === normalized)) {
-        return current.map((entry) => (
-          friendKey(entry) === normalized
-            ? { ...entry, username: friend.username }
-            : entry
-        ))
-      }
-
-      return [
-        ...current,
-        {
-          userId: friend.userId,
-          username: friend.username,
-          isOnline: activeFriendIds.has(friend.userId),
-        },
-      ]
-    })
+  const refreshFriends = async () => {
+    const result = await friendsList()
+    if (result.success) {
+      setFriends(result.data)
+    }
   }
 
-  const handleRemoveFriend = (userId: string) => {
-    setFriends((current) => current.filter((friend) => friend.userId !== userId))
+  const handleAddFriend = async (usernameToAdd: string) => {
+    const result = await friendsAdd(usernameToAdd)
+    if (result.success) {
+      await refreshFriends()
+      setFeedback(`Amic afegit: ${usernameToAdd}`)
+    } else {
+      setFeedback(result.error.message)
+    }
+  }
+
+  const handleRemoveFriend = async (userId: string) => {
+    const result = await friendsRemove(userId)
+    if (result.success) {
+      await refreshFriends()
+      setFeedback('Amic eliminat')
+    } else {
+      setFeedback(result.error.message)
+    }
+  }
+
+  const handleSearchUsers = async (query: string) => {
+    const result = await usersSearch(query)
+    return result.success ? result.data : []
   }
 
   // Obrir modal de configuració de canal
@@ -890,7 +824,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           onCreateTextChannel={canManageServer ? () => setShowCreateTextChannel(true) : undefined}
           onCreateVoiceChannel={canManageServer ? () => setShowCreateVoiceChannel(true) : undefined}
           canCreateChannel={canManageServer}
-          friends={friendsWithPresence}
+          friends={friends}
         />
       )}
 
@@ -1025,10 +959,10 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
         <FriendsModal
           isOpen={showFriendsModal}
           onClose={() => setShowFriendsModal(false)}
-          friends={friendsWithPresence}
-          knownUsers={knownUsers}
+          friends={friends}
           onAddFriend={handleAddFriend}
           onRemoveFriend={handleRemoveFriend}
+          onSearchUsers={handleSearchUsers}
         />
 
         <ChangePasswordModal

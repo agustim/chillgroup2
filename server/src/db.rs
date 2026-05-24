@@ -24,7 +24,6 @@ pub async fn connect_db(config: &Config) -> Result<DatabasePool, String> {
         Err(msg)
     }
 }
-
 /// Connexió a PostgreSQL amb comprovació.
 async fn connect_postgres(config: &Config) -> Result<DatabasePool, String> {
     let pool = sqlx::postgres::PgPoolOptions::new()
@@ -95,6 +94,20 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
         )
         "#,
         r#"CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)"#,
+
+            // Friendships
+            r#"
+            CREATE TABLE IF NOT EXISTS friendships (
+                owner_user_id TEXT NOT NULL,
+                friend_user_id TEXT NOT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (owner_user_id, friend_user_id),
+                FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (friend_user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            "#,
+            r#"CREATE INDEX IF NOT EXISTS idx_friendships_owner_user_id ON friendships(owner_user_id)"#,
+            r#"CREATE INDEX IF NOT EXISTS idx_friendships_friend_user_id ON friendships(friend_user_id)"#,
 
         // Devices
         r#"
@@ -375,6 +388,151 @@ impl DatabasePool {
                     .await
                     .map_err(|e| format!("Error SQLite: {}", e))?;
                 Ok(exists.get::<bool, _>(0))
+            }
+        }
+    }
+
+    pub async fn list_friends_for_user(&self, user_id: Uuid) -> Result<Vec<(Uuid, String)>, sqlx::Error> {
+        let query = "SELECT u.id, u.username FROM friendships f JOIN users u ON u.id = f.friend_user_id WHERE f.owner_user_id = $1 ORDER BY u.username ASC";
+
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let rows = sqlx::query(query).bind(user_id).fetch_all(pool).await?;
+                Ok(rows.into_iter().map(|row| (row.get(0), row.get(1))).collect())
+            }
+            DatabasePool::Sqlite(pool) => {
+                let rows = sqlx::query(&query.replace("$1", "?")).bind(user_id).fetch_all(pool).await?;
+                Ok(rows.into_iter().map(|row| (row.get(0), row.get(1))).collect())
+            }
+        }
+    }
+
+    pub async fn add_friend_for_user(&self, owner_user_id: Uuid, friend_user_id: Uuid) -> Result<(), sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "INSERT INTO friendships (owner_user_id, friend_user_id) VALUES ($1, $2) ON CONFLICT (owner_user_id, friend_user_id) DO NOTHING",
+                )
+                .bind(owner_user_id)
+                .bind(friend_user_id)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "INSERT INTO friendships (owner_user_id, friend_user_id) VALUES (?, ?) ON CONFLICT(owner_user_id, friend_user_id) DO NOTHING",
+                )
+                .bind(owner_user_id)
+                .bind(friend_user_id)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn remove_friend_for_user(&self, owner_user_id: Uuid, friend_user_id: Uuid) -> Result<(), sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query("DELETE FROM friendships WHERE owner_user_id = $1 AND friend_user_id = $2")
+                    .bind(owner_user_id)
+                    .bind(friend_user_id)
+                    .execute(pool)
+                    .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query("DELETE FROM friendships WHERE owner_user_id = ? AND friend_user_id = ?")
+                    .bind(owner_user_id)
+                    .bind(friend_user_id)
+                    .execute(pool)
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn list_friend_owner_ids_for_user(&self, friend_user_id: Uuid) -> Result<Vec<Uuid>, sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let rows = sqlx::query("SELECT owner_user_id FROM friendships WHERE friend_user_id = $1")
+                    .bind(friend_user_id)
+                    .fetch_all(pool)
+                    .await?;
+                Ok(rows.into_iter().map(|row| row.get(0)).collect())
+            }
+            DatabasePool::Sqlite(pool) => {
+                let rows = sqlx::query("SELECT owner_user_id FROM friendships WHERE friend_user_id = ?")
+                    .bind(friend_user_id)
+                    .fetch_all(pool)
+                    .await?;
+                Ok(rows.into_iter().map(|row| row.get(0)).collect())
+            }
+        }
+    }
+
+    pub async fn search_users_for_user(
+        &self,
+        current_user_id: Uuid,
+        query: &str,
+        limit: i64,
+    ) -> Result<Vec<(Uuid, String, bool)>, sqlx::Error> {
+        let trimmed = query.trim();
+        if trimmed.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let like_query = format!("%{}%", trimmed);
+        let sql_postgres = r#"
+            SELECT u.id, u.username, (f.friend_user_id IS NOT NULL) AS is_friend
+            FROM users u
+            LEFT JOIN friendships f
+              ON f.owner_user_id = $1
+             AND f.friend_user_id = u.id
+            WHERE u.id <> $1
+              AND u.username ILIKE $2
+            ORDER BY u.username ASC
+            LIMIT $3
+        "#;
+        let sql_sqlite = r#"
+            SELECT u.id, u.username, CASE WHEN f.friend_user_id IS NOT NULL THEN 1 ELSE 0 END AS is_friend
+            FROM users u
+            LEFT JOIN friendships f
+              ON f.owner_user_id = ?
+             AND f.friend_user_id = u.id
+            WHERE u.id <> ?
+              AND u.username LIKE ? COLLATE NOCASE
+            ORDER BY u.username ASC
+            LIMIT ?
+        "#;
+
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let rows = sqlx::query(sql_postgres)
+                    .bind(current_user_id)
+                    .bind(like_query)
+                    .bind(limit)
+                    .fetch_all(pool)
+                    .await?;
+                Ok(rows
+                    .into_iter()
+                    .map(|row| (row.get(0), row.get(1), row.get::<bool, _>(2)))
+                    .collect())
+            }
+            DatabasePool::Sqlite(pool) => {
+                let rows = sqlx::query(sql_sqlite)
+                    .bind(current_user_id)
+                    .bind(current_user_id)
+                    .bind(like_query)
+                    .bind(limit)
+                    .fetch_all(pool)
+                    .await?;
+                Ok(rows
+                    .into_iter()
+                    .map(|row| {
+                        let is_friend: i64 = row.get(2);
+                        (row.get(0), row.get(1), is_friend != 0)
+                    })
+                    .collect())
             }
         }
     }
