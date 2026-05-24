@@ -20,6 +20,7 @@ Aquesta carpeta conté **tota la especificació tècnica** necessària per const
 | [FRONTEND.md](FRONTEND.md) | 1077 | Layout, CSS variables, temes, fonts, storage, components |
 | [TESTING.md](TESTING.md) | 1264 | TDD, Playwright E2E, fixtures, escenaris, CI/CD |
 | [API.md](API.md) | 951 | 27 endpoints amb request/response JSON exactes, incloent amics i cerca global |
+| [DM.md](DM.md) | 205 | Disseny objectiu de DM 1:1 asimètric amb TTL, API i migració |
 | [SOCKET.md](SOCKET.md) | 708 | 18 events, payloads, rooms, protocol temps real, incloent presència d'amics |
 | [ERRORS.md](ERRORS.md) | 825 | 53 codis d'error, Rust type, TypeScript handling |
 
@@ -31,8 +32,9 @@ Aquesta carpeta conté **tota la especificació tècnica** necessària per const
 2. **ARCHITECTURE.md** → Com està estructurat?
 3. **DEVELOPMENT.md** → Per on començo?
 4. **API.md** → Quines són les interfícies?
-5. **SOCKET.md** → Com funciona el temps real?
-6. **CRYPTOGRAPHY.md** → Com funciona la seguretat?
+5. **DM.md** → Contracte objectiu de missatges directes 1:1
+6. **SOCKET.md** → Com funciona el temps real?
+7. **CRYPTOGRAPHY.md** → Com funciona la seguretat?
 
 ### Per a un agent LLM que ha de construir el projecte
 
@@ -62,6 +64,8 @@ ARCHITECTURE ─── DATABASE ─── CRYPTOGRAPHY
 DEVELOPMENT ─── FRONTEND
     ↓              ↓
   TESTING ─── API ─── SOCKET ─── ERRORS
+                            │
+                            └── DM
 ```
 
 - **OVERVIEW** → Context i objectiu
@@ -72,6 +76,7 @@ DEVELOPMENT ─── FRONTEND
 - **FRONTEND** → Interfície d'usuari
 - **TESTING** → Estratègia de verificació
 - **API** → Contracte HTTP
+- **DM** → Disseny DM 1:1 amb E2EE asimètric i TTL
 - **SOCKET** → Protocol de temps real
 - **ERRORS** → Gestió d'errors
 

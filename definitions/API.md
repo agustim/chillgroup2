@@ -981,6 +981,10 @@ torna a entrar a un canal.
 
 ## Missatges Directes (DM)
 
+> Nota: aquesta secció descriu els endpoints actuals (legacy).
+> El model objectiu per a implementació nova és a `definitions/DM.md`:
+> DM 1:1 com a canal privat asimètric amb `message_ttl`.
+
 ### POST `/api/direct-messages`
 
 Enviar un missatge directe (privat) a un altre usuari.
