@@ -181,7 +181,13 @@ export async function distributeChannelKey(
   keyVersion = 1,
   keyVersionId?: string | null,
   signerDeviceId?: string
-): Promise<void> {
+): Promise<{
+  discoveredDevices: string[]
+  skippedSelfDevices: string[]
+  skippedMissingKemDevices: string[]
+  uploadedBundleDevices: string[]
+  failedDevices: Array<{ deviceId: string; reason: string }>
+}> {
   if (signerDeviceId) {
     try {
       await syncCurrentDevicePublicKeys(signerDeviceId)
@@ -196,7 +202,19 @@ export async function distributeChannelKey(
   }
 
   const devicesResult = await channelGetMemberDevices(channelId)
-  if (!devicesResult.success || !devicesResult.data.length) return
+  if (!devicesResult.success || !devicesResult.data.length) {
+    return {
+      discoveredDevices: [],
+      skippedSelfDevices: [],
+      skippedMissingKemDevices: [],
+      uploadedBundleDevices: [],
+      failedDevices: [],
+    }
+  }
+
+  const discoveredDevices = devicesResult.data.map((device) => device.deviceId)
+  const skippedSelfDevices: string[] = []
+  const skippedMissingKemDevices: string[] = []
 
   let signerSecretKey: Uint8Array | null = null
   if (signerDeviceId && keyVersionId) {
@@ -220,9 +238,13 @@ export async function distributeChannelKey(
 
   for (const { deviceId, kemPublicKey, dsaPublicKey } of devicesResult.data) {
     if (signerDeviceId && deviceId === signerDeviceId) {
+      skippedSelfDevices.push(deviceId)
       continue
     }
-    if (!kemPublicKey) continue
+    if (!kemPublicKey) {
+      skippedMissingKemDevices.push(deviceId)
+      continue
+    }
     try {
       const pubKeyBytes = base64ToUint8Array(kemPublicKey)
       const dsaKeyBytes = dsaPublicKey ? base64ToUint8Array(dsaPublicKey) : undefined
@@ -289,6 +311,17 @@ export async function distributeChannelKey(
       ...logPayload,
       uploadedBundles: bundles.length,
     })
+  }
+
+  return {
+    discoveredDevices,
+    skippedSelfDevices,
+    skippedMissingKemDevices,
+    uploadedBundleDevices: bundles.map((bundle) => bundle.deviceId),
+    failedDevices: failureDetails.map((detail) => ({
+      deviceId: detail.deviceId,
+      reason: detail.reason,
+    })),
   }
 }
 

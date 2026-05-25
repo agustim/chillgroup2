@@ -25,12 +25,14 @@ use shared::constants::{MIN_USERNAME_LENGTH, MAX_USERNAME_LENGTH, MIN_PASSWORD_L
 pub struct RegisterRequest {
     pub username: String,
     pub password: String,
+    pub device_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
+    pub device_id: Option<Uuid>,
 }
 
 // ── Register ─────────────────────────────────────────────────────
@@ -96,7 +98,11 @@ pub async fn register(
 
     // Crear dispositiu persistent per a l'usuari
     let device_label = format!("Dispositiu principal");
-    let device_id = match state.db.upsert_device_for_user(user_id, &device_label).await {
+    let device_id = match state
+        .db
+        .upsert_device_for_user(user_id, &device_label, req.device_id)
+        .await
+    {
         Ok(id) => id,
         Err(e) => {
             error!("❌ Error creant dispositiu a DB: {}", e);
@@ -162,7 +168,11 @@ pub async fn login(
             let user_id = _user_id;
 
             // Recuperar o crear dispositiu persistent per a l'usuari
-            let device_id = match state.db.upsert_device_for_user(user_id, "Dispositiu principal").await {
+            let device_id = match state
+                .db
+                .upsert_device_for_user(user_id, "Dispositiu principal", req.device_id)
+                .await
+            {
                 Ok(id) => id,
                 Err(e) => {
                     error!("❌ Error obtenint dispositiu a DB: {}", e);

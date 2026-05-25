@@ -3,6 +3,7 @@
 //! Wrapper sobre fetch per a crides a l'API REST.
 
 import type { Channel, FriendPresence, PresenceStatus, Server, ServerFullInfo, ServerMember, ServerRole, UserSearchResult } from '../types'
+import { getStoredDeviceId } from './device-identity'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
@@ -317,7 +318,11 @@ function mapUserSearchResult(user: any): UserSearchResult {
 // ── API Functions ─────────────────────────────────────────────
 
 export async function authRegister(username: string, password: string) {
-  const result = await apiRequest<any>('POST', '/api/auth/register', { username, password })
+  const deviceId = getStoredDeviceId()
+  const payload = deviceId
+    ? { username, password, device_id: deviceId }
+    : { username, password }
+  const result = await apiRequest<any>('POST', '/api/auth/register', payload)
   if (!result.success) return result
   return {
     success: true,
@@ -338,7 +343,11 @@ export async function authRegister(username: string, password: string) {
 }
 
 export async function authLogin(username: string, password: string) {
-  const result = await apiRequest<any>('POST', '/api/auth/login', { username, password })
+  const deviceId = getStoredDeviceId()
+  const payload = deviceId
+    ? { username, password, device_id: deviceId }
+    : { username, password }
+  const result = await apiRequest<any>('POST', '/api/auth/login', payload)
   if (!result.success) return result
   return {
     success: true,
@@ -765,6 +774,8 @@ export async function channelGetMemberDevices(channelId: string): Promise<ApiRes
   publicKey: string
   kemPublicKey: string
   dsaPublicKey: string
+  hasKemPublicKey: boolean
+  hasDsaPublicKey: boolean
 }>>> {
   const result = await apiRequest<any>('GET', `/api/channels/${channelId}/member-devices`)
   if (!result.success) return result
@@ -776,6 +787,8 @@ export async function channelGetMemberDevices(channelId: string): Promise<ApiRes
       publicKey: d.kemPublicKey ?? d.kem_public_key ?? d.publicKey ?? d.public_key,
       kemPublicKey: d.kemPublicKey ?? d.kem_public_key ?? d.publicKey ?? d.public_key,
       dsaPublicKey: d.dsaPublicKey ?? d.dsa_public_key ?? '',
+      hasKemPublicKey: d.hasKemPublicKey ?? d.has_kem_public_key ?? false,
+      hasDsaPublicKey: d.hasDsaPublicKey ?? d.has_dsa_public_key ?? false,
     })),
   }
 }

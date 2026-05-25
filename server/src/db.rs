@@ -2218,19 +2218,103 @@ impl DatabasePool {
         }
     }
 
-    /// Crea un dispositiu per a un usuari (si no en té cap) i retorna el device_id.
-    pub async fn upsert_device_for_user(&self, user_id: Uuid, label: &str) -> Result<Uuid, sqlx::Error> {
-        // Try to find an existing non-revoked device first.
-        if let Some((existing_id, _)) = self.get_device_for_user(user_id).await? {
-            return Ok(existing_id);
+    /// Crea/reutilitza un dispositiu per usuari segons el `requested_device_id` enviat pel client.
+    ///
+    /// Regles:
+    /// - Si el client envia un `requested_device_id` i ja pertany a l'usuari (no revocat), es reutilitza.
+    /// - Si l'id enviat existeix però és d'un altre usuari o està revocat, se'n crea un de nou.
+    /// - Si no s'envia cap id, se'n crea un de nou.
+    pub async fn upsert_device_for_user(
+        &self,
+        user_id: Uuid,
+        label: &str,
+        requested_device_id: Option<Uuid>,
+    ) -> Result<Uuid, sqlx::Error> {
+        if let Some(candidate_id) = requested_device_id {
+            let can_reuse = match self {
+                DatabasePool::Postgres(pool) => {
+                    sqlx::query(
+                        "SELECT 1 FROM devices WHERE id = $1 AND user_id = $2 AND revoked = false LIMIT 1",
+                    )
+                    .bind(candidate_id)
+                    .bind(user_id)
+                    .fetch_optional(pool)
+                    .await?
+                    .is_some()
+                }
+                DatabasePool::Sqlite(pool) => {
+                    sqlx::query(
+                        "SELECT 1 FROM devices WHERE id = ? AND user_id = ? AND revoked = 0 LIMIT 1",
+                    )
+                    .bind(candidate_id)
+                    .bind(user_id)
+                    .fetch_optional(pool)
+                    .await?
+                    .is_some()
+                }
+            };
+
+            if can_reuse {
+                return Ok(candidate_id);
+            }
+
+            let exists_for_anyone = match self {
+                DatabasePool::Postgres(pool) => {
+                    sqlx::query("SELECT 1 FROM devices WHERE id = $1 LIMIT 1")
+                        .bind(candidate_id)
+                        .fetch_optional(pool)
+                        .await?
+                        .is_some()
+                }
+                DatabasePool::Sqlite(pool) => {
+                    sqlx::query("SELECT 1 FROM devices WHERE id = ? LIMIT 1")
+                        .bind(candidate_id)
+                        .fetch_optional(pool)
+                        .await?
+                        .is_some()
+                }
+            };
+
+            if !exists_for_anyone {
+                let now = chrono::Utc::now().to_rfc3339();
+                match self {
+                    DatabasePool::Postgres(pool) => {
+                        sqlx::query(
+                            "INSERT INTO devices (id, user_id, label, public_key, kem_public_key, dsa_public_key, last_seen, revoked, created_at) \
+                             VALUES ($1, $2, $3, '', '', '', NOW(), false, NOW()) ON CONFLICT DO NOTHING",
+                        )
+                        .bind(candidate_id)
+                        .bind(user_id)
+                        .bind(label)
+                        .execute(pool)
+                        .await?;
+                    }
+                    DatabasePool::Sqlite(pool) => {
+                        sqlx::query(
+                            "INSERT OR IGNORE INTO devices (id, user_id, label, public_key, kem_public_key, dsa_public_key, last_seen, revoked, created_at) \
+                             VALUES (?, ?, ?, '', '', '', ?, 0, ?)",
+                        )
+                        .bind(candidate_id)
+                        .bind(user_id)
+                        .bind(label)
+                        .bind(&now)
+                        .bind(&now)
+                        .execute(pool)
+                        .await?;
+                    }
+                }
+
+                return Ok(candidate_id);
+            }
         }
+
         let device_id = Uuid::new_v4();
         let now = chrono::Utc::now().to_rfc3339();
         match self {
             DatabasePool::Postgres(pool) => {
                 sqlx::query(
                     "INSERT INTO devices (id, user_id, label, public_key, kem_public_key, dsa_public_key, last_seen, revoked, created_at) \
-                     VALUES ($1, $2, $3, '', '', '', NOW(), false, NOW()) ON CONFLICT DO NOTHING"
+                     VALUES ($1, $2, $3, '', '', '', NOW(), false, NOW()) ON CONFLICT DO NOTHING",
                 )
                 .bind(device_id)
                 .bind(user_id)
@@ -2241,7 +2325,7 @@ impl DatabasePool {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query(
                     "INSERT OR IGNORE INTO devices (id, user_id, label, public_key, kem_public_key, dsa_public_key, last_seen, revoked, created_at) \
-                     VALUES (?, ?, ?, '', '', '', ?, 0, ?)"
+                     VALUES (?, ?, ?, '', '', '', ?, 0, ?)",
                 )
                 .bind(device_id)
                 .bind(user_id)
@@ -2694,7 +2778,7 @@ impl DatabasePool {
         }
     }
 
-    /// Retorna els dispositius dels membres del canal amb claus públiques registrades.
+    /// Retorna els dispositius actius dels membres del canal, tinguin o no claus públiques registrades.
     pub async fn get_member_devices_for_channel(&self, channel_id: Uuid) -> Result<Vec<(Uuid, String, String)>, sqlx::Error> {
         match self {
             DatabasePool::Postgres(pool) => {
@@ -2704,7 +2788,7 @@ impl DatabasePool {
                      JOIN channels c ON c.id = $1 \
                      LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = d.user_id \
                      LEFT JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = d.user_id \
-                     WHERE d.revoked = false AND d.kem_public_key != '' AND d.kem_public_key IS NOT NULL \
+                     WHERE d.revoked = false \
                        AND (\
                             (c.scope = 'dm' AND cm.user_id IS NOT NULL) \
                             OR \
@@ -2723,7 +2807,7 @@ impl DatabasePool {
                      JOIN channels c ON c.id = ? \
                      LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = d.user_id \
                      LEFT JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = d.user_id \
-                     WHERE d.revoked = 0 AND d.kem_public_key != '' AND d.kem_public_key IS NOT NULL \
+                                         WHERE d.revoked = 0 \
                        AND (\
                             (COALESCE(c.scope, 'server') = 'dm' AND cm.user_id IS NOT NULL) \
                             OR \

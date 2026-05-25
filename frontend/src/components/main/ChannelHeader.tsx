@@ -35,7 +35,7 @@ export function ChannelHeader({ channel, onDmRepairKey, onDmRotateKey, dmKeyActi
               disabled={dmKeyActionBusy}
               title="Redistribueix la clau actual als dispositius del DM"
             >
-              Reparar claus
+              Arreglar claus
             </button>
             <button
               type="button"

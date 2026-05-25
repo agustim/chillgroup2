@@ -47,6 +47,33 @@ interface AppLayoutProps {
 type PanelType = 'none' | 'serverConfig' | 'channelConfig' | 'devices'
 type ServerMenuAction = 'config' | 'invite' | 'createText' | 'createVoice' | null
 
+function formatDmRepairFeedback(result: {
+  discoveredDevices: string[]
+  skippedSelfDevices: string[]
+  skippedMissingKemDevices: string[]
+  uploadedBundleDevices: string[]
+  failedDevices: Array<{ deviceId: string; reason: string }>
+}): string {
+  const parts = [
+    `Devices DM vistos: ${result.discoveredDevices.length}`,
+    `bundles pujats: ${result.uploadedBundleDevices.length}`,
+  ]
+
+  if (result.skippedSelfDevices.length > 0) {
+    parts.push(`omès actual: ${result.skippedSelfDevices.join(', ')}`)
+  }
+
+  if (result.skippedMissingKemDevices.length > 0) {
+    parts.push(`sense kemPublicKey: ${result.skippedMissingKemDevices.join(', ')}`)
+  }
+
+  if (result.failedDevices.length > 0) {
+    parts.push(`fallits: ${result.failedDevices.map((item) => `${item.deviceId} (${item.reason})`).join(', ')}`)
+  }
+
+  return parts.join(' | ')
+}
+
 export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const { user, logout, currentDeviceId } = useAuth()
   const [servers, setServers] = useState<Server[]>([])
@@ -480,7 +507,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const handleRepairDmKey = async (channel: Channel) => {
     if (channel.scope !== 'dm') return
     if (!currentDeviceId) {
-      setFeedback('Falta el dispositiu actual per reparar claus del DM')
+      setFeedback('Falta el dispositiu actual per arreglar claus del DM')
       return
     }
 
@@ -498,14 +525,14 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
       const keyVersion = latest?.keyVersion ?? channel.keyVersion ?? 1
 
       if (!channelKey) {
-        throw new Error('No tens cap clau local per poder reparar el DM')
+        throw new Error('No tens cap clau local per poder arreglar el DM')
       }
 
       if (!keyVersionId) {
         throw new Error('Falta keyVersionId; no es pot signar la redistribució de claus')
       }
 
-      await distributeChannelKey(
+      const distribution = await distributeChannelKey(
         channel.channelId,
         channelKey,
         keyVersion,
@@ -513,9 +540,9 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
         currentDeviceId,
       )
 
-      setFeedback('Resincronització de claus enviada correctament')
+      setFeedback(formatDmRepairFeedback(distribution))
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'No s\'ha pogut reparar la clau del DM'
+      const message = error instanceof Error ? error.message : 'No s\'ha pogut arreglar la clau del DM'
       setFeedback(message)
     } finally {
       setDmKeyActionBusy(false)

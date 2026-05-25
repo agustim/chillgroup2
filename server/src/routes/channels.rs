@@ -472,6 +472,8 @@ pub async fn get_channel_member_devices(
         "deviceId": device_id,
         "kemPublicKey": kem_public_key,
         "dsaPublicKey": dsa_public_key,
+        "hasKemPublicKey": !kem_public_key.trim().is_empty(),
+        "hasDsaPublicKey": !dsa_public_key.trim().is_empty(),
     })).collect();
 
     Ok(Json(serde_json::json!({ "success": true, "data": data })))
