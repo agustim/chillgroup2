@@ -19,6 +19,9 @@ interface MainContentProps {
   localVideoTrack?: any
   localScreenTrack?: any
   remoteVideoTracks?: Record<string, any[]>
+  onDmRepairKey?: (channel: Channel) => Promise<void>
+  onDmRotateKey?: (channel: Channel) => Promise<void>
+  dmKeyActionBusy?: boolean
 }
 
 export function MainContent({
@@ -32,6 +35,9 @@ export function MainContent({
   localVideoTrack,
   localScreenTrack,
   remoteVideoTracks = {},
+  onDmRepairKey,
+  onDmRotateKey,
+  dmKeyActionBusy = false,
 }: MainContentProps) {
   const [message, setMessage] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
@@ -131,7 +137,14 @@ export function MainContent({
         trimmedMessage,
         currentDeviceId ?? undefined
       )
-      const response = await messagesSend(channel.channelId, encryptedPayload, iv, keyVersion ?? undefined)
+      const response = await messagesSend(
+        channel.channelId,
+        encryptedPayload,
+        iv,
+        keyVersion ?? undefined,
+        undefined,
+        channel.scope
+      )
       if (response.success) {
         setMessage('')
         setRefreshKey((current) => current + 1)
@@ -166,6 +179,15 @@ export function MainContent({
   const isTextChannel = channel?.type === 'text'
   const isVoiceChannel = channel?.type === 'voice'
   const showVoicePanel = !!voiceConnection && (!voiceAsTextMode || isVoiceChannel || !channel)
+  const handleDmRepairKey = async () => {
+    if (!channel || channel.scope !== 'dm' || !onDmRepairKey) return
+    await onDmRepairKey(channel)
+  }
+
+  const handleDmRotateKey = async () => {
+    if (!channel || channel.scope !== 'dm' || !onDmRotateKey) return
+    await onDmRotateKey(channel)
+  }
 
   // Layout: voice-panel a l'esquerra (si connectat) + text-area a la dreta (si canal de text)
   return (
@@ -190,10 +212,14 @@ export function MainContent({
         <div className="text-area">
           <ChannelHeader
             channel={channel}
+            onDmRepairKey={handleDmRepairKey}
+            onDmRotateKey={handleDmRotateKey}
+            dmKeyActionBusy={dmKeyActionBusy}
           />
           <div className="text-panel">
             <MessageList
               channelId={channel.channelId}
+              scope={channel.scope}
               encryptionType={channel.encryptionType}
               refreshKey={refreshKey}
               socketMessages={socketMessages}

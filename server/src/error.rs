@@ -73,6 +73,8 @@ pub enum AppError {
     ChannelLimitExceeded,
     #[error("No tens la clau de desxifratge per a aquest canal")]
     ChannelKeyNotFound,
+    #[error("Ja existeix un bundle diferent per aquesta versió i dispositiu")]
+    ChannelKeyBundleConflict,
     // Missatges (4000-4099)
     #[error("Missatge buit o massa llarg (màxim {max} caràcters)")]
     MessageTooLong { max: usize },
@@ -184,6 +186,9 @@ impl IntoResponse for AppError {
             ),
             AppError::ChannelKeyNotFound => (
                 StatusCode::NOT_FOUND, 3007, "No tens la clau de desxifratge per a aquest canal".to_string(), None,
+            ),
+            AppError::ChannelKeyBundleConflict => (
+                StatusCode::CONFLICT, 3008, "El bundle de clau ja existeix i no coincideix amb el payload actual".to_string(), None,
             ),
             AppError::ChannelNameExists => (
                 StatusCode::CONFLICT, 3004, "Ja existeix un canal amb aquest nom al servidor".to_string(), None,

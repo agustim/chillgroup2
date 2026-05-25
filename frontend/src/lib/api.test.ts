@@ -23,6 +23,7 @@ import {
   dmChannelsList,
   dmMessagesSend,
   dmChannelUpdateSettings,
+  dmChannelRotateKey,
   channelsList,
   channelsCreate,
   channelsGetKeys,
@@ -557,6 +558,25 @@ describe('API Client', () => {
       if (result.success) {
         expect(result.data.dmChannelId).toBe('dm-ch-1')
         expect(result.data.messageTTL).toBe(1800)
+      }
+    })
+
+    it('rota clau de DM v2', async () => {
+      setupMocks({
+        success: true,
+        data: {
+          dm_channel_id: 'dm-ch-1',
+          key_version_id: 'kv-2',
+          key_version: 2,
+        },
+      })
+
+      const result = await dmChannelRotateKey('dm-ch-1')
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data.dmChannelId).toBe('dm-ch-1')
+        expect(result.data.keyVersionId).toBe('kv-2')
+        expect(result.data.keyVersion).toBe(2)
       }
     })
   })

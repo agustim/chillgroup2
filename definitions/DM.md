@@ -183,6 +183,51 @@ Per simplificar implementació, es reutilitzen endpoints de claus de canal:
 
 Amb validació de membre del DM.
 
+### 6. Resincronització de Claus (Repair vs Rotate)
+
+Per evitar inestabilitat i forks de clau, el sistema separa dos fluxos.
+
+#### A. Repair (mateixa versió)
+
+Objectiu: recuperar dispositius que no tenen bundle d'una versió existent.
+
+Flux:
+
+1. El client detecta `ChannelKeyNotFound` o error de desxifrat per versió coneguda.
+2. Un membre que sí té la clau local redistribueix bundles amb `POST /api/channels/:channelId/keys` indicant `keyVersion` actual.
+3. El servidor accepta insercions noves i idempotència exacta; rebutja sobrescriptures divergents.
+
+Regla crítica:
+
+- `(key_version_id, device_id)` és immutable: si ja existeix i el payload és diferent, retorna `409 ChannelKeyBundleConflict`.
+
+#### B. Rotate (versió nova)
+
+Objectiu: tallar missatges futurs davant compromís/sospita o inconsistència greu.
+
+Endpoint:
+
+- `POST /api/dm/channels/:dmChannelId/keys/rotate`
+
+Resposta:
+
+```json
+{
+  "success": true,
+  "data": {
+    "dmChannelId": "uuid",
+    "keyVersionId": "uuid",
+    "keyVersion": 2
+  }
+}
+```
+
+Comportament:
+
+1. Crea nova `channel_key_versions` (`N+1`) al DM.
+2. El client que rota genera nova clau simètrica local i la distribueix en bundles per dispositiu.
+3. Missatges antics continuen lligats a versions anteriors (no es re-xifren automàticament).
+
 ## Seguretat i Privacitat
 
 1. Servidor zero-knowledge: la clau de contingut no existeix en clar al servidor.

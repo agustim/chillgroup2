@@ -219,11 +219,19 @@ export interface DmChannelListItem {
   lastMessageAt: string | null
 }
 
+export interface DmChannelRotateKeyInfo {
+  dmChannelId: string
+  keyVersionId: string
+  keyVersion: number
+}
+
 export interface ChannelInfo {
   channelId: string
   name: string
   type: 'text' | 'voice'
   encryptionType: 'none' | 'symmetric' | 'asymmetric'
+  scope?: 'server' | 'dm'
+  dmPeerUserId?: string | null
   messageTTL: number | null
   isPrivate: boolean
   keyVersionId?: string | null
@@ -271,6 +279,8 @@ function mapChannel(channel: any): ChannelInfo {
     name: channel.name,
     type: channel.channel_type,
     encryptionType: channel.encryption_type,
+    scope: channel.scope ?? 'server',
+    dmPeerUserId: channel.dm_peer_user_id ?? channel.dmPeerUserId ?? null,
     messageTTL: channel.message_ttl,
     isPrivate: channel.is_private,
     createdAt: channel.created_at,
@@ -423,13 +433,13 @@ export async function serverUpdateMemberRole(serverId: string, userId: string, r
   return apiRequest<ServerMember>('PUT', `/api/servers/${serverId}/members/${userId}/role`, { role })
 }
 
-export async function messagesList(channelId: string, limit = 50, before?: string) {
+export async function messagesList(channelId: string, limit = 50, before?: string, scope?: 'server' | 'dm') {
   const params = new URLSearchParams({ limit: String(limit) })
   if (before) params.set('before', before)
-  const result = await apiRequest<PaginatedMessages>(
-    'GET',
-    `/api/channels/${channelId}/messages?${params}`
-  )
+  const path = scope === 'dm'
+    ? `/api/dm/channels/${channelId}/messages?${params}`
+    : `/api/channels/${channelId}/messages?${params}`
+  const result = await apiRequest<PaginatedMessages>('GET', path)
   if (!result.success || !result.data) return result
   return {
     success: true as const,
@@ -445,9 +455,11 @@ export async function messagesSend(
   encryptedPayload: string,
   iv: string,
   keyVersion?: number,
-  expiresAt?: string
+  expiresAt?: string,
+  scope?: 'server' | 'dm'
 ) {
-  const result = await apiRequest<any>('POST', `/api/channels/${channelId}/messages`, {
+  const path = scope === 'dm' ? `/api/dm/channels/${channelId}/messages` : `/api/channels/${channelId}/messages`
+  const result = await apiRequest<any>('POST', path, {
     encrypted_payload: encryptedPayload,
     iv,
     key_version: keyVersion,
@@ -585,6 +597,19 @@ export async function dmChannelUpdateSettings(channelId: string, messageTTL: num
     data: {
       dmChannelId: result.data.dm_channel_id ?? result.data.dmChannelId,
       messageTTL: result.data.message_ttl ?? result.data.messageTTL ?? null,
+    },
+  }
+}
+
+export async function dmChannelRotateKey(channelId: string): Promise<ApiResult<DmChannelRotateKeyInfo>> {
+  const result = await apiRequest<any>('POST', `/api/dm/channels/${channelId}/keys/rotate`)
+  if (!result.success) return result
+  return {
+    success: true,
+    data: {
+      dmChannelId: result.data.dm_channel_id ?? result.data.dmChannelId,
+      keyVersionId: result.data.key_version_id ?? result.data.keyVersionId,
+      keyVersion: result.data.key_version ?? result.data.keyVersion,
     },
   }
 }

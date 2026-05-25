@@ -6,6 +6,7 @@ import { logger } from '../../lib/logger'
 
 interface MessageListProps {
   channelId: string
+  scope?: 'server' | 'dm'
   encryptionType: EncryptionType
   refreshKey?: number
   socketMessages?: Message[]
@@ -14,6 +15,7 @@ interface MessageListProps {
 
 export function MessageList({
   channelId,
+  scope,
   encryptionType,
   refreshKey,
   socketMessages = [],
@@ -44,7 +46,7 @@ export function MessageList({
     try {
       setLoading(true)
       setError(null)
-      const result = await messagesList(channelId, 50)
+      const result = await messagesList(channelId, 50, undefined, scope)
       if (result.success && result.data) {
         // Filtrar missatges que estan a expiringMessageIds
         const filtered = expiringMessageIdsRef.current && expiringMessageIdsRef.current.size > 0
@@ -65,7 +67,7 @@ export function MessageList({
 
   useEffect(() => {
     loadMessages()
-  }, [channelId, encryptionType, refreshKey])
+  }, [channelId, scope, encryptionType, refreshKey])
 
   // Quan arriben missatges expirats, esperem la durada de l'animació i els retirem de l'estat local
   useEffect(() => {
@@ -115,7 +117,7 @@ export function MessageList({
       cancelled = true
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channelId, encryptionType, messages, socketMessages, expiringMessageIds])
+  }, [channelId, scope, encryptionType, messages, socketMessages, expiringMessageIds])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })

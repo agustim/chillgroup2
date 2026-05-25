@@ -427,6 +427,13 @@ pub struct DirectChannelSummary {
     pub last_message_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChannelKeyBundleWriteResult {
+    Inserted,
+    Unchanged,
+    Conflict,
+}
+
 impl DatabasePool {
     /// Executar una query sense resultat.
     #[allow(dead_code)]
@@ -1399,6 +1406,25 @@ impl DatabasePool {
         }
     }
 
+    pub async fn list_channel_member_ids(&self, channel_id: Uuid) -> Result<Vec<Uuid>, sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let rows = sqlx::query("SELECT user_id FROM channel_members WHERE channel_id = $1")
+                    .bind(channel_id)
+                    .fetch_all(pool)
+                    .await?;
+                Ok(rows.into_iter().map(|r| r.get(0)).collect())
+            }
+            DatabasePool::Sqlite(pool) => {
+                let rows = sqlx::query("SELECT user_id FROM channel_members WHERE channel_id = ?")
+                    .bind(channel_id)
+                    .fetch_all(pool)
+                    .await?;
+                Ok(rows.into_iter().map(|r| r.get(0)).collect())
+            }
+        }
+    }
+
     pub async fn list_server_ids_for_user(&self, user_id: Uuid) -> Result<Vec<Uuid>, sqlx::Error> {
         match self {
             DatabasePool::Postgres(pool) => {
@@ -1482,7 +1508,7 @@ impl DatabasePool {
                         .unwrap_or((None, None));
                     Ok(Some(Channel {
                         id: row.get(0),
-                        server_id: row.get(1),
+                        server_id: row.get::<Option<Uuid>, _>(1).unwrap_or_else(Uuid::nil),
                         name: row.get(2),
                         channel_type,
                         encryption_type,
@@ -1527,7 +1553,7 @@ impl DatabasePool {
                         .unwrap_or((None, None));
                     Ok(Some(Channel {
                         id: row.get(0),
-                        server_id: row.get(1),
+                        server_id: row.get::<Option<Uuid>, _>(1).unwrap_or_else(Uuid::nil),
                         name: row.get(2),
                         channel_type,
                         encryption_type,
@@ -2562,7 +2588,7 @@ impl DatabasePool {
             .map(|(key_version_id, key_version, _, _)| (key_version_id, key_version)))
     }
 
-    /// Guarda (upsert) un bundle de clau de canal encriptat per a un dispositiu.
+    /// Guarda un bundle de clau per dispositiu sense permetre sobrescriptura divergent.
     pub async fn store_channel_key_bundle_for_device(
         &self,
         key_version_id: Uuid,
@@ -2571,15 +2597,26 @@ impl DatabasePool {
         kem_ciphertext: &str,
         signature: Option<&str>,
         signed_by_device_id: Option<Uuid>,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<ChannelKeyBundleWriteResult, sqlx::Error> {
         let id = Uuid::new_v4();
         let now = chrono::Utc::now().to_rfc3339();
+
+        let is_same_payload = |existing_encrypted_key: String,
+                               existing_kem_ciphertext: String,
+                               existing_signature: Option<String>,
+                               existing_signed_by_device_id: Option<Uuid>| {
+            existing_encrypted_key == encrypted_key
+                && existing_kem_ciphertext == kem_ciphertext
+                && existing_signature.as_deref() == signature
+                && existing_signed_by_device_id == signed_by_device_id
+        };
+
         match self {
             DatabasePool::Postgres(pool) => {
-                sqlx::query(
+                let insert_result = sqlx::query(
                     "INSERT INTO channel_key_device_bundles (id, key_version_id, device_id, encrypted_key, kem_ciphertext, signature, signed_by_device_id, created_at) \
                      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW()) \
-                     ON CONFLICT (key_version_id, device_id) DO UPDATE SET encrypted_key = EXCLUDED.encrypted_key, kem_ciphertext = EXCLUDED.kem_ciphertext, signature = EXCLUDED.signature, signed_by_device_id = EXCLUDED.signed_by_device_id"
+                     ON CONFLICT (key_version_id, device_id) DO NOTHING"
                 )
                 .bind(id)
                 .bind(key_version_id)
@@ -2590,12 +2627,35 @@ impl DatabasePool {
                 .bind(signed_by_device_id)
                 .execute(pool)
                 .await?;
+
+                if insert_result.rows_affected() > 0 {
+                    return Ok(ChannelKeyBundleWriteResult::Inserted);
+                }
+
+                let existing = sqlx::query(
+                    "SELECT encrypted_key, kem_ciphertext, signature, signed_by_device_id \
+                     FROM channel_key_device_bundles \
+                     WHERE key_version_id = $1 AND device_id = $2 \
+                     LIMIT 1"
+                )
+                .bind(key_version_id)
+                .bind(device_id)
+                .fetch_optional(pool)
+                .await?;
+
+                if let Some(row) = existing {
+                    if is_same_payload(row.get(0), row.get(1), row.get(2), row.get(3)) {
+                        return Ok(ChannelKeyBundleWriteResult::Unchanged);
+                    }
+                }
+
+                Ok(ChannelKeyBundleWriteResult::Conflict)
             }
             DatabasePool::Sqlite(pool) => {
-                sqlx::query(
+                let insert_result = sqlx::query(
                     "INSERT INTO channel_key_device_bundles (id, key_version_id, device_id, encrypted_key, kem_ciphertext, signature, signed_by_device_id, created_at) \
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?) \
-                     ON CONFLICT (key_version_id, device_id) DO UPDATE SET encrypted_key = excluded.encrypted_key, kem_ciphertext = excluded.kem_ciphertext, signature = excluded.signature, signed_by_device_id = excluded.signed_by_device_id"
+                     ON CONFLICT (key_version_id, device_id) DO NOTHING"
                 )
                 .bind(id)
                 .bind(key_version_id)
@@ -2607,9 +2667,31 @@ impl DatabasePool {
                 .bind(&now)
                 .execute(pool)
                 .await?;
+
+                if insert_result.rows_affected() > 0 {
+                    return Ok(ChannelKeyBundleWriteResult::Inserted);
+                }
+
+                let existing = sqlx::query(
+                    "SELECT encrypted_key, kem_ciphertext, signature, signed_by_device_id \
+                     FROM channel_key_device_bundles \
+                     WHERE key_version_id = ? AND device_id = ? \
+                     LIMIT 1"
+                )
+                .bind(key_version_id)
+                .bind(device_id)
+                .fetch_optional(pool)
+                .await?;
+
+                if let Some(row) = existing {
+                    if is_same_payload(row.get(0), row.get(1), row.get(2), row.get(3)) {
+                        return Ok(ChannelKeyBundleWriteResult::Unchanged);
+                    }
+                }
+
+                Ok(ChannelKeyBundleWriteResult::Conflict)
             }
         }
-        Ok(())
     }
 
     /// Retorna els dispositius dels membres del canal amb claus públiques registrades.
@@ -2619,11 +2701,15 @@ impl DatabasePool {
                 let rows = sqlx::query(
                     "SELECT DISTINCT d.id, d.kem_public_key, d.dsa_public_key \
                      FROM devices d \
-                     JOIN server_members sm ON sm.user_id = d.user_id \
-                     JOIN channels c ON c.server_id = sm.server_id \
+                     JOIN channels c ON c.id = $1 \
                      LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = d.user_id \
-                     WHERE c.id = $1 AND d.revoked = false AND d.kem_public_key != '' AND d.kem_public_key IS NOT NULL \
-                       AND (c.is_private = 0 OR cm.user_id IS NOT NULL)"
+                     LEFT JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = d.user_id \
+                     WHERE d.revoked = false AND d.kem_public_key != '' AND d.kem_public_key IS NOT NULL \
+                       AND (\
+                            (c.scope = 'dm' AND cm.user_id IS NOT NULL) \
+                            OR \
+                            (c.scope != 'dm' AND sm.user_id IS NOT NULL AND (c.is_private = false OR cm.user_id IS NOT NULL))\
+                       )"
                 )
                 .bind(channel_id)
                 .fetch_all(pool)
@@ -2634,11 +2720,15 @@ impl DatabasePool {
                 let rows = sqlx::query(
                     "SELECT DISTINCT d.id, d.kem_public_key, d.dsa_public_key \
                      FROM devices d \
-                     JOIN server_members sm ON sm.user_id = d.user_id \
-                     JOIN channels c ON c.server_id = sm.server_id \
-                                         LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = d.user_id \
-                                         WHERE c.id = ? AND d.revoked = 0 AND d.kem_public_key != '' AND d.kem_public_key IS NOT NULL \
-                                             AND (c.is_private = 0 OR cm.user_id IS NOT NULL)"
+                     JOIN channels c ON c.id = ? \
+                     LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = d.user_id \
+                     LEFT JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = d.user_id \
+                     WHERE d.revoked = 0 AND d.kem_public_key != '' AND d.kem_public_key IS NOT NULL \
+                       AND (\
+                            (COALESCE(c.scope, 'server') = 'dm' AND cm.user_id IS NOT NULL) \
+                            OR \
+                            (COALESCE(c.scope, 'server') != 'dm' AND sm.user_id IS NOT NULL AND (c.is_private = 0 OR cm.user_id IS NOT NULL))\
+                       )"
                 )
                 .bind(channel_id)
                 .fetch_all(pool)

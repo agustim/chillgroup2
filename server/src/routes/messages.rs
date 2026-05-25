@@ -581,6 +581,13 @@ pub struct UpdateDmSettingsResponse {
     pub message_ttl: Option<i32>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct RotateDmKeyResponse {
+    pub dm_channel_id: Uuid,
+    pub key_version_id: Uuid,
+    pub key_version: i32,
+}
+
 pub async fn open_dm_channel(
     State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
@@ -782,6 +789,42 @@ pub async fn send_dm_channel_message(
         deleted_at: None,
     };
 
+    let room = format!("channel:{}", channel_id);
+    let socket_event = serde_json::json!({
+        "messageId": message.id,
+        "channelId": message.channel_id,
+        "senderUserId": message.sender_user_id,
+        "senderUsername": message.sender_username,
+        "senderDeviceId": message.sender_device_id,
+        "encryptedPayload": message.encrypted_payload,
+        "iv": message.iv,
+        "timestamp": message.timestamp,
+        "editedAt": message.edited_at,
+        "deletedAt": message.deleted_at,
+    });
+
+    if let Err(e) = state.io.to(room).emit("message", &socket_event).await {
+        tracing::warn!("Error fent broadcast del missatge DM via socket: {:?}", e);
+    }
+
+    if let Ok(member_ids) = state.db.list_channel_member_ids(channel_id).await {
+        for member_id in member_ids.into_iter().filter(|id| *id != claims.user_id) {
+            match state.db.count_unread_messages_for_user(channel_id, member_id).await {
+                Ok(unread_count) => {
+                    let unread_event = serde_json::json!({
+                        "channelId": channel_id,
+                        "unreadCount": unread_count,
+                    });
+                    let user_room = format!("user:{}", member_id);
+                    if let Err(e) = state.io.to(user_room).emit("unread-updated", &unread_event).await {
+                        tracing::warn!("Error enviant unread-updated DM: {:?}", e);
+                    }
+                }
+                Err(e) => tracing::warn!("Error calculant unread DM per usuari {}: {}", member_id, e),
+            }
+        }
+    }
+
     Ok((StatusCode::CREATED, Json(message)))
 }
 
@@ -813,6 +856,42 @@ pub async fn update_dm_channel_settings(
     }))
 }
 
+pub async fn rotate_dm_channel_key(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path(channel_id): Path<Uuid>,
+) -> Result<Json<RotateDmKeyResponse>, AppError> {
+    let member = state
+        .db
+        .get_dm_channel_ttl_for_member(channel_id, claims.user_id)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+    if member.is_none() {
+        return Err(AppError::Forbidden);
+    }
+
+    let next_version = state
+        .db
+        .get_latest_channel_key_version(channel_id)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .map(|(_, version, _, _)| version + 1)
+        .unwrap_or(1);
+
+    let key_version_id = state
+        .db
+        .create_channel_key_version(channel_id, next_version, "", "", claims.user_id)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+    Ok(Json(RotateDmKeyResponse {
+        dm_channel_id: channel_id,
+        key_version_id,
+        key_version: next_version,
+    }))
+}
+
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/channels/{channel_id}/messages", get(list_messages).post(send_message))
@@ -822,6 +901,7 @@ pub fn router(state: AppState) -> Router {
     .route("/api/dm/channels", get(list_dm_channels))
     .route("/api/dm/channels/{channel_id}/messages", get(list_dm_channel_messages).post(send_dm_channel_message))
     .route("/api/dm/channels/{channel_id}/settings", put(update_dm_channel_settings))
+    .route("/api/dm/channels/{channel_id}/keys/rotate", post(rotate_dm_channel_key))
         .route("/api/direct-messages", post(send_direct_message))
         .route("/api/direct-messages/list", get(list_direct_messages))
         .route("/api/conversations", get(list_conversations))
@@ -836,6 +916,7 @@ mod tests {
         db::connect_db,
     };
     use axum::Extension;
+    use socketioxide::extract::{Data, SocketRef};
     use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
     use tokio::sync::RwLock;
@@ -860,6 +941,7 @@ mod tests {
         let config = test_config();
         let db = connect_db(&config).await.expect("sqlite test db should initialize");
         let (_layer, io) = socketioxide::SocketIo::new_layer();
+        io.ns("/", |_socket: SocketRef, Data(_auth): Data<serde_json::Value>| async move {});
         AppState {
             db,
             config,
@@ -1019,5 +1101,84 @@ mod tests {
 
         let expires_at = sent.expires_at.expect("expires_at should be set from dm ttl");
         assert!(expires_at > sent.timestamp);
+    }
+
+    #[tokio::test]
+    async fn dm_rotate_key_increments_version() {
+        let state = make_state().await;
+        let user_a = state
+            .db
+            .create_user("dm_rotate_a", "hash")
+            .await
+            .expect("create user a");
+        let user_b = state
+            .db
+            .create_user("dm_rotate_b", "hash")
+            .await
+            .expect("create user b");
+
+        let open = open_dm_channel(
+            State(state.clone()),
+            Extension(make_claims(user_a, "dm_rotate_a")),
+            Json(OpenDmChannelRequest {
+                target_user_id: user_b,
+                message_ttl: None,
+            }),
+        )
+        .await
+        .expect("open dm")
+        .0;
+
+        let rotate = rotate_dm_channel_key(
+            State(state.clone()),
+            Extension(make_claims(user_a, "dm_rotate_a")),
+            Path(open.dm_channel_id),
+        )
+        .await
+        .expect("rotate should work")
+        .0;
+
+        assert_eq!(rotate.key_version, 2);
+    }
+
+    #[tokio::test]
+    async fn dm_rotate_key_forbidden_for_non_member() {
+        let state = make_state().await;
+        let user_a = state
+            .db
+            .create_user("dm_rotate_forbidden_a", "hash")
+            .await
+            .expect("create user a");
+        let user_b = state
+            .db
+            .create_user("dm_rotate_forbidden_b", "hash")
+            .await
+            .expect("create user b");
+        let user_c = state
+            .db
+            .create_user("dm_rotate_forbidden_c", "hash")
+            .await
+            .expect("create user c");
+
+        let open = open_dm_channel(
+            State(state.clone()),
+            Extension(make_claims(user_a, "dm_rotate_forbidden_a")),
+            Json(OpenDmChannelRequest {
+                target_user_id: user_b,
+                message_ttl: None,
+            }),
+        )
+        .await
+        .expect("open dm")
+        .0;
+
+        let rotate = rotate_dm_channel_key(
+            State(state.clone()),
+            Extension(make_claims(user_c, "dm_rotate_forbidden_c")),
+            Path(open.dm_channel_id),
+        )
+        .await;
+
+        assert!(matches!(rotate, Err(AppError::Forbidden)));
     }
 }

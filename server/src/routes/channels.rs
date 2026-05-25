@@ -17,6 +17,7 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use crate::{
+    db::ChannelKeyBundleWriteResult,
     middleware::{AppState, AuthClaims},
     error::AppError,
     models::{Channel, ChannelType, EncryptionType},
@@ -425,7 +426,7 @@ pub async fn upload_channel_keys(
             return Err(AppError::ChannelKeyNotFound);
         };
 
-        state.db
+        let write_result = state.db
             .store_channel_key_bundle_for_device(
                 key_version_id,
                 bundle.device_id,
@@ -436,6 +437,10 @@ pub async fn upload_channel_keys(
             )
             .await
             .map_err(AppError::DatabaseError)?;
+
+        if write_result == ChannelKeyBundleWriteResult::Conflict {
+            return Err(AppError::ChannelKeyBundleConflict);
+        }
     }
 
     Ok(StatusCode::NO_CONTENT)

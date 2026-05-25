@@ -1013,6 +1013,30 @@ Enviar un missatge al DM.
 
 Actualitzar configuració del DM (actualment `messageTTL`).
 
+#### POST `/api/dm/channels/:channelId/keys/rotate`
+
+Forçar rotació de clau del DM (crea `keyVersion = N+1`).
+
+**Response 200 OK:**
+```json
+{
+  "success": true,
+  "data": {
+    "dmChannelId": "550e8400-e29b-41d4-a716-4466554400aa",
+    "keyVersionId": "550e8400-e29b-41d4-a716-4466554400bb",
+    "keyVersion": 2
+  }
+}
+```
+
+### Nota de consistència de bundles asimètrics
+
+En `POST /api/channels/:id/keys`, la combinació `(keyVersionId, deviceId)` és immutable.
+
+- Si no existeix: s'insereix.
+- Si existeix i el payload és idèntic: idempotent (`204`).
+- Si existeix i el payload és diferent: `409` amb `ChannelKeyBundleConflict`.
+
 > Nota: aquesta secció descriu els endpoints actuals (legacy).
 > El model objectiu per a implementació nova és a `definitions/DM.md`:
 > DM 1:1 com a canal privat asimètric amb `message_ttl`.
@@ -1208,6 +1232,7 @@ Generar un token d'accés a LiveKit per a un canal de veu.
 | GET | `/api/channels/:id/messages/check-new` | Sí | Check missatges nous |
 | POST | `/api/direct-messages` | Sí | Enviar DM |
 | GET | `/api/direct-messages/list` | Sí | Llistar DMs |
+| POST | `/api/dm/channels/:id/keys/rotate` | Sí | Rotar clau DM |
 | GET | `/api/conversations` | Sí | Llistar converses |
 | POST | `/api/livekit/token` | Sí | Generar token LiveKit |
 | GET | `/health` | No | Health check |

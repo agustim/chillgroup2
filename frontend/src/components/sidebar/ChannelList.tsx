@@ -16,6 +16,7 @@ interface ChannelListProps {
   onToggleCamera?: () => void
   onToggleScreenShare?: () => void
   onSelectChannel: (channel: Channel) => void
+  onStartDirectMessage?: (targetUserId: string, targetUsername: string) => void
   onConfigureChannel?: (channel: Channel) => void
   username: string
   onManageDevices?: () => void
@@ -46,6 +47,7 @@ export function ChannelList({
   onToggleCamera,
   onToggleScreenShare,
   onSelectChannel,
+  onStartDirectMessage,
   onConfigureChannel,
   username,
   onManageDevices,
@@ -63,6 +65,7 @@ export function ChannelList({
 }: ChannelListProps) {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [collapsedSections, setCollapsedSections] = useState({
+    dm: false,
     text: false,
     voice: false,
     friends: false,
@@ -70,8 +73,9 @@ export function ChannelList({
   })
   const userActionsRef = useRef<HTMLDivElement | null>(null)
   const voiceControlsEnabled = !!voiceConnection
-  const textChannels = channels.filter((c) => c.type === 'text')
-  const voiceChannels = channels.filter((c) => c.type === 'voice')
+  const dmChannels = channels.filter((c) => c.scope === 'dm' && c.type === 'text')
+  const textChannels = channels.filter((c) => c.type === 'text' && c.scope !== 'dm')
+  const voiceChannels = channels.filter((c) => c.type === 'voice' && c.scope !== 'dm')
   const sortedFriends = [...friends].sort((a, b) => {
     if (a.isOnline === b.isOnline) {
       return a.username.localeCompare(b.username)
@@ -107,7 +111,7 @@ export function ChannelList({
     return voicePresenceByChannel[channel.channelId] ?? []
   }
 
-  const toggleSection = (section: 'text' | 'voice' | 'friends' | 'members') => {
+  const toggleSection = (section: 'dm' | 'text' | 'voice' | 'friends' | 'members') => {
     setCollapsedSections((current) => ({
       ...current,
       [section]: !current[section],
@@ -139,6 +143,37 @@ export function ChannelList({
             </div>
           )}
         </div>
+      </div>
+
+      {/* Text Channels */}
+      <div className="channel-category">
+        <div className="category-header">
+          <button
+            className="category-toggle"
+            onClick={() => toggleSection('dm')}
+            aria-expanded={!collapsedSections.dm}
+            title={collapsedSections.dm ? 'Desplegar secció' : 'Plegar secció'}
+          >
+            <span className="category-name">💬 MISSATGES DIRECTES</span>
+            <span className="category-chevron">{collapsedSections.dm ? '🔻' : '🔺'}</span>
+          </button>
+        </div>
+        {!collapsedSections.dm && (dmChannels.length > 0 ? dmChannels.map((channel) => (
+          <div
+            key={channel.channelId}
+            className={`channel-item ${selectedChannel?.channelId === channel.channelId ? 'active' : ''}`}
+            onClick={() => onSelectChannel(channel)}
+          >
+            <span className="channel-voice-icon">💬</span>
+            <span className="channel-name">{channel.name}</span>
+            {(channel.unreadCount ?? 0) > 0 && (
+              <span className="channel-unread-badge">{channel.unreadCount}</span>
+            )}
+            <EncryptionIcon type={channel.encryptionType} />
+          </div>
+        )) : (
+          <p className="friends-empty-state">Cap DM obert encara.</p>
+        ))}
       </div>
 
       {/* Text Channels */}
@@ -284,6 +319,18 @@ export function ChannelList({
                 <div className="friend-meta">
                   <span className="friend-name">{friend.username}</span>
                 </div>
+                {onStartDirectMessage && (
+                  <button
+                    className="channel-item-settings-btn"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onStartDirectMessage(friend.userId, friend.username)
+                    }}
+                    title="Obrir DM"
+                  >
+                    💬
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -319,6 +366,18 @@ export function ChannelList({
                   <div className="friend-meta">
                     <span className="friend-name">{member.username}</span>
                   </div>
+                  {onStartDirectMessage && (
+                    <button
+                      className="channel-item-settings-btn"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onStartDirectMessage(member.userId, member.username)
+                      }}
+                      title="Obrir DM"
+                    >
+                      💬
+                    </button>
+                  )}
                 </div>
               )
             })}

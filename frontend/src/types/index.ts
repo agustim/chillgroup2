@@ -62,6 +62,7 @@ export interface FriendPresence extends Friend {
 
 export interface UserSearchResult extends Friend {
   isFriend: boolean
+  isOnline?: boolean
 }
 
 export type PresenceStatus = 'online' | 'offline'
@@ -74,6 +75,8 @@ export interface Channel {
   name: string
   type: ChannelType
   encryptionType: EncryptionType
+  scope?: 'server' | 'dm'
+  dmPeerUserId?: string | null
   messageTTL: number | null
   isPrivate: boolean
   unreadCount?: number

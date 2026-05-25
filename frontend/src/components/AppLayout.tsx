@@ -23,6 +23,8 @@ import {
   friendsAdd,
   friendsList,
   friendsRemove,
+  dmChannelOpen,
+  dmChannelsList,
   serverInviteMember,
   serversCreate,
   serversGet,
@@ -34,6 +36,7 @@ import {
   channelsUpdate,
   channelDelete,
   usersSearch,
+  dmChannelRotateKey,
 } from '../lib/api'
 
 interface AppLayoutProps {
@@ -60,6 +63,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const [serverMemberPresenceById, setServerMemberPresenceById] = useState<Record<string, boolean>>({})
   const [panel, setPanel] = useState<PanelType>('none')
   const [feedback, setFeedback] = useState<string | null>(null)
+  const [dmKeyActionBusy, setDmKeyActionBusy] = useState(false)
   
   // Modal states
   const [showCreateServer, setShowCreateServer] = useState(false)
@@ -189,9 +193,45 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   }
 
   const fetchChannels = async (serverId: string) => {
-    const result = await channelsList(serverId)
-    if (result.success) {
-      setChannels(result.data)
+    const [serverChannelsResult, dmChannelsResult] = await Promise.all([
+      channelsList(serverId),
+      dmChannelsList(),
+    ])
+
+    if (serverChannelsResult.success) {
+      const serverChannels = serverChannelsResult.data.map((channel) => ({
+        ...channel,
+        scope: channel.scope ?? 'server',
+      }))
+      const dmChannels: Channel[] = dmChannelsResult.success
+        ? dmChannelsResult.data.map((dm) => ({
+            channelId: dm.dmChannelId,
+            name: dm.peerUsername,
+            type: 'text',
+            encryptionType: 'asymmetric',
+            scope: 'dm',
+            dmPeerUserId: dm.peerUserId,
+            messageTTL: dm.messageTTL,
+            isPrivate: true,
+            unreadCount: dm.unreadCount,
+            keyVersionId: null,
+            keyVersion: null,
+            createdAt: dm.lastMessageAt ?? new Date().toISOString(),
+          }))
+        : []
+
+      setChannels((previous) => {
+        const previousById = new Map(previous.map((channel) => [channel.channelId, channel]))
+        return [...serverChannels, ...dmChannels].map((channel) => {
+          const previousChannel = previousById.get(channel.channelId)
+          if (!previousChannel) return channel
+          return {
+            ...channel,
+            keyVersionId: channel.keyVersionId ?? previousChannel.keyVersionId ?? null,
+            keyVersion: channel.keyVersion ?? previousChannel.keyVersion ?? null,
+          }
+        })
+      })
     }
   }
 
@@ -359,6 +399,72 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     }
   }
 
+  const handleStartDirectMessage = async (targetUserId: string, targetUsername: string) => {
+    if (!currentDeviceId) {
+      setFeedback('Falta el dispositiu actual per obrir el DM')
+      return
+    }
+
+    const result = await dmChannelOpen(targetUserId, 86400)
+    if (!result.success) {
+      setFeedback(result.error.message)
+      return
+    }
+
+    const dmChannel: Channel = {
+      channelId: result.data.dmChannelId,
+      name: targetUsername,
+      type: 'text',
+      encryptionType: 'asymmetric',
+      scope: 'dm',
+      dmPeerUserId: targetUserId,
+      messageTTL: result.data.messageTTL,
+      isPrivate: true,
+      unreadCount: 0,
+      keyVersionId: result.data.keyVersionId,
+      keyVersion: result.data.keyVersion,
+      createdAt: new Date().toISOString(),
+    }
+
+    setSelectedChannel(dmChannel)
+    setChannels((current) => {
+      const existingIndex = current.findIndex((channel) => channel.channelId === dmChannel.channelId)
+      if (existingIndex >= 0) {
+        const next = [...current]
+        next[existingIndex] = { ...next[existingIndex], ...dmChannel }
+        return next
+      }
+      return [...current, dmChannel]
+    })
+    setOpenTextChannelIds((current) => (
+      current.includes(dmChannel.channelId) ? current : [...current, dmChannel.channelId]
+    ))
+
+    if (result.data.created) {
+      try {
+        const { generateSymmetricKey } = await import('../lib/crypto')
+        const { storeChannelKey } = await import('../lib/storage')
+        const channelKey = generateSymmetricKey()
+        const keyVersion = result.data.keyVersion ?? 1
+        await storeChannelKey(dmChannel.channelId, channelKey, 'asymmetric', keyVersion, result.data.keyVersionId)
+        await distributeChannelKey(
+          dmChannel.channelId,
+          channelKey,
+          keyVersion,
+          result.data.keyVersionId,
+          currentDeviceId,
+        )
+        setFeedback(`DM obert amb ${targetUsername}`)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'No s\'ha pogut preparar la clau del DM'
+        setFeedback(message)
+      }
+      return
+    }
+
+    setFeedback(`DM obert amb ${targetUsername}`)
+  }
+
   const handleCloseTextTab = (channelId: string) => {
     setOpenTextChannelIds((current) => {
       const next = current.filter((id) => id !== channelId)
@@ -369,6 +475,105 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
       }
       return next
     })
+  }
+
+  const handleRepairDmKey = async (channel: Channel) => {
+    if (channel.scope !== 'dm') return
+    if (!currentDeviceId) {
+      setFeedback('Falta el dispositiu actual per reparar claus del DM')
+      return
+    }
+
+    setDmKeyActionBusy(true)
+    try {
+      let latest = await getLatestChannelKey(channel.channelId)
+      let channelKey = latest?.keyBytes ?? await getChannelKey(channel.channelId)
+
+      if (!channelKey) {
+        channelKey = await ensureChannelKey(channel.channelId, channel.encryptionType, currentDeviceId)
+        latest = await getLatestChannelKey(channel.channelId)
+      }
+
+      const keyVersionId = latest?.keyVersionId ?? channel.keyVersionId ?? null
+      const keyVersion = latest?.keyVersion ?? channel.keyVersion ?? 1
+
+      if (!channelKey) {
+        throw new Error('No tens cap clau local per poder reparar el DM')
+      }
+
+      if (!keyVersionId) {
+        throw new Error('Falta keyVersionId; no es pot signar la redistribució de claus')
+      }
+
+      await distributeChannelKey(
+        channel.channelId,
+        channelKey,
+        keyVersion,
+        keyVersionId,
+        currentDeviceId,
+      )
+
+      setFeedback('Resincronització de claus enviada correctament')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No s\'ha pogut reparar la clau del DM'
+      setFeedback(message)
+    } finally {
+      setDmKeyActionBusy(false)
+    }
+  }
+
+  const handleRotateDmKey = async (channel: Channel) => {
+    if (channel.scope !== 'dm') return
+    if (!currentDeviceId) {
+      setFeedback('Falta el dispositiu actual per rotar la clau del DM')
+      return
+    }
+
+    setDmKeyActionBusy(true)
+    try {
+      const rotateResult = await dmChannelRotateKey(channel.channelId)
+      if (!rotateResult.success) {
+        setFeedback(rotateResult.error.message)
+        return
+      }
+
+      const { generateSymmetricKey } = await import('../lib/crypto')
+      const { storeChannelKey } = await import('../lib/storage')
+
+      const channelKey = generateSymmetricKey()
+      await storeChannelKey(
+        channel.channelId,
+        channelKey,
+        'asymmetric',
+        rotateResult.data.keyVersion,
+        rotateResult.data.keyVersionId,
+      )
+
+      await distributeChannelKey(
+        channel.channelId,
+        channelKey,
+        rotateResult.data.keyVersion,
+        rotateResult.data.keyVersionId,
+        currentDeviceId,
+      )
+
+      setSelectedChannel((current) => (
+        current && current.channelId === channel.channelId
+          ? {
+              ...current,
+              keyVersion: rotateResult.data.keyVersion,
+              keyVersionId: rotateResult.data.keyVersionId,
+            }
+          : current
+      ))
+
+      setFeedback(`Clau del DM rotada a la versió ${rotateResult.data.keyVersion}`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No s\'ha pogut rotar la clau del DM'
+      setFeedback(message)
+    } finally {
+      setDmKeyActionBusy(false)
+    }
   }
 
   // ── Voice connection logic (LiveKit real) ─────────────────────────────
@@ -764,6 +969,9 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     >
       <span>#</span>
       <span>{channel.name}</span>
+      {(channel.unreadCount ?? 0) > 0 && (
+        <span className="channel-unread-badge">{channel.unreadCount}</span>
+      )}
       <button
         type="button"
         className="main-content-tab-close"
@@ -861,6 +1069,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
               handleOpenTextChannel(channel)
             }
           }}
+          onStartDirectMessage={handleStartDirectMessage}
           onConfigureChannel={handleConfigureChannel}
           username={username}
           onLogout={handleLogout}
@@ -902,6 +1111,9 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
               remoteVideoTracks={remoteVideoTracks}
               voiceAsTextMode={voiceAsTextMode}
               onToggleVoiceAsTextMode={() => setVoiceAsTextMode((prev) => !prev)}
+              onDmRepairKey={handleRepairDmKey}
+              onDmRotateKey={handleRotateDmKey}
+              dmKeyActionBusy={dmKeyActionBusy}
             />
           </>
         ) : voiceConnection ? (
