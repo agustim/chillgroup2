@@ -393,6 +393,14 @@ body {
   border: 1px solid var(--bg-active);
 }
 
+.friend-item-clickable {
+  cursor: pointer;
+}
+
+.friend-item-clickable:hover {
+  background: var(--bg-hover);
+}
+
 .friend-avatar {
   width: 30px;
   height: 30px;
@@ -851,6 +859,63 @@ body {
   word-break: break-word;
 }
 
+.message-markdown {
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.message-markdown-paragraph {
+  margin: 0;
+}
+
+.message-markdown > * + * {
+  margin-top: 8px;
+}
+
+.message-markdown ul,
+.message-markdown ol {
+  margin: 0;
+  padding-left: 1.4rem;
+}
+
+.message-markdown li + li {
+  margin-top: 4px;
+}
+
+.message-markdown blockquote {
+  margin: 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--bg-active);
+  color: var(--text-secondary);
+}
+
+.message-markdown code {
+  padding: 0.12rem 0.28rem;
+  border-radius: 6px;
+  background: rgba(127, 127, 127, 0.14);
+  font-size: 0.95em;
+}
+
+.message-markdown pre {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg-input);
+  overflow-x: auto;
+}
+
+.message-markdown pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.message-markdown-link {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
 .deleted-message {
   font-style: italic;
   color: var(--text-muted);
@@ -869,6 +934,12 @@ body {
 
 .expires-label {
   margin-left: 4px;
+}
+
+.key-version-label {
+  margin-left: 4px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 /* Message Input */

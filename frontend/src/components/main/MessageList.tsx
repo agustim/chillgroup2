@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkBreaks from 'remark-breaks'
+import remarkGfm from 'remark-gfm'
 import { EncryptionType, Message } from '../../types'
 import { messagesList } from '../../lib/api'
 import { decryptMessagesForChannel } from '../../lib/channel-crypto'
@@ -27,6 +30,26 @@ export function MessageList({
   const [error, setError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const expiringMessageIdsRef = useRef<Set<string> | undefined>(expiringMessageIds)
+  const isEncryptedChannel = encryptionType !== 'none'
+
+  const renderMarkdownMessage = (text: string) => (
+    <div className="message-markdown">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkBreaks]}
+        skipHtml
+        components={{
+          p: ({ children }) => <p className="message-markdown-paragraph">{children}</p>,
+          a: ({ href, children }) => (
+            <a href={href} target="_blank" rel="noreferrer noopener" className="message-markdown-link">
+              {children}
+            </a>
+          ),
+        }}
+      >
+        {text}
+      </ReactMarkdown>
+    </div>
+  )
 
   // Mantenir la ref actualitzada amb el valor actual de expiringMessageIds
   useEffect(() => {
@@ -120,7 +143,7 @@ export function MessageList({
   }, [channelId, scope, encryptionType, messages, socketMessages, expiringMessageIds])
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    messagesEndRef.current?.scrollIntoView?.({ behavior: 'smooth' })
   }, [combined])
 
   // Early returns SEMPRE després de tots els hooks
@@ -178,7 +201,7 @@ export function MessageList({
               {msg.deletedAt ? (
                 <p className="deleted-message">Missatge eliminat</p>
               ) : (
-                <p>{decryptedPayloads[msg.messageId] ?? msg.encryptedPayload}</p>
+                renderMarkdownMessage(decryptedPayloads[msg.messageId] ?? msg.encryptedPayload)
               )}
             </div>
             <div className="message-timestamp">
@@ -190,6 +213,11 @@ export function MessageList({
               {msg.expiresAt && (
                 <span className="expires-label" title={msg.expiresAt}>
                   ⏰
+                </span>
+              )}
+              {isEncryptedChannel && msg.keyVersion != null && (
+                <span className="key-version-label" title={`Versió de clau: ${msg.keyVersion}`}>
+                  🔐v{msg.keyVersion}
                 </span>
               )}
             </div>

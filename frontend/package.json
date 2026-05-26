@@ -19,6 +19,9 @@
   "dependencies": {
     "@noble/post-quantum": "^0.6.1",
     "livekit-client": "^2.8.0",
+    "react-markdown": "^10.1.0",
+    "remark-breaks": "^4.0.0",
+    "remark-gfm": "^4.0.1",
     "socket.io-client": "^4.8.1"
   },
   "devDependencies": {

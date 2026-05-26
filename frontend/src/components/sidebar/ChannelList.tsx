@@ -74,6 +74,7 @@ export function ChannelList({
   const userActionsRef = useRef<HTMLDivElement | null>(null)
   const voiceControlsEnabled = !!voiceConnection
   const dmChannels = channels.filter((c) => c.scope === 'dm' && c.type === 'text')
+  const unreadDmChannels = dmChannels.filter((channel) => (channel.unreadCount ?? 0) > 0)
   const textChannels = channels.filter((c) => c.type === 'text' && c.scope !== 'dm')
   const voiceChannels = channels.filter((c) => c.type === 'voice' && c.scope !== 'dm')
   const sortedFriends = [...friends].sort((a, b) => {
@@ -146,35 +147,33 @@ export function ChannelList({
       </div>
 
       {/* Text Channels */}
-      <div className="channel-category">
-        <div className="category-header">
-          <button
-            className="category-toggle"
-            onClick={() => toggleSection('dm')}
-            aria-expanded={!collapsedSections.dm}
-            title={collapsedSections.dm ? 'Desplegar secció' : 'Plegar secció'}
-          >
-            <span className="category-name">💬 MISSATGES DIRECTES</span>
-            <span className="category-chevron">{collapsedSections.dm ? '🔻' : '🔺'}</span>
-          </button>
-        </div>
-        {!collapsedSections.dm && (dmChannels.length > 0 ? dmChannels.map((channel) => (
-          <div
-            key={channel.channelId}
-            className={`channel-item ${selectedChannel?.channelId === channel.channelId ? 'active' : ''}`}
-            onClick={() => onSelectChannel(channel)}
-          >
-            <span className="channel-voice-icon">💬</span>
-            <span className="channel-name">{channel.name}</span>
-            {(channel.unreadCount ?? 0) > 0 && (
-              <span className="channel-unread-badge">{channel.unreadCount}</span>
-            )}
-            <EncryptionIcon type={channel.encryptionType} />
+      {unreadDmChannels.length > 0 && (
+        <div className="channel-category">
+          <div className="category-header">
+            <button
+              className="category-toggle"
+              onClick={() => toggleSection('dm')}
+              aria-expanded={!collapsedSections.dm}
+              title={collapsedSections.dm ? 'Desplegar secció' : 'Plegar secció'}
+            >
+              <span className="category-name">💬 MISSATGES DIRECTES</span>
+              <span className="category-chevron">{collapsedSections.dm ? '🔻' : '🔺'}</span>
+            </button>
           </div>
-        )) : (
-          <p className="friends-empty-state">Cap DM obert encara.</p>
-        ))}
-      </div>
+          {!collapsedSections.dm && unreadDmChannels.map((channel) => (
+            <div
+              key={channel.channelId}
+              className={`channel-item ${selectedChannel?.channelId === channel.channelId ? 'active' : ''}`}
+              onClick={() => onSelectChannel(channel)}
+            >
+              <span className="channel-voice-icon">💬</span>
+              <span className="channel-name">{channel.name}</span>
+              <span className="channel-unread-badge">{channel.unreadCount}</span>
+              <EncryptionIcon type={channel.encryptionType} />
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Text Channels */}
       <div className="channel-category">
@@ -309,7 +308,20 @@ export function ChannelList({
         {!collapsedSections.friends && (friends.length > 0 ? (
           <div className="friends-list">
             {sortedFriends.map((friend) => (
-              <div key={friend.userId} className="friend-item">
+              <div
+                key={friend.userId}
+                className="friend-item friend-item-clickable"
+                onClick={() => onStartDirectMessage?.(friend.userId, friend.username)}
+                role={onStartDirectMessage ? 'button' : undefined}
+                tabIndex={onStartDirectMessage ? 0 : undefined}
+                onKeyDown={(event) => {
+                  if (!onStartDirectMessage) return
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    onStartDirectMessage(friend.userId, friend.username)
+                  }
+                }}
+              >
                 <div
                   className={`friend-avatar ${friend.isOnline ? 'online' : 'offline'}`}
                   title={friend.isOnline ? 'Actiu' : 'Inactiu'}
@@ -356,7 +368,20 @@ export function ChannelList({
             {sortedServerMembers.map((member) => {
               const isActive = !!serverMemberPresenceById[member.userId]
               return (
-                <div key={member.userId} className="friend-item">
+                <div
+                  key={member.userId}
+                  className="friend-item friend-item-clickable"
+                  onClick={() => onStartDirectMessage?.(member.userId, member.username)}
+                  role={onStartDirectMessage ? 'button' : undefined}
+                  tabIndex={onStartDirectMessage ? 0 : undefined}
+                  onKeyDown={(event) => {
+                    if (!onStartDirectMessage) return
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      onStartDirectMessage(member.userId, member.username)
+                    }
+                  }}
+                >
                   <div
                     className={`friend-avatar ${isActive ? 'online' : 'offline'}`}
                     title={isActive ? 'Actiu' : 'Inactiu'}

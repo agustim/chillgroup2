@@ -266,22 +266,25 @@ pub async fn send_message(
         .message_ttl
         .map(|ttl| timestamp + Duration::seconds(i64::from(ttl)));
     let expires_at = channel_expires_at.or(request_expires_at);
-    let key_version = if channel.encryption_type == EncryptionType::Asymmetric {
-        let resolved = match req.key_version {
-            Some(version) => Some(version),
-            None => state
-                .db
-                .get_channel_key_version_metadata(channel_id)
-                .await
-                .map_err(AppError::DatabaseError)?
-                .map(|(_, version)| version),
-        };
-        if resolved.is_none() {
-            return Err(AppError::BadRequest);
+    let key_version = match channel.encryption_type {
+        EncryptionType::None => None,
+        EncryptionType::Symmetric | EncryptionType::Asymmetric => {
+            let resolved = match req.key_version {
+                Some(version) => Some(version),
+                None => state
+                    .db
+                    .get_channel_key_version_metadata(channel_id)
+                    .await
+                    .map_err(AppError::DatabaseError)?
+                    .map(|(_, version)| version),
+            };
+
+            if channel.encryption_type == EncryptionType::Asymmetric && resolved.is_none() {
+                return Err(AppError::BadRequest);
+            }
+
+            resolved
         }
-        resolved
-    } else {
-        None
     };
 
     // Persist to DB
