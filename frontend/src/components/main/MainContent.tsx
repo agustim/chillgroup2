@@ -87,16 +87,30 @@ export function MainContent({
     let cancelled = false
 
     ensureChannelKey(channel.channelId, channel.encryptionType, currentDeviceId)
-      .then((channelKey) => {
+      .then(async (channelKey) => {
         if (cancelled || !channelKey || channel.encryptionType !== 'asymmetric') return
+
+        const { getLatestChannelKey } = await import('../../lib/storage')
+        const latest = await getLatestChannelKey(channel.channelId)
+        const keyVersion = latest?.keyVersion ?? channel.keyVersion ?? 1
+        const keyVersionId = latest?.keyVersionId ?? channel.keyVersionId ?? null
+
+        // En canals asimètrics cal keyVersionId per signar bundles.
+        if (!keyVersionId) {
+          console.warn('[E2EE] Redistribució automàtica omesa: falta keyVersionId', {
+            channelId: channel.channelId,
+            currentDeviceId,
+          })
+          return
+        }
 
         // Si tenim la clau local, tornem a distribuir-la als dispositius membres.
         // Això cobreix membres/dispositius nous que encara no tenien bundle.
         distributeChannelKey(
           channel.channelId,
           channelKey,
-          channel.keyVersion ?? 1,
-          channel.keyVersionId ?? null,
+          keyVersion,
+          keyVersionId,
           currentDeviceId,
         ).catch((err) => {
           const msg = err instanceof Error ? err.message : 'Error desconegut redistribuint clau'
@@ -119,7 +133,7 @@ export function MainContent({
     return () => {
       cancelled = true
     }
-  }, [channel?.channelId, channel?.encryptionType, currentDeviceId])
+  }, [channel?.channelId, channel?.encryptionType, channel?.keyVersion, channel?.keyVersionId, currentDeviceId])
 
   const handleSendMessage = async () => {
     const trimmedMessage = message.trim()

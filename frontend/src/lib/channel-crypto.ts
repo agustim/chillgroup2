@@ -216,6 +216,19 @@ export async function distributeChannelKey(
   const skippedSelfDevices: string[] = []
   const skippedMissingKemDevices: string[] = []
 
+  // Obtenir bundles existents per evitar reujats per conflicte (KEM és no-determinista)
+  const devicesWithExistingBundle = new Set<string>()
+  if (keyVersionId) {
+    const existingBundles = await channelGetAllKeyBundles(channelId)
+    if (existingBundles.success) {
+      for (const b of existingBundles.data) {
+        if (b.keyVersionId === keyVersionId) {
+          devicesWithExistingBundle.add(b.deviceId)
+        }
+      }
+    }
+  }
+
   let signerSecretKey: Uint8Array | null = null
   if (signerDeviceId && keyVersionId) {
     const deviceSecrets = await getDeviceSecretKeys(signerDeviceId)
@@ -237,6 +250,9 @@ export async function distributeChannelKey(
   const failureDetails: Array<{ deviceId: string; kemPublicKeyLength: number; decodedLength?: number; reason: string }> = []
 
   for (const { deviceId, kemPublicKey, dsaPublicKey } of devicesResult.data) {
+    if (devicesWithExistingBundle.has(deviceId)) {
+      continue
+    }
     if (!kemPublicKey) {
       skippedMissingKemDevices.push(deviceId)
       continue
@@ -281,6 +297,33 @@ export async function distributeChannelKey(
   if (bundles.length > 0) {
     const uploadResult = await channelUploadKeys(channelId, bundles)
     if (!uploadResult.success) {
+      if (uploadResult.error.code === 3008 && keyVersionId) {
+        const latestBundles = await channelGetAllKeyBundles(channelId)
+        if (latestBundles.success) {
+          const coveredDevices = new Set(
+            latestBundles.data
+              .filter((bundle) => bundle.keyVersionId === keyVersionId)
+              .map((bundle) => bundle.deviceId)
+          )
+          const unresolved = bundles
+            .map((bundle) => bundle.deviceId)
+            .filter((deviceId) => !coveredDevices.has(deviceId))
+
+          if (unresolved.length === 0) {
+            // El servidor ja tenia els bundles necessaris; tractem el conflicte com idempotent.
+            return {
+              discoveredDevices,
+              skippedSelfDevices,
+              skippedMissingKemDevices,
+              uploadedBundleDevices: bundles.map((bundle) => bundle.deviceId),
+              failedDevices: failureDetails.map((detail) => ({
+                deviceId: detail.deviceId,
+                reason: detail.reason,
+              })),
+            }
+          }
+        }
+      }
       throw new Error(uploadResult.error.message || 'No s\'ha pogut pujar el bundle de clau de canal')
     }
   }

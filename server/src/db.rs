@@ -2527,40 +2527,37 @@ impl DatabasePool {
 
     /// Retorna les claus públiques d'un dispositiu concret si pertany a l'usuari i no està revocat.
 
-        /// Retorna tots els bundles de clau de canal per a un dispositiu, ordenats per versió ascendent.
-        pub async fn get_all_channel_key_bundles_for_device(
+        /// Retorna tots els bundles de clau de canal del canal, per a tots els dispositius, ordenats per versió ascendent.
+        pub async fn get_all_channel_key_bundles(
             &self,
             channel_id: Uuid,
-            device_id: Uuid,
-        ) -> Result<Vec<(Uuid, i32, String, String, Option<String>, Option<Uuid>)>, sqlx::Error> {
+        ) -> Result<Vec<(Uuid, Uuid, i32, String, String, Option<String>, Option<Uuid>)>, sqlx::Error> {
             match self {
                 DatabasePool::Postgres(pool) => {
                     let rows = sqlx::query(
-                        "SELECT ckv.id, ckv.version, ckdb.encrypted_key, ckdb.kem_ciphertext, ckdb.signature, ckdb.signed_by_device_id \
+                        "SELECT ckdb.device_id, ckv.id, ckv.version, ckdb.encrypted_key, ckdb.kem_ciphertext, ckdb.signature, ckdb.signed_by_device_id \
                          FROM channel_key_device_bundles ckdb \
                          JOIN channel_key_versions ckv ON ckv.id = ckdb.key_version_id \
-                         WHERE ckv.channel_id = $1 AND ckdb.device_id = $2 \
+                         WHERE ckv.channel_id = $1 \
                          ORDER BY ckv.version ASC"
                     )
                     .bind(channel_id)
-                    .bind(device_id)
                     .fetch_all(pool)
                     .await?;
-                    Ok(rows.iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5))).collect())
+                    Ok(rows.iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6))).collect())
                 }
                 DatabasePool::Sqlite(pool) => {
                     let rows = sqlx::query(
-                        "SELECT ckv.id, ckv.version, ckdb.encrypted_key, ckdb.kem_ciphertext, ckdb.signature, ckdb.signed_by_device_id \
+                        "SELECT ckdb.device_id, ckv.id, ckv.version, ckdb.encrypted_key, ckdb.kem_ciphertext, ckdb.signature, ckdb.signed_by_device_id \
                          FROM channel_key_device_bundles ckdb \
                          JOIN channel_key_versions ckv ON ckv.id = ckdb.key_version_id \
-                         WHERE ckv.channel_id = ? AND ckdb.device_id = ? \
+                         WHERE ckv.channel_id = ? \
                          ORDER BY ckv.version ASC"
                     )
                     .bind(channel_id)
-                    .bind(device_id)
                     .fetch_all(pool)
                     .await?;
-                    Ok(rows.iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5))).collect())
+                    Ok(rows.iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6))).collect())
                 }
             }
         }

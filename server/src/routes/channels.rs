@@ -385,15 +385,15 @@ pub async fn get_all_channel_key_bundles(
 
     let bundles = state
         .db
-        .get_all_channel_key_bundles_for_device(channel_id, claims.device_id)
+        .get_all_channel_key_bundles(channel_id)
         .await
         .map_err(AppError::DatabaseError)?;
 
     let result: Vec<serde_json::Value> = bundles
         .into_iter()
-        .map(|(key_version_id, key_version, encrypted_key, kem_ciphertext, signature, signed_by_device_id)| {
+        .map(|(device_id, key_version_id, key_version, encrypted_key, kem_ciphertext, signature, signed_by_device_id)| {
             serde_json::json!({
-                "deviceId": claims.device_id,
+                "deviceId": device_id,
                 "keyVersionId": key_version_id,
                 "keyVersion": key_version,
                 "encryptedKey": encrypted_key,
