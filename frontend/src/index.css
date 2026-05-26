@@ -358,6 +358,9 @@ body {
 }
 
 .user-actions-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   text-align: left;
   border: none;

@@ -135,12 +135,12 @@ export function ChannelList({
           </button>
           {isUserMenuOpen && (
             <div className="user-actions-menu">
-              <button onClick={() => { setIsUserMenuOpen(false); onManageDevices?.() }}>Gestió de dispositius</button>
-              <button onClick={() => { setIsUserMenuOpen(false); onManageChannelKeys?.() }}>Gestió claus-canals</button>
-              <button onClick={() => { setIsUserMenuOpen(false); onManageFriends?.() }}>Gestió d'amics</button>
-              <button onClick={() => { setIsUserMenuOpen(false); onChangePassword?.() }}>Canviar password</button>
-              <button onClick={() => { setIsUserMenuOpen(false); onManagePermissions?.() }}>Permisos</button>
-              <button onClick={() => { setIsUserMenuOpen(false); onLogout?.() }}>Sortir</button>
+              <button onClick={() => { setIsUserMenuOpen(false); onManageDevices?.() }}>📱 Gestió de dispositius</button>
+              <button onClick={() => { setIsUserMenuOpen(false); onManageChannelKeys?.() }}>🔑 Gestió claus-canals</button>
+              <button onClick={() => { setIsUserMenuOpen(false); onManageFriends?.() }}>👥 Gestió d'amics</button>
+              <button onClick={() => { setIsUserMenuOpen(false); onChangePassword?.() }}>🔒 Canviar password</button>
+              <button onClick={() => { setIsUserMenuOpen(false); onManagePermissions?.() }}>🛡️ Permisos</button>
+              <button onClick={() => { setIsUserMenuOpen(false); onLogout?.() }}>🚪 Sortir</button>
             </div>
           )}
         </div>
