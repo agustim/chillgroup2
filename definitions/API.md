@@ -52,6 +52,8 @@
 
 Registrar un nou usuari. Genera automàticament un device ID.
 
+**Nota:** Si el servidor té `OPEN_REGISTER=false`, aquest endpoint retorna **403 Forbidden**. En aquest cas, sol sols els administradors poden crear usuaris via `POST /api/admin/users`.
+
 **Request:**
 ```json
 {
@@ -70,6 +72,17 @@ Registrar un nou usuari. Genera automàticament un device ID.
     "token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
     "deviceId": "550e8400-e29b-41d4-a716-446655440001",
     "deviceLabel": "Chrome on macOS"
+  }
+}
+```
+
+**Response 403 Forbidden (registre tancat):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": 403,
+    "message": "El registre està desactivat. Contacta amb un administrador."
   }
 }
 ```
@@ -136,6 +149,57 @@ Login d'usuari existent. Retorna JWT + device info.
   "error": {
     "code": 401,
     "message": "Credencials incorrectes"
+  }
+}
+```
+
+---
+
+### POST `/api/auth/register-with-invitation`
+
+Registrar un nou usuari utilitzant una invitació. **Funciona fins i tot si `OPEN_REGISTER=false`**.
+
+**Request:**
+```json
+{
+  "code": "abc123-def456-ghi789",         // Codi d'invitació
+  "username": "newuser",                  // string, 3-50 chars
+  "password": "secretpassword"           // string, mínim 8 chars
+}
+```
+
+**Response 201 Created:**
+```json
+{
+  "success": true,
+  "data": {
+    "userId": "550e8400-e29b-41d4-a716-446655440005",
+    "username": "newuser",
+    "token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "deviceId": "550e8400-e29b-41d4-a716-446655440101",
+    "deviceLabel": "Chrome on macOS"
+  }
+}
+```
+
+**Response 404 Not Found (codi invàlid):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": 404,
+    "message": "Codi d'invitació no vàlid o desactivat"
+  }
+}
+```
+
+**Response 410 Gone (invitació exhausted):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": 410,
+    "message": "Aquesta invitació ha assolit el límit d'usos"
   }
 }
 ```
@@ -358,6 +422,508 @@ Obtenir les claus públiques dels dispositius d'un altre usuari. Útil per a con
 
 ---
 
+## Administració
+
+Els endpoints de administració són **només accessibles als usuaris amb rol `admin`**. Si intenteun usuari normal accedir-hi, reben **403 Forbidden**.
+
+### GET `/api/admin/users`
+
+Llistar tots els usuaris del sistema amb informació bàsica.
+
+**Headers:** `Authorization: Bearer <JWT>` (usuari admin requerida)
+**Query Params:**
+- `limit` (number, opcional): màxim de resultats, per defecte 50
+- `offset` (number, opcional): offset per paginació, per defecte 0
+
+**Response 200 OK:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "userId": "550e8400-e29b-41d4-a716-446655440000",
+      "username": "agusti",
+      "role": "admin",
+      "createdAt": "2026-05-01T08:00:00Z",
+      "updatedAt": "2026-05-13T10:30:00Z"
+    },
+    {
+      "userId": "550e8400-e29b-41d4-a716-446655440002",
+      "username": "marcus",
+      "role": "user",
+      "createdAt": "2026-05-02T09:00:00Z",
+      "updatedAt": "2026-05-13T10:30:00Z"
+    }
+  ],
+  "pagination": {
+    "total": 42,
+    "limit": 50,
+    "offset": 0
+  }
+}
+```
+
+**Response 403 Forbidden (no és admin):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": 403,
+    "message": "Accés denegat. Es requereix rol d'administrador."
+  }
+}
+```
+
+---
+
+### POST `/api/admin/users`
+
+Crear un nou usuari com a administrador (sempre funciona, independent de `OPEN_REGISTER`).
+
+**Headers:** `Authorization: Bearer <JWT>` (usuari admin requerida)
+**Request Body:**
+```json
+{
+  "username": "newuser",
+  "password": "temporalpassword",
+  "role": "user"  // o "admin"
+}
+```
+
+**Response 201 Created:**
+```json
+{
+  "success": true,
+  "data": {
+    "userId": "550e8400-e29b-41d4-a716-446655440003",
+    "username": "newuser",
+    "role": "user",
+    "createdAt": "2026-05-13T11:00:00Z"
+  }
+}
+```
+
+**Response 409 Conflict (username ja existeix):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": 409,
+    "message": "El nom d'usuari ja existeix"
+  }
+}
+```
+
+**Response 403 Forbidden (no és admin):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": 403,
+    "message": "Accés denegat. Es requereix rol d'administrador."
+  }
+}
+```
+
+---
+
+### PUT `/api/admin/users/:userId`
+
+Modificar les dades d'un usuari (username, password, role).
+
+**Headers:** `Authorization: Bearer <JWT>` (usuari admin requerida)
+**Path Params:** `{ "userId": "string" }`
+**Request Body:**
+```json
+{
+  "username": "newusername",  // opcional
+  "password": "newpassword",  // opcional
+  "role": "admin"             // opcional, "user" o "admin"
+}
+```
+
+**Response 200 OK:**
+```json
+{
+  "success": true,
+  "data": {
+    "userId": "550e8400-e29b-41d4-a716-446655440003",
+    "username": "newusername",
+    "role": "admin",
+    "updatedAt": "2026-05-13T11:30:00Z"
+  }
+}
+```
+
+**Response 404 Not Found (usuari no existeix):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": 404,
+    "message": "Usuari no trobat"
+  }
+}
+```
+
+**Response 409 Conflict (username ja existeix):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": 409,
+    "message": "El nom d'usuari ja existeix"
+  }
+}
+```
+
+**Response 403 Forbidden (no és admin):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": 403,
+    "message": "Accés denegat. Es requereix rol d'administrador."
+  }
+}
+```
+
+---
+
+### DELETE `/api/admin/users/:userId`
+
+Esborrar un usuari i tots els seus dispositius, servidors, canals, missatges i amics associats (cascada).
+
+**Headers:** `Authorization: Bearer <JWT>` (usuari admin requerida)
+**Path Params:** `{ "userId": "string" }`
+
+**Response 204 No Content:**
+L'usuari ha estat esborrat correctament.
+
+**Response 404 Not Found (usuari no existeix):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": 404,
+    "message": "Usuari no trobat"
+  }
+}
+```
+
+**Response 403 Forbidden (no és admin):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": 403,
+    "message": "Accés denegat. Es requereix rol d'administrador."
+  }
+}
+```
+
+### PUT `/api/admin/users/:userId/plan/:planId`
+
+Canviar el plan (tier) d'un usuari (admin only). S'usa per upgrade/downgrade o assignar tiers.
+
+**Headers:** `Authorization: Bearer <JWT>` (usuari admin requerida)
+**Path Params:** 
+- `userId` (string): ID del usuari
+- `planId` (string): ID del plan ("free", "pro", "enterprise" o UUID)
+
+**Response 200 OK:**
+```json
+{
+  "success": true,
+  "data": {
+    "userId": "550e8400-e29b-41d4-a716-446655440003",
+    "username": "marcus",
+    "planId": "550e8400-e29b-41d4-a716-446655441002",
+    "planName": "pro",
+    "updatedAt": "2026-05-13T12:00:00Z"
+  }
+}
+```
+
+**Response 404 Not Found (usuari o plan no existeix):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": 404,
+    "message": "Usuari o plan no trobat"
+  }
+}
+```
+
+**Response 403 Forbidden (no és admin):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": 403,
+    "message": "Accés denegat. Es requereix rol d'administrador."
+  }
+}
+```
+
+---
+
+## Plans i Límits
+
+### GET `/api/plans`
+
+Llistar tots els plans de SaaS disponibles (públic, no necessita autenticació).
+
+**Response 200 OK:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655441001",
+      "name": "free",
+      "displayName": "Free",
+      "description": "Tier gratuïto per a usuaris individuals",
+      "maxServers": 1,
+      "maxChannelsTextPerServer": 3,
+      "maxChannelsVoicePerServer": 2,
+      "maxMembersPerServer": 20,
+      "apiCallsPerMinute": 60,
+      "messagesPerDay": 10000
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655441002",
+      "name": "pro",
+      "displayName": "Professional",
+      "description": "Per a grups i petites organitzacions",
+      "maxServers": 5,
+      "maxChannelsTextPerServer": 20,
+      "maxChannelsVoicePerServer": 10,
+      "maxMembersPerServer": 500,
+      "apiCallsPerMinute": 600,
+      "messagesPerDay": -1
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655441003",
+      "name": "enterprise",
+      "displayName": "Enterprise",
+      "description": "Per a grans organitzacions amb suport personalitzat",
+      "maxServers": -1,
+      "maxChannelsTextPerServer": -1,
+      "maxChannelsVoicePerServer": -1,
+      "maxMembersPerServer": -1,
+      "apiCallsPerMinute": -1,
+      "messagesPerDay": -1
+    }
+  ]
+}
+```
+
+**Nota:** `-1` significa "unlimited" (sense límit).
+
+---
+
+### GET `/api/user/me/plan`
+
+Obtenir el plan actual del usuari autenticat amb límits i informació de uso.
+
+**Headers:** `Authorization: Bearer <JWT>`
+
+**Response 200 OK:**
+```json
+{
+  "success": true,
+  "data": {
+    "plan": {
+      "id": "550e8400-e29b-41d4-a716-446655441001",
+      "name": "free",
+      "displayName": "Free",
+      "maxServers": 1,
+      "maxChannelsTextPerServer": 3,
+      "maxChannelsVoicePerServer": 2,
+      "maxMembersPerServer": 20,
+      "apiCallsPerMinute": 60,
+      "messagesPerDay": 10000
+    },
+    "usage": {
+      "totalServers": 0,
+      "totalTextChannels": 0,
+      "totalVoiceChannels": 0,
+      "totalMembersAcrossServers": 0,
+      "messagesToday": 0,
+      "apiCallsThisMinute": 0
+    },
+    "canCreateServer": true,
+    "canCreateTextChannel": true,
+    "canCreateVoiceChannel": true,
+    "remainingServers": 1,
+    "remainingTextChannels": 3,
+    "remainingVoiceChannels": 2
+  }
+}
+```
+
+---
+
+### POST `/api/user/me/check-limits`
+
+Verificar si l'usuari pot realitzar una acció específica (crear servidor, canal, etc) sense que es realitzi l'acció.
+
+**Headers:** `Authorization: Bearer <JWT>`
+**Request Body:**
+```json
+{
+  "action": "create_server",  // o: "create_text_channel", "create_voice_channel", "add_member"
+  "serverId": "550e8400-e29b-41d4-a716-446655440100"  // obligatori per a create_*_channel i add_member
+}
+```
+
+**Response 200 OK (limit check OK):**
+```json
+{
+  "success": true,
+  "data": {
+    "allowed": true,
+    "message": "Pots crear aquest recurso"
+  }
+}
+```
+
+**Response 429 Too Many Requests (limit exceeded):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": 429,
+    "message": "Has assolit el límit de servidors per a aquest plan. Límit: 1, Actuals: 1.",
+    "details": {
+      "limitType": "max_servers",
+      "limit": 1,
+      "current": 1,
+      "suggestedAction": "upgrade_plan"
+    }
+  }
+}
+```
+
+---
+
+## Invitacions
+
+### POST `/api/invitations`
+
+Generar una nova invitació (admin only).
+
+**Headers:** `Authorization: Bearer <JWT>` (usuari admin requerida)
+
+**Request Body:**
+```json
+{
+  "maxUses": 5  // optional, default 1. -1 = unlimited
+}
+```
+
+**Response 201 Created:**
+```json
+{
+  "success": true,
+  "data": {
+    "invitationId": "550e8400-e29b-41d4-a716-446655440200",
+    "code": "abc123-def456-ghi789-xyz000",
+    "maxUses": 5,
+    "usesCount": 0,
+    "isActive": true,
+    "createdAt": "2026-05-13T12:30:00Z",
+    "createdBy": "admin"
+  }
+}
+```
+
+**Response 403 Forbidden (no és admin):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": 403,
+    "message": "Accés denegat. Es requereix rol d'administrador."
+  }
+}
+```
+
+---
+
+### GET `/api/invitations`
+
+Llistar invitacions creades (admin only).
+
+**Headers:** `Authorization: Bearer <JWT>` (usuari admin requerida)
+
+**Query Params:**
+- `limit` (number, opcional): màxim de resultats, per defecte 50
+- `offset` (number, opcional): offset per paginació, per defecte 0
+
+**Response 200 OK:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "invitationId": "550e8400-e29b-41d4-a716-446655440200",
+      "code": "abc123-def456-ghi789-xyz000",
+      "maxUses": 5,
+      "usesCount": 2,
+      "isActive": true,
+      "createdAt": "2026-05-13T12:30:00Z",
+      "createdBy": "admin",
+      "remainingUses": 3
+    }
+  ],
+  "pagination": {
+    "total": 15,
+    "limit": 50,
+    "offset": 0
+  }
+}
+```
+
+---
+
+### DELETE `/api/invitations/:invitationId`
+
+Invalidar una invitació (admin only).
+
+**Headers:** `Authorization: Bearer <JWT>` (usuari admin requerida)
+
+**Path Params:** `{ "invitationId": "string" }`
+
+**Response 204 No Content:**
+L'invitació ha estat invalidada.
+
+**Response 404 Not Found:**
+```json
+{
+  "success": false,
+  "error": {
+    "code": 404,
+    "message": "Invitació no trobada"
+  }
+}
+```
+
+**Response 403 Forbidden (no és admin):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": 403,
+    "message": "Accés denegat. Es requereix rol d'administrador."
+  }
+}
+```
+
+---
+
 ## Servidors
 
 ### GET `/api/servers`
@@ -409,6 +975,23 @@ Crear un nou servidor. L'usuari es converteix en owner.
     "iconUrl": null,
     "ownerId": "550e8400-e29b-41d4-a716-446655440000",
     "createdAt": "2026-05-13T10:30:00Z"
+  }
+}
+```
+
+**Response 429 Too Many Requests (limit exceeded):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": 429,
+    "message": "Has assolit el límit de servidors per al teu plan. Límit: 1, Actuals: 1.",
+    "details": {
+      "limitType": "max_servers",
+      "limit": 1,
+      "current": 1,
+      "suggestedAction": "upgrade_plan"
+    }
   }
 }
 ```
@@ -647,6 +1230,35 @@ Crear un nou canal.
     "messageTTL": null,
     "isPrivate": false,
     "createdAt": "2026-05-13T10:30:00Z"
+  }
+}
+```
+
+**Response 429 Too Many Requests (limit exceeded):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": 429,
+    "message": "Has assolit el límit de canals de text per a aquest servidor. Límit: 3, Actuals: 3.",
+    "details": {
+      "limitType": "max_channels_text_per_server",
+      "limit": 3,
+      "current": 3,
+      "serverId": "550e8400-e29b-41d4-a716-446655440010",
+      "suggestedAction": "upgrade_plan"
+    }
+  }
+}
+```
+
+**Response 403 Forbidden (no és propietari o no té permisos):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": 403,
+    "message": "No tens permisos per crear canals en aquest servidor"
   }
 }
 ```

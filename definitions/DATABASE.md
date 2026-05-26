@@ -162,6 +162,8 @@ CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     username VARCHAR(50) UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
+    role VARCHAR(20) NOT NULL DEFAULT 'user',  -- 'user', 'admin'
+    plan_id UUID,  -- Referència al plan SaaS
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -288,6 +290,100 @@ CREATE INDEX idx_messages_expires ON messages(expires_at) WHERE expires_at IS NO
 CREATE INDEX idx_messages_sender ON messages(sender_user_id);
 ```
 
+### Migració 8 — Plans (SaaS Tiers)
+
+```sql
+-- migrations/20260108000000_create_plans.sql
+
+CREATE TABLE plans (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(50) UNIQUE NOT NULL,  -- 'free', 'pro', 'enterprise'
+    display_name VARCHAR(50) NOT NULL,  -- 'Free', 'Professional', 'Enterprise'
+    description TEXT,
+    max_servers INT NOT NULL,
+    max_channels_text_per_server INT NOT NULL,
+    max_channels_voice_per_server INT NOT NULL,
+    max_members_per_server INT NOT NULL,
+    api_calls_per_minute INT NOT NULL,
+    messages_per_day INT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Crear índex per lookup ràpid
+CREATE INDEX idx_plans_name ON plans(name);
+
+-- Inserir plans per defecte
+INSERT INTO plans (
+    id, name, display_name, description,
+    max_servers, max_channels_text_per_server, max_channels_voice_per_server,
+    max_members_per_server, api_calls_per_minute, messages_per_day
+) VALUES
+    -- Free Tier
+    (
+        '550e8400-e29b-41d4-a716-446655441001'::uuid,
+        'free', 'Free',
+        'Tier gratuïto per a usuaris individuals',
+        1, 3, 2, 20, 60, 10000
+    ),
+    -- Pro Tier
+    (
+        '550e8400-e29b-41d4-a716-446655441002'::uuid,
+        'pro', 'Professional',
+        'Per a grups i petites organitzacions',
+        5, 20, 10, 500, 600, -1  -- -1 = unlimited
+    ),
+    -- Enterprise Tier
+    (
+        '550e8400-e29b-41d4-a716-446655441003'::uuid,
+        'enterprise', 'Enterprise',
+        'Per a grans organitzacions amb suport personalitzat',
+        -1, -1, -1, -1, -1, -1  -- Tots unlimited
+    );
+```
+
+### Migració 9 — Add Plan Reference to Users
+
+```sql
+-- migrations/20260109000000_add_plan_to_users.sql
+
+-- Afegir columna plan_id i relació amb plans
+-- (La columna ja existeix, ara afegim la relació)
+ALTER TABLE users
+ADD CONSTRAINT fk_users_plan
+    FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE SET NULL;
+
+-- Assignar el plan 'free' per defecte a tots els usuaris existents
+UPDATE users
+SET plan_id = '550e8400-e29b-41d4-a716-446655441001'::uuid
+WHERE plan_id IS NULL;
+
+-- Fer la columna plan_id NOT NULL
+ALTER TABLE users
+ALTER COLUMN plan_id SET NOT NULL;
+
+CREATE INDEX idx_users_plan ON users(plan_id);
+```
+
+### Migració 11 — Invitations
+
+```sql
+-- migrations/20260111000000_create_invitations.sql
+
+CREATE TABLE invitations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code VARCHAR(32) UNIQUE NOT NULL,  -- 32 chars alphanumeric + hyphens
+    created_by_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    max_uses INT NOT NULL DEFAULT 1,   -- -1 = unlimited, 0 = disabled
+    uses_count INT NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_invitations_code ON invitations(code);
+CREATE INDEX idx_invitations_active ON invitations(is_active) WHERE is_active = true;
+CREATE INDEX idx_invitations_created_by ON invitations(created_by_user_id);
+```
+
 ## Models de Dades (Rust Types)
 
 ```rust
@@ -298,8 +394,68 @@ pub struct User {
     pub id: Uuid,
     pub username: String,
     pub password_hash: String,
+    pub role: String,  // "user", "admin"
+    pub plan_id: Uuid, // Referència al plan SaaS
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Plan {
+    pub id: Uuid,
+    pub name: String,                                    // 'free', 'pro', 'enterprise'
+    pub display_name: String,
+    pub description: Option<String>,
+    pub max_servers: i32,                              // -1 = unlimited
+    pub max_channels_text_per_server: i32,
+    pub max_channels_voice_per_server: i32,
+    pub max_members_per_server: i32,
+    pub api_calls_per_minute: i32,
+    pub messages_per_day: i32,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Límits actuals d'un usuari (combinació de plan + usage actual)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserLimits {
+    pub plan: Plan,
+    pub usage: UsageStats,
+    pub can_create_server: bool,
+    pub can_create_text_channel: bool,
+    pub can_create_voice_channel: bool,
+    pub remaining_servers: i32,
+    pub remaining_text_channels: i32,
+    pub remaining_voice_channels: i32,
+}
+
+/// Estadístiques de uso actuals d'un usuari
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsageStats {
+    pub total_servers: i32,
+    pub total_text_channels: i32,
+    pub total_voice_channels: i32,
+    pub total_members_across_servers: i32,
+    pub messages_today: i32,
+    pub api_calls_this_minute: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct Invitation {
+    pub id: Uuid,
+    pub code: String,                          // Codi únic (32 chars)
+    pub created_by_user_id: Uuid,              // Qui va crear la invitació
+    pub max_uses: i32,                         // -1 = unlimited, 0 = disabled
+    pub uses_count: i32,                       // Vegades que s'ha usat
+    pub is_active: bool,                       // Si és activa o no
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum UserRole {
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "admin")]
+    Admin,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -441,6 +597,12 @@ SERVER_PORT=8080
 JWT_SECRET=your-secret
 JWT_EXPIRATION_DAYS=7
 
+# Registre
+OPEN_REGISTER=true             # true = registre obert, false = només admin pot crear usuaris
+# Si OPEN_REGISTER=false, requereix aquestes credencials:
+ADMIN_USER=admin               # Username del administrador
+ADMIN_PASSWORD=changeme        # Contrasenya del administrador
+
 # Database
 DATABASE_TYPE=postgres          # o "sqlite"
 DATABASE_URL=postgresql://user:pass@localhost:5432/chillgroup
@@ -476,7 +638,10 @@ pub struct Config {
     pub livekit_api_secret: String,
     pub jwt_secret: String,
     pub jwt_expiration_days: u32,
-    pub server_master_key: Option<String>,  // Només per nivell 1
+    pub server_master_key: Option<String>,
+    pub open_register: bool,     // Si false, només admin pot crear usuaris
+    pub admin_user: String,      // Username inicial del admin
+    pub admin_password: String,  // Contrasenya inicial del admin
 }
 
 impl Config {
@@ -511,6 +676,14 @@ impl Config {
                 .and_then(|d| d.parse().ok())
                 .unwrap_or(7),
             server_master_key: env::var("SERVER_MASTER_KEY").ok(),
+            open_register: env::var("OPEN_REGISTER")
+                .unwrap_or_else(|_| "true".into())
+                .parse()
+                .unwrap_or(true),
+            admin_user: env::var("ADMIN_USER")
+                .unwrap_or_else(|_| "admin".into()),
+            admin_password: env::var("ADMIN_PASSWORD")
+                .expect("ADMIN_PASSWORD is required when OPEN_REGISTER=false"),
         })
     }
 }

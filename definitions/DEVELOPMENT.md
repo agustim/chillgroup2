@@ -847,3 +847,376 @@ Això evitaria comentar/descomentar logs manuals i permetria activar/desactivar 
 **Implementació sugerida:**
 - **Backend**: Llegir `BACKEND_DEBUG` a `config.rs` i configurar dinàmicament el layer de `tracing` a `main.rs`
 - **Frontend**: Crear `lib/logger.ts` que wrappegi `console.log/warn/error` i filtri per nivell
+
+---
+
+## Sistema d'Administració — Configuració
+
+### Setup Inicial
+
+Quan desplegar ChillGroup en **mode restringit** (`OPEN_REGISTER=false`), cal configurar les variables d'entorn:
+
+```bash
+# .env (o variables del sistema)
+
+# Mode de registre
+OPEN_REGISTER=false                  # Desactiva el registre públic
+
+# Credencials d'administrador
+ADMIN_USER=admin                     # Username inicial del administrador
+ADMIN_PASSWORD=SuperSecurePass123    # Contrasenya inicial (recomanació: generar amb `openssl rand -base64 32`)
+```
+
+### Inicialització Automàtica
+
+Al llançar el servidor amb `OPEN_REGISTER=false`, el sistema ha de:
+
+1. Verificar si l'usuari `ADMIN_USER` ja existeix a la BD
+2. Si NO existeix: crear-lo automàticament amb role `admin`
+3. Si SÍ existeix: continuar sense fer res (idempotent)
+
+**Código Rust** (pseudocodi a `config.rs` o `main.rs`):
+
+```rust
+// server/src/main.rs
+async fn init_admin_user(db: &Database, config: &Config) -> Result<()> {
+    if !config.open_register {
+        let existing = db.get_user_by_username(&config.admin_user).await?;
+        
+        if existing.is_none() {
+            tracing::info!("Creant administrador inicial: {}", config.admin_user);
+            let password_hash = hash_password(&config.admin_password)?;
+            db.create_user(&config.admin_user, &password_hash, "admin").await?;
+            tracing::info!("Administrador inicial creat");
+        }
+    }
+    Ok(())
+}
+```
+
+### Setup per a Desenvolupament
+
+Per a provar el sistema d'administració en local:
+
+```bash
+# 1. Configurar .env
+echo "OPEN_REGISTER=false" >> .env
+echo "ADMIN_USER=admin" >> .env
+echo "ADMIN_PASSWORD=admin123" >> .env
+
+# 2. Iniciar el servidor
+cargo run --bin server
+
+# 3. Fer login com admin
+curl -X POST http://localhost:8080/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123"}'
+
+# 4. Guardar el JWT de la resposta
+export JWT="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+# 5. Llistar usuaris (sols amb rol admin)
+curl http://localhost:8080/api/admin/users \
+  -H "Authorization: Bearer $JWT"
+
+# 6. Crear un nou usuari
+curl -X POST http://localhost:8080/api/admin/users \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "newuser",
+    "password": "temppass123",
+    "role": "user"
+  }'
+```
+
+### Frontend — Pantalla de Login d'Admin
+
+El frontend ha de detectar si `OPEN_REGISTER=false` i mostrar:
+
+- Campo de login normal si és **registre obert**
+- Només formulari de login si és **registre restringit**
+- Banner informatiu: "El registre està desactivat. Si ets administrador, fes login aquí."
+
+Endpoints a cridardi frontend:
+
+```typescript
+// 1. Verificar si registre està obert (nova ruta)
+GET /api/config/open-register  →  { "open_register": boolean }
+
+// 2. Login normal
+POST /api/auth/login
+
+// 3. Si l'usuari té isAdmin=true, mostrar menú d'administrador
+// Accés als endpoints /api/admin/users/*
+```
+
+### Security Best Practices
+
+1. **Canviar la contrasenya del admin**: Al primer login, recomanar canviar la contrasenya temporal
+2. **Rate limiting**: Els endpoints d'admin (`/api/admin/**`) han de tenir rate limiting més estricte (3 intents/min per IP)
+3. **Auditoria**: Registrar totes les operacions d'admin a logs separats
+4. **Tokens JWT**: Els tokens d'admin amb `isAdmin: true` han de ser invalidats en cas de banning
+5. **2FA (futur)**: Afegir autenticació de dos factors per a comptes d'admin
+
+---
+
+## Sistema de Plans/Tiers — Configuració
+
+### Inicialització Automàtica de Plans
+
+Els plans (free, pro, enterprise) es **creen automàticament** al primer startup si no existeixen:
+
+```rust
+// server/src/main.rs
+async fn init_plans(db: &Database) -> Result<()> {
+    let free_plan = Plan {
+        id: Uuid::parse_str("550e8400-e29b-41d4-a716-446655441001").unwrap(),
+        name: "free".into(),
+        display_name: "Free".into(),
+        max_servers: 1,
+        max_channels_text_per_server: 3,
+        max_channels_voice_per_server: 2,
+        max_members_per_server: 20,
+        api_calls_per_minute: 60,
+        messages_per_day: 10000,
+        // ...
+    };
+    
+    // Crear si no existeix
+    if db.get_plan_by_name("free").await?.is_none() {
+        db.create_plan(free_plan).await?;
+        tracing::info!("Plan 'free' creat");
+    }
+}
+```
+
+### Setup per a Desenvolupament
+
+Per a provar el sistema de plans en local:
+
+```bash
+# 1. Els plans es creen automàticament al startup
+
+# 2. Crear un usuari (default: plan "free")
+curl -X POST http://localhost:8080/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"testuser","password":"pass12345"}'
+
+# 3. Guardar el JWT
+export JWT="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+# 4. Verificar el plan actual
+curl http://localhost:8080/api/user/me/plan \
+  -H "Authorization: Bearer $JWT"
+
+# 5. Intentar crear 2 servidors (hauria de fallar al segon)
+curl -X POST http://localhost:8080/api/servers \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Server1"}'  # ✅ OK
+
+curl -X POST http://localhost:8080/api/servers \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Server2"}'  # ❌ 429 Too Many Requests
+
+# 6. Com admin, canviar el plan a "pro"
+curl -X PUT http://localhost:8080/api/admin/users/:userId/plan/550e8400-e29b-41d4-a716-446655441002 \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json"
+
+# 7. Ara pot crear més servidors (fin a 5)
+curl -X POST http://localhost:8080/api/servers \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Server2"}'  # ✅ OK (ja ha upgradat a pro)
+```
+
+### Endpoints de Plans per a Testing
+
+```bash
+# Llistar tots els plans
+curl http://localhost:8080/api/plans
+
+# Obtenir limít del usuari actual
+curl http://localhost:8080/api/user/me/plan \
+  -H "Authorization: Bearer $JWT"
+
+# Verificar si pot crear servidor (sense crear-lo)
+curl -X POST http://localhost:8080/api/user/me/check-limits \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"action":"create_server"}'
+
+# Verificar si pot crear canal text en un servidor
+curl -X POST http://localhost:8080/api/user/me/check-limits \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"action":"create_text_channel","serverId":"550e8400-e29b-41d4-a716-446655440010"}'
+```
+
+### Frontend — Mostrar Plans i Límits
+
+El frontend ha de:
+
+1. **Carregar plans públics**: `GET /api/plans` (al mount)
+2. **Mostrar plan actual**: `GET /api/user/me/plan` (al profile/dashboard)
+3. **Mostrar warnings de límits**: Si `remainingServers <= 0`, mostrar banner "Has assolit el límit. Upgrade ara."
+4. **Botó de Upgrade**: Redireccionar a plan selection (futur: integrar amb Stripe)
+
+### Comportament amb Limits
+
+#### Hard Limit (Bloqueig)
+- Crear recurs quan limit assolit → 429 Too Many Requests
+- Client ha de mostrar error clara al usuari
+
+#### Soft Limit (Avís, futur)
+- Quan resta <= 1 recurs → Warning ("Aproximat-te al límit")
+- Suggeriements d'upgrade
+
+#### Downgrade (No degradation forçat)
+- Si admin degrada plan (pro → free) i usuari té 3 servidors
+- Els 3 servidors romanen, però no pot crear més
+- "Estàs en modo pro limitat" (UI avís)
+
+## Invitacions
+
+### Setup i Configuració
+
+Invitacions permeten registre de nous usuaris per codi, fins i tot quan `OPEN_REGISTER=false`.
+
+#### Variables d'Entorn (Opcional)
+
+```bash
+# Si voleu deshabilitar registre obert:
+OPEN_REGISTER=false
+
+# Admins pots crear invitacions:
+# - No necessàries env vars per a invitacions
+# - Es configuren via BD i API
+```
+
+#### Generar Invitacions (Admin)
+
+```bash
+# 1. Login com admin
+JWT=$(curl -s -X POST http://localhost:8080/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin_password"}' \
+  | jq -r '.data.token')
+
+# 2. Crear invitació amb múltiples usos
+curl -X POST http://localhost:8080/api/invitations \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"maxUses": 5}'
+
+# Response:
+# {
+#   "success": true,
+#   "data": {
+#     "invitationId": "550e8400-...",
+#     "code": "ABC123-DEF456-GHI789-XYZ000",
+#     "maxUses": 5,
+#     "usesCount": 0,
+#     "isActive": true,
+#     "createdAt": "2026-05-13T12:30:00Z"
+#   }
+# }
+
+# 3. Llistar invitacions
+curl http://localhost:8080/api/invitations \
+  -H "Authorization: Bearer $JWT"
+
+# 4. Invalidar invitació
+curl -X DELETE http://localhost:8080/api/invitations/550e8400-e29b-41d4-a716-446655440200 \
+  -H "Authorization: Bearer $JWT"
+```
+
+### Registre amb Invitació
+
+```bash
+# Registrar nou usuari amb codi:
+curl -X POST http://localhost:8080/api/auth/register-with-invitation \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "ABC123-DEF456-GHI789-XYZ000",
+    "username": "newuser",
+    "password": "secure_password"
+  }'
+
+# Response:
+# {
+#   "success": true,
+#   "data": {
+#     "userId": "550e8400-e29b-41d4-a716-446655440005",
+#     "username": "newuser",
+#     "token": "eyJhbGciOiJSUzI1NiIs...",
+#     "deviceId": "550e8400-e29b-41d4-a716-446655440101"
+#   }
+# }
+
+# Error si codi invàlid/exhausted:
+# {
+#   "success": false,
+#   "error": {
+#     "code": 404 | 410,
+#     "message": "Codi d'invitació no vàlid" | "Límit d'usos assolit"
+#   }
+# }
+```
+
+### Escenaris de Testing
+
+#### Escenari 1: OPEN_REGISTER=true (defecte)
+- Ambdós endpoints funcionen: `/api/auth/register` i `/api/auth/register-with-invitation`
+- Invitacions són opcionals (feature adicional)
+
+#### Escenari 2: OPEN_REGISTER=false (registre tancat)
+- Només `/api/auth/register-with-invitation` funciona
+- `/api/auth/register` retorna 403 Forbidden
+- Admins generen codis d'invitació per compartir
+
+#### Escenari 3: Múltiples usos (-1 = unlimited)
+```bash
+# Crear invitació unlimited:
+curl -X POST http://localhost:8080/api/invitations \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"maxUses": -1}'
+
+# Es pot usar indefinides vegades
+```
+
+#### Escenari 4: Invitació exhausted
+```bash
+# Crear amb maxUses=1
+curl -X POST http://localhost:8080/api/invitations \
+  -H "Authorization: Bearer $JWT" \
+  -d '{"maxUses": 1}'
+# → code: "ABC123-..."
+
+# Primer use: SUCCESS
+curl -X POST http://localhost:8080/api/auth/register-with-invitation \
+  -d '{"code":"ABC123-...","username":"user1","password":"pwd"}'
+# → 201 Created
+
+# Segon use: FAILED
+curl -X POST http://localhost:8080/api/auth/register-with-invitation \
+  -d '{"code":"ABC123-...","username":"user2","password":"pwd"}'
+# → 410 Gone ("Límit d'usos assolit")
+```
+
+### Frontend — Registre amb Invitació
+
+Si `OPEN_REGISTER=false`:
+1. **Mostrar**: "Necessites una invitació per registrar-te"
+2. **Input**: Camp per codi d'invitació
+3. **Flow**:
+   - User introdueix codi + username + password
+   - Frontend POST `/api/auth/register-with-invitation`
+   - Si 404: "Codi invàlid"
+   - Si 410: "Invitació exhausted"
+   - Si 201: Redirigir a chat dashboard
+

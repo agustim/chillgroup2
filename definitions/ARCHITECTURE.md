@@ -84,7 +84,10 @@ chillgroup/
 │   │   │   ├── message_service.rs
 │   │   │   ├── crypto_service.rs     # Encryption operations
 │   │   │   ├── livekit_service.rs    # LiveKit integration
-│   │   │   └── presence_service.rs   # WebSocket presence tracking
+│   │   │   ├── presence_service.rs   # WebSocket presence tracking
+│   │   │   ├── admin_service.rs      # Admin user management
+│   │   │   ├── plan_service.rs       # SaaS plans CRUD
+│   │   │   └── limit_service.rs      # Feature limit enforcement
 │   │   │
 │   │   ├── repositories/     # Data access layer
 │   │   │   ├── user_repo.rs
@@ -547,3 +550,234 @@ SQLx resolt aquestes diferències amb feature flags i queries condicional.
 - **Metrics**: Prometheus client (`prometheus` crate) per request latency, errors, presència
 - **Health check**: `GET /health` (DB connection, LiveKit connectivity)
 - **Tracing**: Request ID propagat via headers (`X-Request-ID`)
+
+## Sistema d'Administració
+
+### Configuració
+
+El sistema pot funcionar en dos modes configurables:
+
+#### Modo 1: Registre Obert (`OPEN_REGISTER=true`)
+- Els usuaris es poden registrar lliurement via `POST /api/auth/register`
+- No hi ha rol d'administrador necessari
+- Ideal per a comunitats públiques
+
+#### Modo 2: Registre Restringit (`OPEN_REGISTER=false`)
+- L'endpoint `POST /api/auth/register` retorna 403 Forbidden
+- Només els administradors poden crear usuaris via `POST /api/admin/users`
+- Al iniciar, es crea automàticament un administrador inicial amb les credencials:
+  - Username: valor de variable `ADMIN_USER` (.env)
+  - Password: valor de variable `ADMIN_PASSWORD` (.env)
+- Ideal per a instàncies privades o corporatives
+
+### Autenticació d'Administrador
+
+1. El usuari admin fa login normalment via `POST /api/auth/login`
+2. El JWT retorna `isAdmin: true` a la resposta
+3. Els endpoints `/api/admin/**` verifiquen que el token tingui `isAdmin: true`
+4. Si no, retornen 403 Forbidden
+
+### Operacions d'Administració
+
+Els administradors poden:
+
+- **Llistar usuaris**: `GET /api/admin/users` (amb paginació)
+- **Crear usuaris**: `POST /api/admin/users` (independent de `OPEN_REGISTER`)
+- **Modificar usuaris**: `PUT /api/admin/users/:userId` (username, password, role)
+- **Esborrar usuaris**: `DELETE /api/admin/users/:userId` (cascada total)
+
+### Cascada d'Esborrat
+
+Quan un administrador esborra un usuari, es suprimeixen:
+- Tots els seus dispositius
+- Tots els seus servidors (transferencia de propiedad opcional en futur)
+- Tots els seus canals dins de servidors
+- Tots els seus missatges
+- Totes les seves relacions d'amics
+- Totes les seves claus de canal
+
+### Seguretat d'Admin
+
+- Els tokens d'administrador són JWT normals amb flag `isAdmin`
+- Els administradors no tenen accés especial a dades xifrades (mantenen la privacesa E2EE)
+- Els logs d'operacions d'administrador es registren per auditoria (futur)
+- La contrasenya d'admin inicial es recommana canviar immediatament
+
+## Sistema de Plans/Tiers i Límits de Features
+
+### Arquitectura de Plans (SaaS)
+
+ChillGroup suporta 3 tiers de SaaS predefinits amb límits configurables per tier:
+
+#### Tiers Per Defecte
+
+| Feature | Free | Pro | Enterprise |
+|---------|------|-----|------------|
+| **Servidors** | 1 | 5 | Unlimited |
+| **Canals Text/Servidor** | 3 | 20 | Unlimited |
+| **Canals Veu/Servidor** | 2 | 10 | Unlimited |
+| **Members/Servidor** | 20 | 500 | Unlimited |
+| **API Calls/min** | 60 | 600 | Unlimited |
+| **Missatges/dia** | 10,000 | Unlimited | Unlimited |
+
+**Nota:** `-1` (o `null`) significa "sense límit" en la BD.
+
+### Estructura de BD
+
+**Taula `plans`**: Conté la definició de cada tier
+- **PK**: `id` (UUID)
+- **Unique**: `name` ('free', 'pro', 'enterprise')
+- **Camps de límit**: `max_servers`, `max_channels_text_per_server`, etc.
+
+**Relació `users.plan_id → plans.id`**: Cada usuari apartat a un plan al crear-se (por defecte "free")
+
+### Verificació de Límits (Hard Limits)
+
+Quan un usuari intenta crear un recurs (servidor, canal, etc), es verifica:
+
+1. **Obtenció del plan de l'usuari**: `SELECT * FROM plans WHERE id = user.plan_id`
+2. **Recompte de recursos actuals**: `SELECT COUNT(*) FROM servers WHERE owner_id = user_id`
+3. **Comparació**: Si `current >= limit`, retorna **429 Too Many Requests**
+
+**Fluxe d'exemple** (crear servidor):
+```
+POST /api/servers (nom: "My Server")
+  ├─ Autenticar usuari (JWT)
+  ├─ Get plan: user.plan_id = "free" → max_servers = 1
+  ├─ Count: SELECT COUNT(*) FROM servers WHERE owner_id = user_id → 1
+  ├─ Check: 1 >= 1? SÍ ❌
+  └─ Response 429: "Has assolit el límit de servidors (1/1)"
+```
+
+### Services de Límits
+
+#### `PlanService`
+- `get_all_plans()` — Obtenir tots els plans
+- `get_plan_by_id(uuid)` — Plan específic
+- `get_plan_by_name(name: &str)` — Plan per name ('free', 'pro', etc)
+- `update_plan(id, new_limits)` — Admin only: modifcar límits
+
+#### `LimitService`
+- `get_user_limits(user_id)` — Obtenir plan + usage stats
+- `can_create_server(user_id)` — Retorna bool
+- `can_create_text_channel(user_id, server_id)` — Retorna bool
+- `can_create_voice_channel(user_id, server_id)` — Retorna bool
+- `check_limit(user_id, resource_type, extra_context)` — Generic check
+- `check_api_rate_limit(user_id)` — Verificar calls/min
+- `check_message_daily_limit(user_id)` — Verificar messages/dia
+
+### Middleware de Rate Limiting
+
+Per a `api_calls_per_minute` i `messages_per_day`, s'usa:
+- **Redis (producció)**: Contador en temps real per user_id
+- **In-memory cache (dev)**: Simple HashMap amb TTL
+
+Sense limits, la BD és interrogada al request. Amb Redis, es cache de 1 min en 1 min.
+
+### Cambio de Plan (Admin)
+
+Els administradors poden canviar el plan d'un usuari via:
+```
+PUT /api/admin/users/:userId/plan/:planId
+```
+
+**Efectes immediats:**
+- Noves creacions de recursos respecten el nou límit
+- Els recursos existents NO es suprimeixen (no degrading forçat)
+- Exemple: Downgrade de "pro" a "free" amb 3 servidors → Els 3 servidors romanen, però no es pot crear més
+
+### Endpoints de Plans per a Usuaris
+
+- `GET /api/plans` — Llistar plans públics (sense JWT)
+- `GET /api/user/me/plan` — Plan actual + limits + usage
+- `POST /api/user/me/check-limits` — Check generic sense crear res
+
+### Futur: Webhook Charges & Billing
+
+Els limits actualment és per **feature gating**, no per **billing**. En futur:
+- Stripe/Paddle integration per cobrar per upgrades
+- Webhooks per track "overages" (ex: 1000 missatges extra/mes)
+- Escalabilitat de tiers dinàmics per empresa
+
+### Invitation Service
+
+#### Responsabilitats
+- Generar codis d'invitació únics (32 chars alphanumeric + hyphens)
+- Validar codis d'invitació al registre
+- Comptar usos i enforçar límits
+- Invalidar invitacions
+- Administrar vigència (no expiran automàticament, es controla manualment amb `is_active`)
+
+#### Interfície Pública
+
+```rust
+pub trait InvitationService {
+    // Crear invitació
+    async fn create_invitation(&self, admin_id: Uuid, max_uses: i32) -> Result<Invitation>;
+    
+    // Validar codi i obté invitació
+    async fn validate_code(&self, code: &str) -> Result<Invitation>;
+    
+    // Incrementar compte d'usos
+    async fn use_invitation(&self, code: &str) -> Result<()>;
+    
+    // Invalidar invitació
+    async fn invalidate(&self, id: Uuid, admin_id: Uuid) -> Result<()>;
+    
+    // Llistar invitacions (admin only)
+    async fn list_invitations(&self, admin_id: Uuid, limit: i64, offset: i64) -> Result<Vec<Invitation>>;
+    
+    // Obtenir invitació per ID
+    async fn get_invitation(&self, id: Uuid) -> Result<Invitation>;
+}
+```
+
+#### Flux de Registre amb Invitació
+
+```
+1. Frontend: POST /api/auth/register-with-invitation
+   {
+       "code": "abc123-...",
+       "username": "newuser",
+       "password": "secret"
+   }
+
+2. Backend:
+   ├─ Validar codi: InvitationService::validate_code(code)
+   │  └─ SELECT FROM invitations WHERE code = code AND is_active = true
+   │     └─ Si no existeix: Return 404
+   │     └─ Si no activa: Return 404
+   │
+   ├─ Comprovar límit d'usos:
+   │  └─ Si max_uses != -1 && uses_count >= max_uses: Return 410
+   │
+   ├─ Crear usuari (igual que register normal)
+   │  └─ Hash password, crear JWT, device inicial
+   │
+   ├─ Incrementar uses_count:
+   │  └─ UPDATE invitations SET uses_count = uses_count + 1 WHERE id = invitation.id
+   │
+   └─ Response 201 amb token
+```
+
+#### Codi d'Invitació
+
+- **Format**: 32 chars, [A-Z0-9-]
+- **Exemples**: `ABC123-DEF456-GHI789-XYZ000-001`, `TEMP-ADMIN-INIT-CODE-999999999999`
+- **Generació**: `rand::thread_rng().gen_string(32)` o similar
+- **Unicitat**: UNIQUE constraint a BD
+
+#### Administració
+
+Admins poden:
+- Crear invitacions amb `maxUses` (default 1, -1 = unlimited)
+- Llistar invitacions actives i estadístiques
+- Invalidar invitacions manualment
+- No hi ha expiració automàtica; es control manualment via `is_active`
+
+#### Comportament Esqecial
+
+- **OPEN_REGISTER=true**: Endpoint POST /api/auth/register-with-invitation funciona igualment
+- **OPEN_REGISTER=false**: POST /api/auth/register-with-invitation és l'ÚNICA forma de registrarse
+- **Usuari inicial**: Si no existeix cap admin, s'assigna rol `admin` al primer usuari que es registra (amb o sense invitació)
+

@@ -45,14 +45,25 @@ Crear una eina de xat moderna, quantum-resistent, amb tres nivells de seguretat 
 
 ## Fluix d'Usuari Principal
 
+### Usuari Normal
 ```
 1. Registre/Login → genera parella de claus (Kyber-1024)
+   (Si OPEN_REGISTER=false, només els admins poden crear usuaris)
 2. Crea un Server (espai de treball)
 3. Crea Canals (text/veio) amb tipus de criptografia
 4. Convida membres (per username o link)
 5. Gestiona una llista d'amics persistent i cerca usuaris de tota l'eina
 6. Xat en temps real (missatges encriptats segons nivell del canal)
 7. Voces/Video via LiveKit (E2EE amb session keys)
+```
+
+### Administrador (si `OPEN_REGISTER=false`)
+```
+1. Login amb credencials d'admin (ADMIN_USER, ADMIN_PASSWORD)
+2. Pot crear/modificar/esborrar usuaris
+3. Pot visualitzar llistat de tots els usuaris del sistema
+4. Els usuaris creats per admin tindran rol "user" o "admin"
+5. Rest de funcionalitats com usuari normal
 ```
 
 ## Principis de Disseny
@@ -72,3 +83,47 @@ Crear una eina de xat moderna, quantum-resistent, amb tres nivells de seguretat 
 | Quantum-resistant | ✅ Kyber-1024 | ❌ | ❌ | ❌ |
 | Open Source | ✅ | ❌ | ✅ | ❌ |
 | Auto-destrució missatges | ✅ TTL | ✅ | ✅ | ✅ |
+
+## Modes d'Operació
+
+ChillGroup pot funcionar en dos modes depenent de la configuració:
+
+### 1️⃣ Mode Obert (`OPEN_REGISTER=true`)
+- Els usuaris es poden registrar lliurement sense restriccions
+- No hi ha rol d'administrador
+- Ideal per a **comunitats públiques** (forums públics, grups d'interesse)
+- Sense control central d'usuaris
+
+### 2️⃣ Mode Restringit (`OPEN_REGISTER=false`)
+- Només els administradors poden crear usuaris
+- L'endpoint de registre públic és desactivat
+- Ideal per a **empreses**, **grups privats** o **instàncies corporatives**
+- Requiere credencials d'admin inicial (`ADMIN_USER`, `ADMIN_PASSWORD`)
+- Els admins tenen accés a: crear/modificar/esborrar usuaris, llistar usuaris
+
+**Important**: Els administradors **NO** podem accedir a missatges xifrats (E2EE). Mantenen la privacesa completa.
+
+## Sistema de Plans (SaaS)
+
+ChillGroup implementa un model de **SaaS escalable** amb 3 tiers estàndards + capacitat de customització:
+
+### Plans Predefinits
+
+| Plan | Descripció | Casos d'ús |
+|------|-----------|-----------|
+| **Free** | 1 servidor, 3 canals text, 2 veu, 20 members | Usuaris individuals, proves, comunitats petites |
+| **Pro** | 5 servidors, 20 canals text, 10 veu, 500 members | Grups de treball, empreses petites-mitjes |
+| **Enterprise** | Unlimited servidors, canals, members | Grans organitzacions, desplegaments corporatius |
+
+### Features de Limits
+
+**Els límits es verifiquen en "hard mode"** — Si assoliu el límit, no pots crear més recursos:
+- ✅ Servidors per usuari
+- ✅ Canals de text per servidor
+- ✅ Canals de veu per servidor  
+- ✅ Members per servidor
+- ✅ API calls per minut (rate limiting)
+- ✅ Missatges per dia
+
+Els **admins poden canviar el plan de cada usuari** en temps real, sense perdre dades existents.
+
