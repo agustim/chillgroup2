@@ -14,7 +14,7 @@ mod error;
 
 use axum::{
     Router,
-    middleware::from_fn,
+    middleware::{from_fn, from_fn_with_state},
 };
 use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
 use socketioxide::{SocketIo, extract::{Data, SocketRef}};
@@ -655,7 +655,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .merge(livekit_routes)
         .merge(friends_routes)
         .merge(user_routes)
-        .layer(from_fn(middleware::extract_claims));
+        .layer(from_fn(middleware::extract_claims))
+        .layer(from_fn_with_state(state.clone(), middleware::insert_state));
 
     // Combinar rutes públiques i protegides
     let app = public_app.merge(protected_app).layer(CorsLayer::permissive());
