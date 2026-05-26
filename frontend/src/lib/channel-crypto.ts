@@ -11,7 +11,7 @@ import {
   storeChannelKey,
   storeDevicePublicKey,
 } from './storage'
-import { channelGetKey, channelUploadKeys, channelGetMemberDevices, deviceUpdatePublicKey } from './api'
+import { channelGetKey, channelUploadKeys, channelGetMemberDevices, deviceUpdatePublicKey, channelGetAllKeyBundles } from './api'
 import { generateAndStoreDeviceKeypair } from './device-keys'
 
 // ── Helpers base64 ───────────────────────────────────────────────
@@ -237,10 +237,6 @@ export async function distributeChannelKey(
   const failureDetails: Array<{ deviceId: string; kemPublicKeyLength: number; decodedLength?: number; reason: string }> = []
 
   for (const { deviceId, kemPublicKey, dsaPublicKey } of devicesResult.data) {
-    if (signerDeviceId && deviceId === signerDeviceId) {
-      skippedSelfDevices.push(deviceId)
-      continue
-    }
     if (!kemPublicKey) {
       skippedMissingKemDevices.push(deviceId)
       continue
@@ -485,4 +481,50 @@ export async function decryptMessagesForChannel(
   )
 
   return Object.fromEntries(entries)
+}
+
+export async function syncChannelKeys(
+  channelId: string,
+  encryptionType: EncryptionType,
+  myDeviceId: string
+): Promise<void> {
+  if (encryptionType === 'none') return
+
+  if (encryptionType === 'symmetric') {
+    const existing = await getChannelKey(channelId)
+    if (!existing) {
+      await fetchAndStoreChannelKey(channelId, encryptionType, myDeviceId)
+    }
+    return
+  }
+
+  // asymmetric: fetch ALL bundles and store each version
+  const secretKeys = await getDeviceSecretKeys(myDeviceId)
+  if (!secretKeys?.kemSecretKey) return
+
+  const result = await channelGetAllKeyBundles(channelId)
+  if (!result.success || !result.data.length) return
+
+  for (const bundle of result.data) {
+    const { keyVersion, keyVersionId, encryptedKey, kemCiphertext, signature, signedByDeviceId, deviceId } = bundle
+    if (keyVersion == null || !encryptedKey || !kemCiphertext) continue
+
+    const existing = await getChannelKeyVersion(channelId, keyVersion)
+    if (existing) continue
+
+    if (
+      keyVersionId && signature && signedByDeviceId &&
+      !(await verifyBundleSignature(channelId, keyVersionId, deviceId, encryptedKey, kemCiphertext, signature, signedByDeviceId))
+    ) {
+      console.warn('[E2EE] Bundle signatura invàlida, saltant versió', { channelId, keyVersion })
+      continue
+    }
+
+    try {
+      const channelKey = await unwrapKeyWithKem(encryptedKey, kemCiphertext, secretKeys.kemSecretKey)
+      await storeChannelKey(channelId, channelKey, encryptionType, keyVersion, keyVersionId ?? null)
+    } catch {
+      // ignore individual bundle failures
+    }
+  }
 }

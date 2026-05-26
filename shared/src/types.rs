@@ -124,6 +124,7 @@ pub struct MessageInfo {
     pub sender_device_id: Uuid,
     pub encrypted_payload: String,
     pub iv: String,
+    pub key_version: Option<i32>,
     pub timestamp: String,
     pub expires_at: Option<String>,
     pub edited_at: Option<String>,

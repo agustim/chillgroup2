@@ -369,6 +369,44 @@ pub struct ChannelKeyBundle {
     pub signed_by_device_id: Option<Uuid>,
 }
 
+pub async fn get_all_channel_key_bundles(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path(channel_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let can_access = state
+        .db
+        .user_can_access_channel(channel_id, claims.user_id)
+        .await
+        .map_err(AppError::DatabaseError)?;
+    if !can_access {
+        return Err(AppError::Forbidden);
+    }
+
+    let bundles = state
+        .db
+        .get_all_channel_key_bundles_for_device(channel_id, claims.device_id)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+    let result: Vec<serde_json::Value> = bundles
+        .into_iter()
+        .map(|(key_version_id, key_version, encrypted_key, kem_ciphertext, signature, signed_by_device_id)| {
+            serde_json::json!({
+                "deviceId": claims.device_id,
+                "keyVersionId": key_version_id,
+                "keyVersion": key_version,
+                "encryptedKey": encrypted_key,
+                "kemCiphertext": kem_ciphertext,
+                "signature": signature,
+                "signedByDeviceId": signed_by_device_id,
+            })
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!(result)))
+}
+
 pub async fn upload_channel_keys(
     State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
@@ -644,6 +682,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/channels/{channel_id}/read", post(mark_channel_read))
         .route("/api/channels/{channel_id}/keys", get(get_channel_keys).post(upload_channel_keys))
         .route("/api/channels/{channel_id}/member-devices", get(get_channel_member_devices))
+            .route("/api/channels/{channel_id}/keys/all", get(get_all_channel_key_bundles))
         .route("/api/channels/{channel_id}/invite", post(invite_to_channel))
         .route("/api/channels/{channel_id}", put(update_channel).delete(delete_channel))
         .with_state(state)

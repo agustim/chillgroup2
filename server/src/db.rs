@@ -257,6 +257,7 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
             sender_device_id TEXT NOT NULL,
             encrypted_payload TEXT NOT NULL,
             iv TEXT NOT NULL,
+            key_version INTEGER,
             timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             expires_at DATETIME,
             edited_at DATETIME,
@@ -293,6 +294,7 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
     }
 
     migrate_sqlite_channels_for_dm(pool).await?;
+    migrate_sqlite_messages_add_key_version(pool).await?;
 
     for idx in [
         "CREATE INDEX IF NOT EXISTS idx_channels_scope ON channels(scope)",
@@ -407,6 +409,33 @@ async fn migrate_sqlite_channels_for_dm(pool: &sqlx::SqlitePool) -> Result<(), S
     tx.commit()
         .await
         .map_err(|e| format!("Error confirmant migració DM SQLite: {}", e))?;
+
+    Ok(())
+}
+
+async fn migrate_sqlite_messages_add_key_version(pool: &sqlx::SqlitePool) -> Result<(), String> {
+    let table_info = sqlx::query("PRAGMA table_info(messages)")
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("Error llegint schema de messages a SQLite: {}", e))?;
+
+    if table_info.is_empty() {
+        return Ok(());
+    }
+
+    let has_key_version = table_info.into_iter().any(|row| {
+        let name: String = row.get(1);
+        name == "key_version"
+    });
+
+    if has_key_version {
+        return Ok(());
+    }
+
+    sqlx::query("ALTER TABLE messages ADD COLUMN key_version INTEGER")
+        .execute(pool)
+        .await
+        .map_err(|e| format!("Error afegint key_version a messages SQLite: {}", e))?;
 
     Ok(())
 }
@@ -1719,6 +1748,7 @@ impl DatabasePool {
         sender_device_id: Uuid,
         payload: &str,
         iv: &str,
+        key_version: Option<i32>,
         expires_at: Option<DateTime<Utc>>,
         timestamp: DateTime<Utc>,
     ) -> Result<(), sqlx::Error> {
@@ -1727,8 +1757,8 @@ impl DatabasePool {
                 sqlx::query(
                     "INSERT INTO messages \
                      (id, channel_id, sender_user_id, sender_username, sender_device_id, \
-                      encrypted_payload, iv, timestamp, expires_at, edited_at, deleted_at) \
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL)",
+                      encrypted_payload, iv, key_version, timestamp, expires_at, edited_at, deleted_at) \
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, NULL)",
                 )
                 .bind(message_id)
                 .bind(channel_id)
@@ -1737,6 +1767,7 @@ impl DatabasePool {
                 .bind(sender_device_id)
                 .bind(payload)
                 .bind(iv)
+                .bind(key_version)
                 .bind(timestamp.to_rfc3339())
                 .bind(expires_at.map(|d| d.to_rfc3339()))
                 .execute(pool)
@@ -1746,8 +1777,8 @@ impl DatabasePool {
                 sqlx::query(
                     "INSERT INTO messages \
                      (id, channel_id, sender_user_id, sender_username, sender_device_id, \
-                      encrypted_payload, iv, timestamp, expires_at, edited_at, deleted_at) \
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)",
+                      encrypted_payload, iv, key_version, timestamp, expires_at, edited_at, deleted_at) \
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)",
                 )
                 .bind(message_id)
                 .bind(channel_id)
@@ -1756,6 +1787,7 @@ impl DatabasePool {
                 .bind(sender_device_id)
                 .bind(payload)
                 .bind(iv)
+                .bind(key_version)
                 .bind(timestamp.to_rfc3339())
                 .bind(expires_at.map(|d| d.to_rfc3339()))
                 .execute(pool)
@@ -1768,7 +1800,7 @@ impl DatabasePool {
     pub async fn get_message(&self, message_id: Uuid) -> Result<Option<Message>, sqlx::Error> {
         let now = chrono::Utc::now().to_rfc3339();
         let query = "SELECT id, channel_id, sender_user_id, sender_username, sender_device_id, \
-                     encrypted_payload, iv, timestamp, expires_at, edited_at, deleted_at \
+                     encrypted_payload, iv, key_version, timestamp, expires_at, edited_at, deleted_at \
                      FROM messages WHERE id = $1 AND (expires_at IS NULL OR expires_at > $2)";
         match self {
             DatabasePool::Postgres(pool) => {
@@ -1786,12 +1818,13 @@ impl DatabasePool {
                         sender_device_id: row.get(4),
                         encrypted_payload: row.get(5),
                         iv: row.get(6),
-                        timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(7))
+                        key_version: row.get(7),
+                        timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(8))
                             .map(|d| d.with_timezone(&Utc))
                             .unwrap_or_else(|_| chrono::Utc::now()),
-                        expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(8)),
-                        edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
-                        deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
+                        expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
+                        edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
+                        deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(11)),
                     })
                 })
                 .transpose()
@@ -1812,12 +1845,13 @@ impl DatabasePool {
                         sender_device_id: row.get(4),
                         encrypted_payload: row.get(5),
                         iv: row.get(6),
-                        timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(7))
+                        key_version: row.get(7),
+                        timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(8))
                             .map(|d| d.with_timezone(&Utc))
                             .unwrap_or_else(|_| chrono::Utc::now()),
-                        expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(8)),
-                        edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
-                        deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
+                        expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
+                        edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
+                        deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(11)),
                     })
                 })
                 .transpose()
@@ -1869,7 +1903,7 @@ impl DatabasePool {
 
                 let query = format!(
                     "SELECT id, channel_id, sender_user_id, sender_username, sender_device_id, \
-                     encrypted_payload, iv, timestamp, expires_at, edited_at, deleted_at \
+                     encrypted_payload, iv, key_version, timestamp, expires_at, edited_at, deleted_at \
                      FROM messages WHERE {} {} LIMIT $999",
                     conditions.join(" AND "),
                     order
@@ -1894,12 +1928,13 @@ impl DatabasePool {
                         sender_device_id: row.get(4),
                         encrypted_payload: row.get(5),
                         iv: row.get(6),
-                        timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(7))
+                        key_version: row.get(7),
+                        timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(8))
                             .map(|d| d.with_timezone(&Utc))
                             .unwrap_or_else(|_| chrono::Utc::now()),
-                        expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(8)),
-                        edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
-                        deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
+                        expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
+                        edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
+                        deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(11)),
                     });
                 }
             }
@@ -1929,7 +1964,7 @@ impl DatabasePool {
 
                 let query = format!(
                     "SELECT id, channel_id, sender_user_id, sender_username, sender_device_id, \
-                     encrypted_payload, iv, timestamp, expires_at, edited_at, deleted_at \
+                     encrypted_payload, iv, key_version, timestamp, expires_at, edited_at, deleted_at \
                      FROM messages WHERE {} {} LIMIT ?",
                     conditions.join(" AND "),
                     order
@@ -1953,12 +1988,13 @@ impl DatabasePool {
                         sender_device_id: row.get(4),
                         encrypted_payload: row.get(5),
                         iv: row.get(6),
-                        timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(7))
+                        key_version: row.get(7),
+                        timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(8))
                             .map(|d| d.with_timezone(&Utc))
                             .unwrap_or_else(|_| chrono::Utc::now()),
-                        expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(8)),
-                        edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
-                        deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
+                        expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
+                        edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
+                        deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(11)),
                     });
                 }
             }
@@ -1983,7 +2019,7 @@ impl DatabasePool {
                      SET encrypted_payload = $1, iv = $2, edited_at = $3 \
                      WHERE id = $4 \
                      RETURNING id, channel_id, sender_user_id, sender_username, sender_device_id, \
-                               encrypted_payload, iv, timestamp, expires_at, edited_at, deleted_at";
+                               encrypted_payload, iv, key_version, timestamp, expires_at, edited_at, deleted_at";
         match self {
             DatabasePool::Postgres(pool) => {
                 let row = sqlx::query(query)
@@ -2001,12 +2037,13 @@ impl DatabasePool {
                     sender_device_id: row.get(4),
                     encrypted_payload: row.get(5),
                     iv: row.get(6),
-                    timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(7))
+                    key_version: row.get(7),
+                    timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(8))
                         .map(|d| d.with_timezone(&Utc))
                         .unwrap_or_else(|_| chrono::Utc::now()),
-                    expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(8)),
-                    edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
-                    deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
+                    expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
+                    edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
+                    deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(11)),
                 })
             }
             DatabasePool::Sqlite(pool) => {
@@ -2026,12 +2063,13 @@ impl DatabasePool {
                     sender_device_id: row.get(4),
                     encrypted_payload: row.get(5),
                     iv: row.get(6),
-                    timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(7))
+                    key_version: row.get(7),
+                    timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(8))
                         .map(|d| d.with_timezone(&Utc))
                         .unwrap_or_else(|_| chrono::Utc::now()),
-                    expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(8)),
-                    edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
-                    deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
+                    expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
+                    edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
+                    deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(11)),
                 })
             }
         }
@@ -2488,6 +2526,45 @@ impl DatabasePool {
     }
 
     /// Retorna les claus públiques d'un dispositiu concret si pertany a l'usuari i no està revocat.
+
+        /// Retorna tots els bundles de clau de canal per a un dispositiu, ordenats per versió ascendent.
+        pub async fn get_all_channel_key_bundles_for_device(
+            &self,
+            channel_id: Uuid,
+            device_id: Uuid,
+        ) -> Result<Vec<(Uuid, i32, String, String, Option<String>, Option<Uuid>)>, sqlx::Error> {
+            match self {
+                DatabasePool::Postgres(pool) => {
+                    let rows = sqlx::query(
+                        "SELECT ckv.id, ckv.version, ckdb.encrypted_key, ckdb.kem_ciphertext, ckdb.signature, ckdb.signed_by_device_id \
+                         FROM channel_key_device_bundles ckdb \
+                         JOIN channel_key_versions ckv ON ckv.id = ckdb.key_version_id \
+                         WHERE ckv.channel_id = $1 AND ckdb.device_id = $2 \
+                         ORDER BY ckv.version ASC"
+                    )
+                    .bind(channel_id)
+                    .bind(device_id)
+                    .fetch_all(pool)
+                    .await?;
+                    Ok(rows.iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5))).collect())
+                }
+                DatabasePool::Sqlite(pool) => {
+                    let rows = sqlx::query(
+                        "SELECT ckv.id, ckv.version, ckdb.encrypted_key, ckdb.kem_ciphertext, ckdb.signature, ckdb.signed_by_device_id \
+                         FROM channel_key_device_bundles ckdb \
+                         JOIN channel_key_versions ckv ON ckv.id = ckdb.key_version_id \
+                         WHERE ckv.channel_id = ? AND ckdb.device_id = ? \
+                         ORDER BY ckv.version ASC"
+                    )
+                    .bind(channel_id)
+                    .bind(device_id)
+                    .fetch_all(pool)
+                    .await?;
+                    Ok(rows.iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5))).collect())
+                }
+            }
+        }
+
     pub async fn get_device_public_keys_for_user(
         &self,
         device_id: Uuid,

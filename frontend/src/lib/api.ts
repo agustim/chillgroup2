@@ -719,6 +719,31 @@ export async function channelsGetKeys(channelId: string) {
   return apiRequest<any[]>('GET', `/api/channels/${channelId}/keys`)
 }
 
+export async function channelGetAllKeyBundles(channelId: string): Promise<ApiResult<Array<{
+  deviceId: string
+  keyVersionId: string | null
+  keyVersion: number | null
+  encryptedKey: string
+  kemCiphertext: string
+  signature: string | null
+  signedByDeviceId: string | null
+}>>> {
+  const result = await apiRequest<any[]>('GET', `/api/channels/${channelId}/keys/all`)
+  if (!result.success) return result
+  return {
+    success: true,
+    data: result.data.map((d: any) => ({
+      deviceId: d.deviceId ?? d.device_id,
+      keyVersionId: d.keyVersionId ?? d.key_version_id ?? null,
+      keyVersion: d.keyVersion ?? d.key_version ?? null,
+      encryptedKey: d.encryptedKey ?? d.encrypted_key,
+      kemCiphertext: d.kemCiphertext ?? d.kem_ciphertext,
+      signature: d.signature ?? null,
+      signedByDeviceId: d.signedByDeviceId ?? d.signed_by_device_id ?? null,
+    })),
+  }
+}
+
 export async function channelGetKey(channelId: string): Promise<ApiResult<{
   deviceId: string
   keyVersionId?: string | null

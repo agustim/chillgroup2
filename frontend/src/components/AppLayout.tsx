@@ -17,7 +17,7 @@ import { useLiveKit } from '../hooks/useLiveKit'
 import { Channel, FriendPresence, Server, ServerFullInfo, VoiceParticipant } from '../types'
 import { disconnectSocket, getSocket } from '../lib/socket'
 import { hasLocalDeviceKeypair } from '../lib/device-keys'
-import { ensureChannelKey, distributeChannelKey } from '../lib/channel-crypto'
+import { ensureChannelKey, distributeChannelKey, syncChannelKeys } from '../lib/channel-crypto'
 import { getChannelKey, getLatestChannelKey } from '../lib/storage'
 import {
   friendsAdd,
@@ -156,6 +156,11 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
       cancelled = true
     }
   }, [user, currentDeviceId])
+
+  useEffect(() => {
+    if (!selectedChannel || selectedChannel.encryptionType === 'none' || !currentDeviceId) return
+    syncChannelKeys(selectedChannel.channelId, selectedChannel.encryptionType as import('../types').EncryptionType, currentDeviceId).catch(() => {})
+  }, [selectedChannel?.channelId, currentDeviceId])
 
   useEffect(() => {
     let cancelled = false

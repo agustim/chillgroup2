@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::{
     middleware::{AppState, AuthClaims},
     error::AppError,
-    models::Message,
+    models::{EncryptionType, Message},
 };
 use tracing::info;
 
@@ -21,6 +21,8 @@ use tracing::info;
 pub struct SendMessageRequest {
     pub encrypted_payload: String,
     pub iv: String,
+    #[serde(default)]
+    pub key_version: Option<i32>,
     pub expires_at: Option<String>,
     #[serde(default)]
     pub is_direct: Option<bool>,
@@ -264,6 +266,23 @@ pub async fn send_message(
         .message_ttl
         .map(|ttl| timestamp + Duration::seconds(i64::from(ttl)));
     let expires_at = channel_expires_at.or(request_expires_at);
+    let key_version = if channel.encryption_type == EncryptionType::Asymmetric {
+        let resolved = match req.key_version {
+            Some(version) => Some(version),
+            None => state
+                .db
+                .get_channel_key_version_metadata(channel_id)
+                .await
+                .map_err(AppError::DatabaseError)?
+                .map(|(_, version)| version),
+        };
+        if resolved.is_none() {
+            return Err(AppError::BadRequest);
+        }
+        resolved
+    } else {
+        None
+    };
 
     // Persist to DB
     state.db.create_message(
@@ -274,6 +293,7 @@ pub async fn send_message(
         claims.device_id,
         &req.encrypted_payload,
         &req.iv,
+        key_version,
         expires_at,
         timestamp,
     ).await.map_err(|e| {
@@ -291,6 +311,7 @@ pub async fn send_message(
         sender_device_id: claims.device_id,
         encrypted_payload: req.encrypted_payload,
         iv: req.iv,
+        key_version,
         timestamp,
         expires_at,
         edited_at: None,
@@ -307,6 +328,7 @@ pub async fn send_message(
         "senderDeviceId": message.sender_device_id,
         "encryptedPayload": message.encrypted_payload,
         "iv": message.iv,
+        "keyVersion": message.key_version,
         "timestamp": message.timestamp,
         "editedAt": message.edited_at,
         "deletedAt": message.deleted_at,
@@ -426,6 +448,7 @@ pub async fn send_direct_message(
     let message_id = Uuid::new_v4();
     let expires_at = req.expires_at.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok()).map(|d| d.with_timezone(&chrono::Utc));
     let timestamp = chrono::Utc::now();
+    let key_version = req.key_version;
 
     // Persist to DB
     state.db.create_message(
@@ -436,6 +459,7 @@ pub async fn send_direct_message(
         claims.device_id,
         &req.encrypted_payload,
         &req.iv,
+        key_version,
         expires_at,
         timestamp,
     ).await.map_err(|e| {
@@ -453,6 +477,7 @@ pub async fn send_direct_message(
         sender_device_id: claims.device_id,
         encrypted_payload: req.encrypted_payload,
         iv: req.iv,
+        key_version,
         timestamp,
         expires_at,
         edited_at: None,
@@ -758,6 +783,18 @@ pub async fn send_dm_channel_message(
         .map(|d| d.with_timezone(&chrono::Utc));
     let channel_expires_at = dm_ttl.map(|ttl| timestamp + Duration::seconds(i64::from(ttl)));
     let expires_at = channel_expires_at.or(request_expires_at);
+    let key_version = match req.key_version {
+        Some(version) => Some(version),
+        None => state
+            .db
+            .get_channel_key_version_metadata(channel_id)
+            .await
+            .map_err(AppError::DatabaseError)?
+            .map(|(_, version)| version),
+    };
+    if key_version.is_none() {
+        return Err(AppError::BadRequest);
+    }
 
     state
         .db
@@ -769,6 +806,7 @@ pub async fn send_dm_channel_message(
             claims.device_id,
             &req.encrypted_payload,
             &req.iv,
+            key_version,
             expires_at,
             timestamp,
         )
@@ -783,6 +821,7 @@ pub async fn send_dm_channel_message(
         sender_device_id: claims.device_id,
         encrypted_payload: req.encrypted_payload,
         iv: req.iv,
+        key_version,
         timestamp,
         expires_at,
         edited_at: None,
@@ -798,6 +837,7 @@ pub async fn send_dm_channel_message(
         "senderDeviceId": message.sender_device_id,
         "encryptedPayload": message.encrypted_payload,
         "iv": message.iv,
+        "keyVersion": message.key_version,
         "timestamp": message.timestamp,
         "editedAt": message.edited_at,
         "deletedAt": message.deleted_at,
@@ -1089,6 +1129,7 @@ mod tests {
             Json(SendMessageRequest {
                 encrypted_payload: "ciphertext".to_string(),
                 iv: "iv".to_string(),
+                key_version: None,
                 expires_at: None,
                 is_direct: None,
                 recipient_user_id: None,
