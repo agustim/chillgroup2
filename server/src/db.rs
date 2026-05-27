@@ -2616,10 +2616,44 @@ impl DatabasePool {
                     .await?;
             }
             DatabasePool::Sqlite(pool) => {
+                // SQLite schema històric no garanteix cascades a totes les FK de canals.
+                // Eliminem dependències explícitament dins d'una transacció per evitar 500.
+                let mut tx = pool.begin().await?;
+
+                sqlx::query("DELETE FROM channel_read_state WHERE channel_id = ?")
+                    .bind(channel_id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                sqlx::query("DELETE FROM messages WHERE channel_id = ?")
+                    .bind(channel_id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                sqlx::query("DELETE FROM channel_members WHERE channel_id = ?")
+                    .bind(channel_id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                sqlx::query(
+                    "DELETE FROM channel_key_device_bundles \
+                     WHERE key_version_id IN (SELECT id FROM channel_key_versions WHERE channel_id = ?)",
+                )
+                .bind(channel_id)
+                .execute(&mut *tx)
+                .await?;
+
+                sqlx::query("DELETE FROM channel_key_versions WHERE channel_id = ?")
+                    .bind(channel_id)
+                    .execute(&mut *tx)
+                    .await?;
+
                 sqlx::query("DELETE FROM channels WHERE id = ?")
                     .bind(channel_id)
-                    .execute(pool)
+                    .execute(&mut *tx)
                     .await?;
+
+                tx.commit().await?;
             }
         }
         Ok(())
