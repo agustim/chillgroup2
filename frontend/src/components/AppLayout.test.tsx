@@ -67,7 +67,7 @@ vi.mock('./sidebar/ServerBar', () => ({
 // but the old mock only used `onCreateChannel`. Also must render channel type info
 // (# Text, 🔊 Veu) for the form inputs test.
 vi.mock('./sidebar/ChannelList', () => ({
-  ChannelList: ({ channels, selectedChannel, onSelectChannel, onCreateTextChannel, onConfigureChannel, onManageFriends, onLogout, canCreateChannel, friends }: any) => (
+  ChannelList: ({ channels, selectedChannel, onSelectChannel, onCreateTextChannel, onConfigureChannel, onManageFriends, onLogout, canCreateTextChannel, friends }: any) => (
     <div data-testid="channel-list">
       <button data-testid="btn-manage-friends" onClick={onManageFriends}>Gestió d'amics</button>
       <button data-testid="btn-logout" onClick={onLogout}>Sortir</button>
@@ -91,7 +91,7 @@ vi.mock('./sidebar/ChannelList', () => ({
         </div>
       ))}
       {/* Use the real prop names that AppLayout passes */}
-      {canCreateChannel && onCreateTextChannel && (
+      {canCreateTextChannel && onCreateTextChannel && (
         <button data-testid="btn-create-channel" title="Crear canal de text" onClick={onCreateTextChannel}>+ Canal</button>
       )}
       <div data-testid="friends-count">{friends?.length ?? 0}</div>
@@ -204,6 +204,7 @@ vi.mock('../lib/api', () => ({
   friendsAdd: vi.fn(),
   friendsRemove: vi.fn(),
   usersSearch: vi.fn(),
+  userLimitsGet: vi.fn(),
 }))
 
 import {
@@ -221,6 +222,7 @@ import {
   friendsAdd,
   friendsRemove,
   usersSearch,
+  userLimitsGet,
 } from '../lib/api'
 import { disconnectSocket } from '../lib/socket'
 import { getLatestChannelKey, getChannelKey } from '../lib/storage'
@@ -240,6 +242,7 @@ const mockFriendsList = vi.mocked(friendsList)
 const mockFriendsAdd = vi.mocked(friendsAdd)
 const mockFriendsRemove = vi.mocked(friendsRemove)
 const mockUsersSearch = vi.mocked(usersSearch)
+const mockUserLimitsGet = vi.mocked(userLimitsGet)
 const mockDisconnectSocket = vi.mocked(disconnectSocket)
 const mockGetLatestChannelKey = vi.mocked(getLatestChannelKey)
 const mockGetChannelKey = vi.mocked(getChannelKey)
@@ -285,6 +288,48 @@ describe('AppLayout', () => {
     mockFriendsAdd.mockResolvedValue({ success: true, data: undefined })
     mockFriendsRemove.mockResolvedValue({ success: true, data: undefined })
     mockUsersSearch.mockResolvedValue({ success: true, data: [] })
+    mockUserLimitsGet.mockResolvedValue({
+      success: true,
+      data: {
+        plan: {
+          id: '550e8400-e29b-41d4-a716-446655441001',
+          name: 'free',
+          displayName: 'Free',
+          description: null,
+          limits: {
+            maxServers: 1,
+            maxChannelsTextPerServer: 3,
+            maxChannelsVoicePerServer: 2,
+            maxMembersPerServer: 20,
+            apiCallsPerMinute: 60,
+            messagesPerDay: 10000,
+          },
+        },
+        usage: {
+          totalServers: 1,
+          totalTextChannels: 1,
+          totalVoiceChannels: 0,
+          totalMembersAcrossServers: 1,
+          messagesToday: 0,
+          apiCallsThisMinute: 0,
+        },
+        permissions: {
+          canCreateServer: true,
+          canCreateTextChannel: true,
+          canCreateVoiceChannel: true,
+          canAddMembers: true,
+          canSendMessage: true,
+        },
+        remaining: {
+          servers: 0,
+          textChannels: 2,
+          voiceChannels: 2,
+          members: 19,
+          messagesToday: 10000,
+          apiCallsThisMinute: 60,
+        },
+      },
+    })
     mockDisconnectSocket.mockClear()
     mockLogout.mockClear()
     mockGetLatestChannelKey.mockResolvedValue(null)

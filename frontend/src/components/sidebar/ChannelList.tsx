@@ -28,7 +28,8 @@ interface ChannelListProps {
   onLogout?: () => void
   onCreateTextChannel?: () => void
   onCreateVoiceChannel?: () => void
-  canCreateChannel?: boolean
+  canCreateTextChannel?: boolean
+  canCreateVoiceChannel?: boolean
   canManageAdminUsers?: boolean
   friends?: FriendPresence[]
   serverMembers?: ServerMember[]
@@ -61,7 +62,8 @@ export function ChannelList({
   onLogout,
   onCreateTextChannel,
   onCreateVoiceChannel,
-  canCreateChannel = false,
+  canCreateTextChannel = false,
+  canCreateVoiceChannel = false,
   canManageAdminUsers = false,
   friends = [],
   serverMembers = [],
@@ -194,7 +196,7 @@ export function ChannelList({
             <span className="category-name"># CANALS DE TEXT</span>
             <span className="category-chevron">{collapsedSections.text ? '🔻' : '🔺'}</span>
           </button>
-          {canCreateChannel && onCreateTextChannel && (
+          {canCreateTextChannel && onCreateTextChannel && (
             <button
               className="create-channel-btn"
               onClick={onCreateTextChannel}
@@ -244,7 +246,7 @@ export function ChannelList({
             <span className="category-name">🔊 CANALS DE VEUS</span>
             <span className="category-chevron">{collapsedSections.voice ? '🔻' : '🔺'}</span>
           </button>
-          {canCreateChannel && onCreateVoiceChannel && (
+          {canCreateVoiceChannel && onCreateVoiceChannel && (
             <button
               className="create-channel-btn"
               onClick={onCreateVoiceChannel}

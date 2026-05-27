@@ -30,10 +30,11 @@ interface ServerBarProps {
   selectedServer: string | null
   onSelectServer: (serverId: string) => void
   onCreateServer: () => void
+  canCreateServer?: boolean
   onServerAction?: (action: ServerMenuAction) => void
 }
 
-export function ServerBar({ servers, selectedServer, onSelectServer, onCreateServer, onServerAction }: ServerBarProps) {
+export function ServerBar({ servers, selectedServer, onSelectServer, onCreateServer, canCreateServer = true, onServerAction }: ServerBarProps) {
   const [openMenuServerId, setOpenMenuServerId] = useState<string | null>(null)
   const menuButtonRef = useRef<HTMLButtonElement | null>(null)
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null)
@@ -111,9 +112,11 @@ export function ServerBar({ servers, selectedServer, onSelectServer, onCreateSer
           </button>
         </div>
       ))}
-      <button className="server-icon add-server" title="Afegir servidor" onClick={onCreateServer}>
-        +
-      </button>
+      {canCreateServer && (
+        <button className="server-icon add-server" title="Afegir servidor" onClick={onCreateServer}>
+          +
+        </button>
+      )}
 
       {/* Menú desplegable amb Portal */}
       {openMenuServerId && menuPosition && (

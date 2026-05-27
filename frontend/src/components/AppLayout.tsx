@@ -38,6 +38,7 @@ import {
   channelDelete,
   usersSearch,
   dmChannelRotateKey,
+  userLimitsGet,
 } from '../lib/api'
 
 interface AppLayoutProps {
@@ -92,6 +93,9 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const [panel, setPanel] = useState<PanelType>('none')
   const [feedback, setFeedback] = useState<string | null>(null)
   const [dmKeyActionBusy, setDmKeyActionBusy] = useState(false)
+  const [canCreateServer, setCanCreateServer] = useState(true)
+  const [canCreateTextChannel, setCanCreateTextChannel] = useState(true)
+  const [canCreateVoiceChannel, setCanCreateVoiceChannel] = useState(true)
   
   // Modal states
   const [showCreateServer, setShowCreateServer] = useState(false)
@@ -179,6 +183,32 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadUserLimits = async () => {
+      if (!user) {
+        setCanCreateServer(true)
+        setCanCreateTextChannel(true)
+        setCanCreateVoiceChannel(true)
+        return
+      }
+
+      const result = await userLimitsGet()
+      if (!cancelled && result.success) {
+        setCanCreateServer(result.data.permissions.canCreateServer)
+        setCanCreateTextChannel(result.data.permissions.canCreateTextChannel)
+        setCanCreateVoiceChannel(result.data.permissions.canCreateVoiceChannel)
+      }
+    }
+
+    void loadUserLimits()
+
+    return () => {
+      cancelled = true
+    }
+  }, [user?.userId])
 
   const selectedServerInfo = selectedServer ? servers.find((server) => server.serverId === selectedServer) : undefined
   const resolvedSelectedChannel = selectedChannel
@@ -712,6 +742,11 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   }
 
   const handleCreateServer = async () => {
+    if (!canCreateServer) {
+      setFeedback('Ja has arribat al límit de servidors del teu tier')
+      return
+    }
+
     setShowCreateServer(true)
   }
 
@@ -1114,6 +1149,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
         selectedServer={selectedServer}
         onSelectServer={handleSelectServer}
         onCreateServer={handleCreateServer}
+        canCreateServer={canCreateServer}
         onServerAction={handleServerMenuAction}
       />
 
@@ -1148,9 +1184,10 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           onChangePassword={handleChangePassword}
           onManagePermissions={handleManagePermissions}
           onManageAdminUsers={handleManageAdminUsers}
-          onCreateTextChannel={canManageServer ? () => setShowCreateTextChannel(true) : undefined}
-          onCreateVoiceChannel={canManageServer ? () => setShowCreateVoiceChannel(true) : undefined}
-          canCreateChannel={canManageServer}
+          onCreateTextChannel={canManageServer && canCreateTextChannel ? () => setShowCreateTextChannel(true) : undefined}
+          onCreateVoiceChannel={canManageServer && canCreateVoiceChannel ? () => setShowCreateVoiceChannel(true) : undefined}
+          canCreateTextChannel={canManageServer && canCreateTextChannel}
+          canCreateVoiceChannel={canManageServer && canCreateVoiceChannel}
           canManageAdminUsers={user?.isAdmin ?? false}
           friends={friends}
           serverMembers={serverDetails?.members ?? []}
