@@ -33,6 +33,28 @@ pub struct CreateAdminUserRequest {
     pub plan_id: Option<Uuid>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminTierLimits {
+    pub max_servers: i32,
+    pub max_channels_text_per_server: i32,
+    pub max_channels_voice_per_server: i32,
+    pub max_members_per_server: i32,
+    pub api_calls_per_minute: i32,
+    pub messages_per_day: i32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminTierUsage {
+    pub total_servers: i64,
+    pub total_text_channels: i64,
+    pub total_voice_channels: i64,
+    pub total_members_across_servers: i64,
+    pub messages_today: i64,
+    pub api_calls_this_minute: i64,
+}
+
 fn parse_role(role: Option<String>) -> Result<&'static str, AppError> {
     match role
         .unwrap_or_else(|| "user".to_string())
@@ -169,6 +191,129 @@ pub async fn create_user(
     ))
 }
 
+pub async fn get_user_limits(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path(user_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    if !claims.is_admin {
+        return Err(AppError::Forbidden);
+    }
+
+    let (
+        plan_id,
+        plan_name,
+        display_name,
+        description,
+        max_servers,
+        max_text_channels,
+        max_voice_channels,
+        max_members,
+        api_calls_per_minute,
+        messages_per_day,
+    ) = state
+        .db
+        .get_user_plan_limits(user_id)
+        .await
+        .map_err(|_| AppError::UserNotFound)?;
+
+    let total_servers = state
+        .db
+        .count_owned_servers(user_id)
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+    let total_text_channels = state
+        .db
+        .count_owned_channels_by_type(user_id, "text")
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+    let total_voice_channels = state
+        .db
+        .count_owned_channels_by_type(user_id, "voice")
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+    let total_members_across_servers = state
+        .db
+        .count_members_in_owned_servers(user_id)
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+    let messages_today = state
+        .db
+        .count_user_messages_today(user_id)
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+
+    let api_calls_this_minute = 0i64;
+
+    let remaining_servers = if max_servers == -1 {
+        -1
+    } else {
+        (i64::from(max_servers) - total_servers).max(0)
+    };
+    let remaining_text_channels = if max_text_channels == -1 {
+        -1
+    } else {
+        (i64::from(max_text_channels) - total_text_channels).max(0)
+    };
+    let remaining_voice_channels = if max_voice_channels == -1 {
+        -1
+    } else {
+        (i64::from(max_voice_channels) - total_voice_channels).max(0)
+    };
+    let remaining_members = if max_members == -1 {
+        -1
+    } else {
+        (i64::from(max_members) - total_members_across_servers).max(0)
+    };
+    let remaining_messages_today = if messages_per_day == -1 {
+        -1
+    } else {
+        (i64::from(messages_per_day) - messages_today).max(0)
+    };
+    let remaining_api_calls_this_minute = if api_calls_per_minute == -1 {
+        -1
+    } else {
+        (i64::from(api_calls_per_minute) - api_calls_this_minute).max(0)
+    };
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "data": {
+            "userId": user_id,
+            "plan": {
+                "id": plan_id,
+                "name": plan_name,
+                "displayName": display_name,
+                "description": description,
+                "limits": AdminTierLimits {
+                    max_servers,
+                    max_channels_text_per_server: max_text_channels,
+                    max_channels_voice_per_server: max_voice_channels,
+                    max_members_per_server: max_members,
+                    api_calls_per_minute,
+                    messages_per_day,
+                }
+            },
+            "usage": AdminTierUsage {
+                total_servers,
+                total_text_channels,
+                total_voice_channels,
+                total_members_across_servers,
+                messages_today,
+                api_calls_this_minute,
+            },
+            "remaining": {
+                "servers": remaining_servers,
+                "textChannels": remaining_text_channels,
+                "voiceChannels": remaining_voice_channels,
+                "members": remaining_members,
+                "messagesToday": remaining_messages_today,
+                "apiCallsThisMinute": remaining_api_calls_this_minute,
+            }
+        }
+    })))
+}
+
 pub async fn update_user_role(
     State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
@@ -222,6 +367,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/admin/users", get(list_users).post(create_user))
         .route("/api/admin/users/{user_id}", delete(delete_user))
+        .route("/api/admin/users/{user_id}/limits", get(get_user_limits))
         .route("/api/admin/users/{user_id}/role/{role}", put(update_user_role))
         .route(
             "/api/admin/users/{user_id}/plan/{plan_id}",

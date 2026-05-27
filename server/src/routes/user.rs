@@ -143,6 +143,192 @@ pub struct UserDeviceResponse {
     pub is_current: bool,
 }
 
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TierLimits {
+    pub max_servers: i32,
+    pub max_channels_text_per_server: i32,
+    pub max_channels_voice_per_server: i32,
+    pub max_members_per_server: i32,
+    pub api_calls_per_minute: i32,
+    pub messages_per_day: i32,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserPlanSummary {
+    pub id: Uuid,
+    pub name: String,
+    pub display_name: String,
+    pub description: Option<String>,
+    pub limits: TierLimits,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserUsageSummary {
+    pub total_servers: i64,
+    pub total_text_channels: i64,
+    pub total_voice_channels: i64,
+    pub total_members_across_servers: i64,
+    pub messages_today: i64,
+    pub api_calls_this_minute: i64,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserPermissionsSummary {
+    pub can_create_server: bool,
+    pub can_create_text_channel: bool,
+    pub can_create_voice_channel: bool,
+    pub can_add_members: bool,
+    pub can_send_message: bool,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserRemainingSummary {
+    pub servers: i64,
+    pub text_channels: i64,
+    pub voice_channels: i64,
+    pub members: i64,
+    pub messages_today: i64,
+    pub api_calls_this_minute: i64,
+}
+
+#[axum::debug_handler]
+pub async fn get_user_limits(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let (
+        plan_id,
+        plan_name,
+        display_name,
+        description,
+        max_servers,
+        max_text_channels,
+        max_voice_channels,
+        max_members,
+        api_calls_per_minute,
+        messages_per_day,
+    ) = state
+        .db
+        .get_user_plan_limits(claims.user_id)
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+
+    let total_servers = state
+        .db
+        .count_owned_servers(claims.user_id)
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+    let total_text_channels = state
+        .db
+        .count_owned_channels_by_type(claims.user_id, "text")
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+    let total_voice_channels = state
+        .db
+        .count_owned_channels_by_type(claims.user_id, "voice")
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+    let total_members_across_servers = state
+        .db
+        .count_members_in_owned_servers(claims.user_id)
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+    let messages_today = state
+        .db
+        .count_user_messages_today(claims.user_id)
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+
+    // TODO: quan integrem comptador de rate limit global per usuari,
+    // aquest camp vindrà d'aquell magatzem temporal.
+    let api_calls_this_minute = 0i64;
+
+    let can_create_server = max_servers == -1 || total_servers < i64::from(max_servers);
+    let can_create_text_channel = max_text_channels == -1 || total_text_channels < i64::from(max_text_channels);
+    let can_create_voice_channel = max_voice_channels == -1 || total_voice_channels < i64::from(max_voice_channels);
+    let can_add_members = max_members == -1 || total_members_across_servers < i64::from(max_members);
+    let can_send_message = messages_per_day == -1 || messages_today < i64::from(messages_per_day);
+
+    let remaining_servers = if max_servers == -1 {
+        -1
+    } else {
+        (i64::from(max_servers) - total_servers).max(0)
+    };
+    let remaining_text_channels = if max_text_channels == -1 {
+        -1
+    } else {
+        (i64::from(max_text_channels) - total_text_channels).max(0)
+    };
+    let remaining_voice_channels = if max_voice_channels == -1 {
+        -1
+    } else {
+        (i64::from(max_voice_channels) - total_voice_channels).max(0)
+    };
+    let remaining_members = if max_members == -1 {
+        -1
+    } else {
+        (i64::from(max_members) - total_members_across_servers).max(0)
+    };
+    let remaining_messages_today = if messages_per_day == -1 {
+        -1
+    } else {
+        (i64::from(messages_per_day) - messages_today).max(0)
+    };
+    let remaining_api_calls_this_minute = if api_calls_per_minute == -1 {
+        -1
+    } else {
+        (i64::from(api_calls_per_minute) - api_calls_this_minute).max(0)
+    };
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "data": {
+            "plan": UserPlanSummary {
+                id: plan_id,
+                name: plan_name,
+                display_name,
+                description,
+                limits: TierLimits {
+                    max_servers,
+                    max_channels_text_per_server: max_text_channels,
+                    max_channels_voice_per_server: max_voice_channels,
+                    max_members_per_server: max_members,
+                    api_calls_per_minute,
+                    messages_per_day,
+                }
+            },
+            "usage": UserUsageSummary {
+                total_servers,
+                total_text_channels,
+                total_voice_channels,
+                total_members_across_servers,
+                messages_today,
+                api_calls_this_minute,
+            },
+            "permissions": UserPermissionsSummary {
+                can_create_server,
+                can_create_text_channel,
+                can_create_voice_channel,
+                can_add_members,
+                can_send_message,
+            },
+            "remaining": UserRemainingSummary {
+                servers: remaining_servers,
+                text_channels: remaining_text_channels,
+                voice_channels: remaining_voice_channels,
+                members: remaining_members,
+                messages_today: remaining_messages_today,
+                api_calls_this_minute: remaining_api_calls_this_minute,
+            }
+        }
+    })))
+}
+
 /// Registrar/actualitzar la clau pública ML-KEM del dispositiu actual.
 #[axum::debug_handler]
 pub async fn update_device_public_key(
@@ -234,6 +420,7 @@ pub async fn revoke_my_device(
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/user/me", axum::routing::get(get_user_me))
+        .route("/api/user/me/limits", axum::routing::get(get_user_limits))
     .route("/api/users/search", axum::routing::get(search_users))
         .route("/api/user/me/devices", axum::routing::get(list_my_devices))
         .route("/api/user/me/devices/{device_id}", axum::routing::delete(revoke_my_device))

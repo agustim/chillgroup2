@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 
 import {
+  adminUserLimitsGet,
   adminUsersCreate,
   adminUsersDelete,
   adminUsersList,
@@ -8,6 +9,7 @@ import {
   adminUsersUpdateRole,
   invitationsCreate,
   invitationsList,
+  type AdminUserLimitsInfo,
   type AdminUserItem,
   type AdminUserRole,
   type InvitationListItem,
@@ -40,6 +42,9 @@ export function AdminUsersPanel({ isOpen, onClose, onFeedback }: AdminUsersPanel
   const [newRole, setNewRole] = useState<AdminUserRole>('user')
   const [newPlanId, setNewPlanId] = useState(PLAN_OPTIONS[0].id)
   const [isCreatingUser, setIsCreatingUser] = useState(false)
+  const [expandedTierUserId, setExpandedTierUserId] = useState<string | null>(null)
+  const [tierByUserId, setTierByUserId] = useState<Record<string, AdminUserLimitsInfo>>({})
+  const [loadingTierUserId, setLoadingTierUserId] = useState<string | null>(null)
 
   // Invitations state
   const [invitations, setInvitations] = useState<InvitationListItem[]>([])
@@ -113,6 +118,29 @@ export function AdminUsersPanel({ isOpen, onClose, onFeedback }: AdminUsersPanel
     if (!result.success) { setError(result.error.message); return }
     setUsers((c) => c.filter((u) => u.userId !== userId))
     onFeedback(`Usuari ${username} eliminat`)
+  }
+
+  const handleToggleTiers = async (userId: string) => {
+    if (expandedTierUserId === userId) {
+      setExpandedTierUserId(null)
+      return
+    }
+
+    setExpandedTierUserId(userId)
+    if (tierByUserId[userId]) {
+      return
+    }
+
+    setLoadingTierUserId(userId)
+    const result = await adminUserLimitsGet(userId)
+    setLoadingTierUserId(null)
+
+    if (!result.success) {
+      setError(result.error.message)
+      return
+    }
+
+    setTierByUserId((current) => ({ ...current, [userId]: result.data }))
   }
 
   const handleCreateInvitation = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -223,29 +251,65 @@ export function AdminUsersPanel({ isOpen, onClose, onFeedback }: AdminUsersPanel
             {!loadingUsers && users.length === 0 && <p>No hi ha usuaris.</p>}
             {users.length > 0 && (
               <ul className="admin-compact-list">
-                {users.map((user) => (
-                  <li key={user.userId} className="admin-compact-list-item">
-                    <span className="admin-compact-name">{user.username}</span>
-                    <select
-                      aria-label={`rol-${user.username}`}
-                      value={user.role}
-                      onChange={(e) => { void handleRoleChange(user.userId, e.target.value === 'admin' ? 'admin' : 'user') }}
-                    >
-                      <option value="user">User</option>
-                      <option value="admin">Admin</option>
-                    </select>
-                    <select
-                      aria-label={`pla-${user.username}`}
-                      value={user.planId ?? PLAN_OPTIONS[0].id}
-                      onChange={(e) => { void handlePlanChange(user.userId, e.target.value) }}
-                    >
-                      {PLAN_OPTIONS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-                    </select>
-                    <Button type="button" variant="danger" size="sm" onClick={() => { void handleDeleteUser(user.userId, user.username) }}>
-                      Eliminar
-                    </Button>
-                  </li>
-                ))}
+                {users.map((user) => {
+                  const tierInfo = tierByUserId[user.userId]
+                  const isExpanded = expandedTierUserId === user.userId
+                  const isLoadingTier = loadingTierUserId === user.userId
+
+                  return (
+                    <li key={user.userId} className="admin-compact-list-item admin-compact-list-item--col">
+                      <div className="admin-user-row-main">
+                        <span className="admin-compact-name">{user.username}</span>
+                        <select
+                          aria-label={`rol-${user.username}`}
+                          value={user.role}
+                          onChange={(e) => { void handleRoleChange(user.userId, e.target.value === 'admin' ? 'admin' : 'user') }}
+                        >
+                          <option value="user">User</option>
+                          <option value="admin">Admin</option>
+                        </select>
+                        <select
+                          aria-label={`pla-${user.username}`}
+                          value={user.planId ?? PLAN_OPTIONS[0].id}
+                          onChange={(e) => { void handlePlanChange(user.userId, e.target.value) }}
+                        >
+                          {PLAN_OPTIONS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+                        </select>
+                        <Button type="button" variant="danger" size="sm" onClick={() => { void handleDeleteUser(user.userId, user.username) }}>
+                          Eliminar
+                        </Button>
+                        <Button type="button" variant="secondary" size="sm" onClick={() => { void handleToggleTiers(user.userId) }}>
+                          Tiers
+                        </Button>
+                      </div>
+
+                      {isExpanded && (
+                        <div className="admin-tier-panel">
+                          {isLoadingTier && <span>Carregant tiers...</span>}
+                          {!isLoadingTier && tierInfo && (
+                            <>
+                              <div className="admin-tier-grid">
+                                <span>Pla: <strong>{tierInfo.plan.displayName}</strong></span>
+                                <span>Servidors: <strong>{tierInfo.usage.totalServers}</strong> / {tierInfo.plan.limits.maxServers === -1 ? '∞' : tierInfo.plan.limits.maxServers}</span>
+                                <span>Text: <strong>{tierInfo.usage.totalTextChannels}</strong> / {tierInfo.plan.limits.maxChannelsTextPerServer === -1 ? '∞' : tierInfo.plan.limits.maxChannelsTextPerServer}</span>
+                                <span>Veu: <strong>{tierInfo.usage.totalVoiceChannels}</strong> / {tierInfo.plan.limits.maxChannelsVoicePerServer === -1 ? '∞' : tierInfo.plan.limits.maxChannelsVoicePerServer}</span>
+                                <span>Membres: <strong>{tierInfo.usage.totalMembersAcrossServers}</strong> / {tierInfo.plan.limits.maxMembersPerServer === -1 ? '∞' : tierInfo.plan.limits.maxMembersPerServer}</span>
+                                <span>Msgs avui: <strong>{tierInfo.usage.messagesToday}</strong> / {tierInfo.plan.limits.messagesPerDay === -1 ? '∞' : tierInfo.plan.limits.messagesPerDay}</span>
+                              </div>
+                              <div className="admin-tier-grid admin-tier-grid--remaining">
+                                <span>Restant servidors: <strong>{tierInfo.remaining.servers === -1 ? '∞' : tierInfo.remaining.servers}</strong></span>
+                                <span>Restant text: <strong>{tierInfo.remaining.textChannels === -1 ? '∞' : tierInfo.remaining.textChannels}</strong></span>
+                                <span>Restant veu: <strong>{tierInfo.remaining.voiceChannels === -1 ? '∞' : tierInfo.remaining.voiceChannels}</strong></span>
+                                <span>Restant membres: <strong>{tierInfo.remaining.members === -1 ? '∞' : tierInfo.remaining.members}</strong></span>
+                                <span>Restant msgs avui: <strong>{tierInfo.remaining.messagesToday === -1 ? '∞' : tierInfo.remaining.messagesToday}</strong></span>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </li>
+                  )
+                })}
               </ul>
             )}
           </section>

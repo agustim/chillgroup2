@@ -9,3 +9,4 @@ pub mod health;
 pub mod user;
 pub mod friends;
 pub mod admin;
+pub mod plans;

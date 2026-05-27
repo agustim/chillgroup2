@@ -176,6 +176,66 @@ export interface InvitationListItem extends InvitationCreateInfo {
   remainingUses: number | null
 }
 
+export interface PlanTierInfo {
+  id: string
+  name: string
+  displayName: string
+  description: string | null
+  maxServers: number
+  maxChannelsTextPerServer: number
+  maxChannelsVoicePerServer: number
+  maxMembersPerServer: number
+  apiCallsPerMinute: number
+  messagesPerDay: number
+}
+
+export interface UserLimitsInfo {
+  plan: {
+    id: string
+    name: string
+    displayName: string
+    description: string | null
+    limits: {
+      maxServers: number
+      maxChannelsTextPerServer: number
+      maxChannelsVoicePerServer: number
+      maxMembersPerServer: number
+      apiCallsPerMinute: number
+      messagesPerDay: number
+    }
+  }
+  usage: {
+    totalServers: number
+    totalTextChannels: number
+    totalVoiceChannels: number
+    totalMembersAcrossServers: number
+    messagesToday: number
+    apiCallsThisMinute: number
+  }
+  permissions: {
+    canCreateServer: boolean
+    canCreateTextChannel: boolean
+    canCreateVoiceChannel: boolean
+    canAddMembers: boolean
+    canSendMessage: boolean
+  }
+  remaining: {
+    servers: number
+    textChannels: number
+    voiceChannels: number
+    members: number
+    messagesToday: number
+    apiCallsThisMinute: number
+  }
+}
+
+export interface AdminUserLimitsInfo {
+  userId: string
+  plan: UserLimitsInfo['plan']
+  usage: UserLimitsInfo['usage']
+  remaining: UserLimitsInfo['remaining']
+}
+
 export interface ServerInfo {
   serverId: string
   name: string
@@ -978,6 +1038,63 @@ function mapInvitationListItem(raw: any): InvitationListItem {
   }
 }
 
+function mapPlanTierInfo(raw: any): PlanTierInfo {
+  return {
+    id: raw.id,
+    name: raw.name,
+    displayName: raw.displayName ?? raw.display_name,
+    description: raw.description ?? null,
+    maxServers: raw.maxServers ?? raw.max_servers,
+    maxChannelsTextPerServer: raw.maxChannelsTextPerServer ?? raw.max_channels_text_per_server,
+    maxChannelsVoicePerServer: raw.maxChannelsVoicePerServer ?? raw.max_channels_voice_per_server,
+    maxMembersPerServer: raw.maxMembersPerServer ?? raw.max_members_per_server,
+    apiCallsPerMinute: raw.apiCallsPerMinute ?? raw.api_calls_per_minute,
+    messagesPerDay: raw.messagesPerDay ?? raw.messages_per_day,
+  }
+}
+
+function mapUserLimitsInfo(raw: any): UserLimitsInfo {
+  return {
+    plan: {
+      id: raw.plan?.id,
+      name: raw.plan?.name,
+      displayName: raw.plan?.displayName ?? raw.plan?.display_name,
+      description: raw.plan?.description ?? null,
+      limits: {
+        maxServers: raw.plan?.limits?.maxServers ?? raw.plan?.limits?.max_servers,
+        maxChannelsTextPerServer: raw.plan?.limits?.maxChannelsTextPerServer ?? raw.plan?.limits?.max_channels_text_per_server,
+        maxChannelsVoicePerServer: raw.plan?.limits?.maxChannelsVoicePerServer ?? raw.plan?.limits?.max_channels_voice_per_server,
+        maxMembersPerServer: raw.plan?.limits?.maxMembersPerServer ?? raw.plan?.limits?.max_members_per_server,
+        apiCallsPerMinute: raw.plan?.limits?.apiCallsPerMinute ?? raw.plan?.limits?.api_calls_per_minute,
+        messagesPerDay: raw.plan?.limits?.messagesPerDay ?? raw.plan?.limits?.messages_per_day,
+      },
+    },
+    usage: {
+      totalServers: raw.usage?.totalServers ?? raw.usage?.total_servers ?? 0,
+      totalTextChannels: raw.usage?.totalTextChannels ?? raw.usage?.total_text_channels ?? 0,
+      totalVoiceChannels: raw.usage?.totalVoiceChannels ?? raw.usage?.total_voice_channels ?? 0,
+      totalMembersAcrossServers: raw.usage?.totalMembersAcrossServers ?? raw.usage?.total_members_across_servers ?? 0,
+      messagesToday: raw.usage?.messagesToday ?? raw.usage?.messages_today ?? 0,
+      apiCallsThisMinute: raw.usage?.apiCallsThisMinute ?? raw.usage?.api_calls_this_minute ?? 0,
+    },
+    permissions: {
+      canCreateServer: Boolean(raw.permissions?.canCreateServer ?? raw.permissions?.can_create_server),
+      canCreateTextChannel: Boolean(raw.permissions?.canCreateTextChannel ?? raw.permissions?.can_create_text_channel),
+      canCreateVoiceChannel: Boolean(raw.permissions?.canCreateVoiceChannel ?? raw.permissions?.can_create_voice_channel),
+      canAddMembers: Boolean(raw.permissions?.canAddMembers ?? raw.permissions?.can_add_members),
+      canSendMessage: Boolean(raw.permissions?.canSendMessage ?? raw.permissions?.can_send_message),
+    },
+    remaining: {
+      servers: raw.remaining?.servers ?? 0,
+      textChannels: raw.remaining?.textChannels ?? raw.remaining?.text_channels ?? 0,
+      voiceChannels: raw.remaining?.voiceChannels ?? raw.remaining?.voice_channels ?? 0,
+      members: raw.remaining?.members ?? 0,
+      messagesToday: raw.remaining?.messagesToday ?? raw.remaining?.messages_today ?? 0,
+      apiCallsThisMinute: raw.remaining?.apiCallsThisMinute ?? raw.remaining?.api_calls_this_minute ?? 0,
+    },
+  }
+}
+
 export async function invitationsCreate(maxUses: number): Promise<ApiResult<InvitationCreateInfo>> {
   const result = await apiRequest<any>('POST', '/api/invitations', { max_uses: maxUses })
   if (!result.success) return result
@@ -989,6 +1106,61 @@ export async function invitationsList(): Promise<ApiResult<InvitationListItem[]>
   if (!result.success) return result
   const data = Array.isArray(result.data) ? result.data : (result.data?.data ?? [])
   return { success: true, data: data.map(mapInvitationListItem) }
+}
+
+export async function plansList(): Promise<ApiResult<PlanTierInfo[]>> {
+  const result = await apiRequest<any>('GET', '/api/plans')
+  if (!result.success) return result
+  const data = Array.isArray(result.data) ? result.data : (result.data?.data ?? [])
+  return { success: true, data: data.map(mapPlanTierInfo) }
+}
+
+export async function userLimitsGet(): Promise<ApiResult<UserLimitsInfo>> {
+  const result = await apiRequest<any>('GET', '/api/user/me/limits')
+  if (!result.success) return result
+  return { success: true, data: mapUserLimitsInfo(result.data?.data ?? result.data) }
+}
+
+export async function adminUserLimitsGet(userId: string): Promise<ApiResult<AdminUserLimitsInfo>> {
+  const result = await apiRequest<any>('GET', `/api/admin/users/${userId}/limits`)
+  if (!result.success) return result
+  const data = result.data?.data ?? result.data
+  return {
+    success: true,
+    data: {
+      userId: data.userId ?? data.user_id ?? userId,
+      plan: {
+        id: data.plan?.id,
+        name: data.plan?.name,
+        displayName: data.plan?.displayName ?? data.plan?.display_name,
+        description: data.plan?.description ?? null,
+        limits: {
+          maxServers: data.plan?.limits?.maxServers ?? data.plan?.limits?.max_servers,
+          maxChannelsTextPerServer: data.plan?.limits?.maxChannelsTextPerServer ?? data.plan?.limits?.max_channels_text_per_server,
+          maxChannelsVoicePerServer: data.plan?.limits?.maxChannelsVoicePerServer ?? data.plan?.limits?.max_channels_voice_per_server,
+          maxMembersPerServer: data.plan?.limits?.maxMembersPerServer ?? data.plan?.limits?.max_members_per_server,
+          apiCallsPerMinute: data.plan?.limits?.apiCallsPerMinute ?? data.plan?.limits?.api_calls_per_minute,
+          messagesPerDay: data.plan?.limits?.messagesPerDay ?? data.plan?.limits?.messages_per_day,
+        },
+      },
+      usage: {
+        totalServers: data.usage?.totalServers ?? data.usage?.total_servers ?? 0,
+        totalTextChannels: data.usage?.totalTextChannels ?? data.usage?.total_text_channels ?? 0,
+        totalVoiceChannels: data.usage?.totalVoiceChannels ?? data.usage?.total_voice_channels ?? 0,
+        totalMembersAcrossServers: data.usage?.totalMembersAcrossServers ?? data.usage?.total_members_across_servers ?? 0,
+        messagesToday: data.usage?.messagesToday ?? data.usage?.messages_today ?? 0,
+        apiCallsThisMinute: data.usage?.apiCallsThisMinute ?? data.usage?.api_calls_this_minute ?? 0,
+      },
+      remaining: {
+        servers: data.remaining?.servers ?? 0,
+        textChannels: data.remaining?.textChannels ?? data.remaining?.text_channels ?? 0,
+        voiceChannels: data.remaining?.voiceChannels ?? data.remaining?.voice_channels ?? 0,
+        members: data.remaining?.members ?? 0,
+        messagesToday: data.remaining?.messagesToday ?? data.remaining?.messages_today ?? 0,
+        apiCallsThisMinute: data.remaining?.apiCallsThisMinute ?? data.remaining?.api_calls_this_minute ?? 0,
+      },
+    },
+  }
 }
 
 // ── LiveKit ─────────────────────────────────────────────────────

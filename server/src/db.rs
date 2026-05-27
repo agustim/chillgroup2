@@ -958,6 +958,123 @@ impl DatabasePool {
         }
     }
 
+    pub async fn get_user_plan_limits(
+        &self,
+        user_id: Uuid,
+    ) -> Result<(Uuid, String, String, Option<String>, i32, i32, i32, i32, i32, i32), String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(
+                    "SELECT p.id, p.name, p.display_name, p.description, p.max_servers, p.max_channels_text_per_server, p.max_channels_voice_per_server, p.max_members_per_server, p.api_calls_per_minute, p.messages_per_day FROM users u JOIN plans p ON p.id = u.plan_id WHERE u.id = $1",
+                )
+                .bind(user_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| format!("Error obtenint límits del pla (Postgres): {}", e))?;
+
+                row.map(|r| {
+                    Ok((
+                        r.get(0),
+                        r.get(1),
+                        r.get(2),
+                        r.get(3),
+                        r.get(4),
+                        r.get(5),
+                        r.get(6),
+                        r.get(7),
+                        r.get(8),
+                        r.get(9),
+                    ))
+                })
+                .unwrap_or_else(|| Err("No s'ha trobat pla per a l'usuari".to_string()))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query(
+                    "SELECT p.id, p.name, p.display_name, p.description, p.max_servers, p.max_channels_text_per_server, p.max_channels_voice_per_server, p.max_members_per_server, p.api_calls_per_minute, p.messages_per_day FROM users u JOIN plans p ON p.id = u.plan_id WHERE u.id = ?",
+                )
+                .bind(user_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| format!("Error obtenint límits del pla (SQLite): {}", e))?;
+
+                row.map(|r| {
+                    Ok((
+                        r.get(0),
+                        r.get(1),
+                        r.get(2),
+                        r.get(3),
+                        r.get(4),
+                        r.get(5),
+                        r.get(6),
+                        r.get(7),
+                        r.get(8),
+                        r.get(9),
+                    ))
+                })
+                .unwrap_or_else(|| Err("No s'ha trobat pla per a l'usuari".to_string()))
+            }
+        }
+    }
+
+    pub async fn list_plans_admin(
+        &self,
+    ) -> Result<Vec<(Uuid, String, String, Option<String>, i32, i32, i32, i32, i32, i32)>, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let rows = sqlx::query(
+                    "SELECT id, name, display_name, description, max_servers, max_channels_text_per_server, max_channels_voice_per_server, max_members_per_server, api_calls_per_minute, messages_per_day FROM plans ORDER BY created_at ASC",
+                )
+                .fetch_all(pool)
+                .await
+                .map_err(|e| format!("Error llistant plans (Postgres): {}", e))?;
+
+                Ok(rows
+                    .into_iter()
+                    .map(|r| {
+                        (
+                            r.get(0),
+                            r.get(1),
+                            r.get(2),
+                            r.get(3),
+                            r.get(4),
+                            r.get(5),
+                            r.get(6),
+                            r.get(7),
+                            r.get(8),
+                            r.get(9),
+                        )
+                    })
+                    .collect())
+            }
+            DatabasePool::Sqlite(pool) => {
+                let rows = sqlx::query(
+                    "SELECT id, name, display_name, description, max_servers, max_channels_text_per_server, max_channels_voice_per_server, max_members_per_server, api_calls_per_minute, messages_per_day FROM plans ORDER BY created_at ASC",
+                )
+                .fetch_all(pool)
+                .await
+                .map_err(|e| format!("Error llistant plans (SQLite): {}", e))?;
+
+                Ok(rows
+                    .into_iter()
+                    .map(|r| {
+                        (
+                            r.get(0),
+                            r.get(1),
+                            r.get(2),
+                            r.get(3),
+                            r.get(4),
+                            r.get(5),
+                            r.get(6),
+                            r.get(7),
+                            r.get(8),
+                            r.get(9),
+                        )
+                    })
+                    .collect())
+            }
+        }
+    }
+
     pub async fn count_channels_by_type_in_server(&self, server_id: Uuid, channel_type: &str) -> Result<i64, String> {
         match self {
             DatabasePool::Postgres(pool) => {
@@ -997,6 +1114,83 @@ impl DatabasePool {
                     .fetch_one(pool)
                     .await
                     .map_err(|e| format!("Error comptant servidors (SQLite): {}", e))?;
+                Ok(row.get(0))
+            }
+        }
+    }
+
+    pub async fn count_owned_channels_by_type(&self, user_id: Uuid, channel_type: &str) -> Result<i64, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(
+                    "SELECT COUNT(*) FROM channels c JOIN servers s ON c.server_id = s.id WHERE s.owner_id = $1 AND c.type = $2",
+                )
+                .bind(user_id)
+                .bind(channel_type)
+                .fetch_one(pool)
+                .await
+                .map_err(|e| format!("Error comptant canals propietari (Postgres): {}", e))?;
+                Ok(row.get(0))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query(
+                    "SELECT COUNT(*) FROM channels c JOIN servers s ON c.server_id = s.id WHERE s.owner_id = ? AND c.type = ?",
+                )
+                .bind(user_id)
+                .bind(channel_type)
+                .fetch_one(pool)
+                .await
+                .map_err(|e| format!("Error comptant canals propietari (SQLite): {}", e))?;
+                Ok(row.get(0))
+            }
+        }
+    }
+
+    pub async fn count_members_in_owned_servers(&self, user_id: Uuid) -> Result<i64, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(
+                    "SELECT COUNT(*) FROM server_members sm JOIN servers s ON sm.server_id = s.id WHERE s.owner_id = $1",
+                )
+                .bind(user_id)
+                .fetch_one(pool)
+                .await
+                .map_err(|e| format!("Error comptant membres en servidors propis (Postgres): {}", e))?;
+                Ok(row.get(0))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query(
+                    "SELECT COUNT(*) FROM server_members sm JOIN servers s ON sm.server_id = s.id WHERE s.owner_id = ?",
+                )
+                .bind(user_id)
+                .fetch_one(pool)
+                .await
+                .map_err(|e| format!("Error comptant membres en servidors propis (SQLite): {}", e))?;
+                Ok(row.get(0))
+            }
+        }
+    }
+
+    pub async fn count_user_messages_today(&self, user_id: Uuid) -> Result<i64, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(
+                    "SELECT COUNT(*) FROM messages WHERE sender_user_id = $1 AND timestamp >= date_trunc('day', NOW()) AND timestamp < date_trunc('day', NOW()) + interval '1 day'",
+                )
+                .bind(user_id)
+                .fetch_one(pool)
+                .await
+                .map_err(|e| format!("Error comptant missatges d'avui (Postgres): {}", e))?;
+                Ok(row.get(0))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query(
+                    "SELECT COUNT(*) FROM messages WHERE sender_user_id = ? AND DATE(timestamp) = DATE('now')",
+                )
+                .bind(user_id)
+                .fetch_one(pool)
+                .await
+                .map_err(|e| format!("Error comptant missatges d'avui (SQLite): {}", e))?;
                 Ok(row.get(0))
             }
         }

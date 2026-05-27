@@ -1768,6 +1768,14 @@ body {
   align-items: flex-start;
 }
 
+.admin-user-row-main {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .admin-compact-name {
   font-size: 13px;
   font-weight: 600;
@@ -1827,6 +1835,29 @@ body {
 .admin-badge-inactive {
   color: var(--text-muted, var(--text-secondary));
   font-size: 11px;
+}
+
+.admin-tier-panel {
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px solid var(--bg-active);
+  border-radius: var(--input-radius);
+  background: var(--bg-input);
+}
+
+.admin-tier-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 6px 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.admin-tier-grid--remaining {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--bg-active);
 }
 
 .admin-users-grid {
