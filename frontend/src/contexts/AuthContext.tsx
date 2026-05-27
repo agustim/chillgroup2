@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react'
 import { ml_kem1024 } from '@noble/post-quantum/ml-kem.js'
 import { User } from '../types'
-import { authLogin, authRegister, authMe, authRefresh, deviceUpdatePublicKey } from '../lib/api'
+import { authLogin, authRegister, authRegisterWithInvitation, authMe, authRefresh, deviceUpdatePublicKey } from '../lib/api'
 import { disconnectSocket } from '../lib/socket'
 import { getStoredDeviceId, persistDeviceId } from '../lib/device-identity'
 import { generateAndStoreDeviceKeypair, hasLocalDeviceKeypair } from '../lib/device-keys'
@@ -36,6 +36,7 @@ interface AuthContextType {
   error: string | null
   login: (username: string, password: string) => Promise<void>
   register: (username: string, password: string) => Promise<void>
+  registerWithInvitation: (code: string, username: string, password: string) => Promise<void>
   logout: () => void
   refreshToken: () => Promise<void>
 }
@@ -183,6 +184,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [saveToken, saveDeviceId, fetchUser, ensureDeviceKeypairUploaded])
 
+  const registerWithInvitation = useCallback(async (code: string, username: string, password: string) => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const result = await authRegisterWithInvitation(code, username, password)
+      if (result.success && result.data) {
+        saveToken(result.data.token)
+        saveDeviceId(result.data.deviceId)
+        await ensureDeviceKeypairUploaded(result.data.deviceId)
+        await fetchUser(result.data.token)
+      } else {
+        const msg = !result.success ? result.error.message : 'Register with invitation failed'
+        throw new Error(msg)
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Error desconegut'
+      setError(msg)
+      throw err
+    } finally {
+      setIsLoading(false)
+    }
+  }, [saveToken, saveDeviceId, fetchUser, ensureDeviceKeypairUploaded])
+
   const logout = useCallback(() => {
     clearAuth()
   }, [clearAuth])
@@ -255,6 +279,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         error,
         login,
         register,
+        registerWithInvitation,
         logout,
         refreshToken,
       }}

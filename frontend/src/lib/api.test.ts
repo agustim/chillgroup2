@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   authRegister,
+  authRegisterWithInvitation,
   authLogin,
   authRefresh,
   authMe,
@@ -30,6 +31,11 @@ import {
   channelInvite,
   channelGetKey,
   channelGetMemberDevices,
+  adminUsersList,
+  adminUsersCreate,
+  adminUsersUpdateRole,
+  adminUsersUpdatePlan,
+  adminUsersDelete,
 } from './api'
 
 // Mock de sessionStorage
@@ -108,6 +114,52 @@ describe('API Client', () => {
       expect(result.success).toBe(false)
       if (!result.success) {
         expect(result.error.code).toBe(409)
+      }
+    })
+  })
+
+  describe('authRegisterWithInvitation', () => {
+    it('envia request de registre amb invitació correctament', async () => {
+      setupMocks({
+        success: true,
+        data: {
+          userId: 'user-2',
+          username: 'inviteduser',
+          token: 'new-token',
+          deviceId: 'device-2',
+          deviceLabel: 'Test Browser',
+        },
+      })
+
+      const result = await authRegisterWithInvitation('ABC123-DEF456-GHI789', 'inviteduser', 'password123')
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/auth/register-with-invitation', {
+        method: 'POST',
+        headers: expect.objectContaining({
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer test-jwt-token',
+        }),
+        body: JSON.stringify({ code: 'ABC123-DEF456-GHI789', username: 'inviteduser', password: 'password123' }),
+      })
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data.username).toBe('inviteduser')
+      }
+    })
+
+    it('retorna error quan el codi d\'invitació és invàlid', async () => {
+      setupMocks({
+        success: false,
+        error: {
+          code: 404,
+          message: 'Codi d\'invitació no vàlid o desactivat',
+        },
+      }, 404)
+
+      const result = await authRegisterWithInvitation('BAD-CODE', 'inviteduser', 'password123')
+      expect(result.success).toBe(false)
+      if (!result.success) {
+        expect(result.error.code).toBe(404)
       }
     })
   })
@@ -304,6 +356,79 @@ describe('API Client', () => {
 
       const requestBody = JSON.parse(String(mockFetch.mock.calls[0]?.[1]?.body ?? '{}')) as { username?: string }
       expect(requestBody).toEqual({ username: 'alice' })
+    })
+  })
+
+  describe('admin users', () => {
+    it('llista usuaris d admin i mapeja camps snake_case', async () => {
+      setupMocks({
+        success: true,
+        data: [
+          {
+            user_id: 'u-1',
+            username: 'alice',
+            role: 'admin',
+            plan_id: '550e8400-e29b-41d4-a716-446655441002',
+          },
+        ],
+      })
+
+      const result = await adminUsersList()
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data[0].userId).toBe('u-1')
+        expect(result.data[0].role).toBe('admin')
+      }
+    })
+
+    it('crea un usuari admin amb pla', async () => {
+      setupMocks({
+        success: true,
+        data: {
+          userId: 'u-2',
+          username: 'new-admin',
+          role: 'admin',
+          planId: '550e8400-e29b-41d4-a716-446655441003',
+        },
+      })
+
+      const result = await adminUsersCreate(
+        'new-admin',
+        'password123',
+        'admin',
+        '550e8400-e29b-41d4-a716-446655441003'
+      )
+
+      expect(result.success).toBe(true)
+      const requestBody = JSON.parse(String(mockFetch.mock.calls[0]?.[1]?.body ?? '{}')) as {
+        username?: string
+        password?: string
+        role?: string
+        plan_id?: string
+      }
+      expect(requestBody).toEqual({
+        username: 'new-admin',
+        password: 'password123',
+        role: 'admin',
+        plan_id: '550e8400-e29b-41d4-a716-446655441003',
+      })
+    })
+
+    it('actualitza rol i pla, i elimina usuari', async () => {
+      setupMocks({ success: true, data: null })
+      const roleResult = await adminUsersUpdateRole('u-3', 'user')
+      expect(roleResult.success).toBe(true)
+      expect(mockFetch.mock.calls[0]?.[0]).toBe('/api/admin/users/u-3/role/user')
+
+      setupMocks({ success: true, data: null })
+      const planResult = await adminUsersUpdatePlan('u-3', '550e8400-e29b-41d4-a716-446655441001')
+      expect(planResult.success).toBe(true)
+      expect(mockFetch.mock.calls[1]?.[0]).toBe('/api/admin/users/u-3/plan/550e8400-e29b-41d4-a716-446655441001')
+
+      setupMocks({ success: true, data: null })
+      const deleteResult = await adminUsersDelete('u-3')
+      expect(deleteResult.success).toBe(true)
+      expect(mockFetch.mock.calls[2]?.[0]).toBe('/api/admin/users/u-3')
     })
   })
 

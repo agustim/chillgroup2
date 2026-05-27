@@ -154,6 +154,15 @@ export interface Quotas {
   maxMessagesPerMinute: number
 }
 
+export type AdminUserRole = 'user' | 'admin'
+
+export interface AdminUserItem {
+  userId: string
+  username: string
+  role: AdminUserRole
+  planId: string | null
+}
+
 export interface ServerInfo {
   serverId: string
   name: string
@@ -323,6 +332,31 @@ export async function authRegister(username: string, password: string) {
     ? { username, password, device_id: deviceId }
     : { username, password }
   const result = await apiRequest<any>('POST', '/api/auth/register', payload)
+  if (!result.success) return result
+  return {
+    success: true,
+    data: {
+      userId: result.data.user_id ?? result.data.userId,
+      username: result.data.username,
+      token: result.data.token,
+      deviceId: result.data.device_id ?? result.data.deviceId,
+      deviceLabel: result.data.device_label ?? result.data.deviceLabel,
+    },
+  } as ApiResponse<{
+    userId: string
+    username: string
+    token: string
+    deviceId: string
+    deviceLabel: string
+  }>
+}
+
+export async function authRegisterWithInvitation(code: string, username: string, password: string) {
+  const deviceId = getStoredDeviceId()
+  const payload = deviceId
+    ? { code, username, password, device_id: deviceId }
+    : { code, username, password }
+  const result = await apiRequest<any>('POST', '/api/auth/register-with-invitation', payload)
   if (!result.success) return result
   return {
     success: true,
@@ -852,6 +886,64 @@ export async function usersSearch(query: string): Promise<ApiResult<UserSearchRe
   if (!result.success) return result
   const data = Array.isArray(result.data) ? result.data : (result.data?.data ?? [])
   return { success: true, data: data.map(mapUserSearchResult) }
+}
+
+function mapAdminUserItem(raw: any): AdminUserItem {
+  return {
+    userId: raw.userId ?? raw.user_id,
+    username: raw.username,
+    role: (raw.role === 'admin' ? 'admin' : 'user') as AdminUserRole,
+    planId: raw.planId ?? raw.plan_id ?? null,
+  }
+}
+
+export async function adminUsersList(): Promise<ApiResult<AdminUserItem[]>> {
+  const result = await apiRequest<any>('GET', '/api/admin/users')
+  if (!result.success) return result
+  const data = Array.isArray(result.data) ? result.data : (result.data?.data ?? [])
+  return { success: true, data: data.map(mapAdminUserItem) }
+}
+
+export async function adminUsersCreate(
+  username: string,
+  password: string,
+  role: AdminUserRole,
+  planId?: string | null,
+): Promise<ApiResult<AdminUserItem>> {
+  const result = await apiRequest<any>('POST', '/api/admin/users', {
+    username,
+    password,
+    role,
+    ...(planId ? { plan_id: planId } : {}),
+  })
+  if (!result.success) return result
+
+  const userLike = {
+    userId: result.data?.userId ?? result.data?.user_id,
+    username: result.data?.username ?? username,
+    role: result.data?.role ?? role,
+    planId: result.data?.planId ?? result.data?.plan_id ?? planId ?? null,
+  }
+
+  return { success: true, data: mapAdminUserItem(userLike) }
+}
+
+export async function adminUsersUpdateRole(userId: string, role: AdminUserRole): Promise<ApiResult<void>> {
+  const result = await apiRequest<void>('PUT', `/api/admin/users/${userId}/role/${role}`)
+  if (!result.success) return result
+  return { success: true, data: undefined }
+}
+
+export async function adminUsersUpdatePlan(userId: string, planId: string): Promise<ApiResult<void>> {
+  const result = await apiRequest<void>('PUT', `/api/admin/users/${userId}/plan/${planId}`)
+  if (!result.success) return result
+  return { success: true, data: undefined }
+}
+
+export async function adminUsersDelete(userId: string): Promise<ApiResult<void>> {
+  const result = await apiRequest<void>('DELETE', `/api/admin/users/${userId}`)
+  if (!result.success) return result
+  return { success: true, data: undefined }
 }
 
 // ── LiveKit ─────────────────────────────────────────────────────

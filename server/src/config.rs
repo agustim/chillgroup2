@@ -47,6 +47,9 @@ pub struct Config {
     pub server_port: u16,
     pub backend_debug: LogLevel,
     pub database_url: String,
+    pub open_register: bool,
+    pub admin_user: Option<String>,
+    pub admin_password: Option<String>,
     pub ttl_cleanup_interval_minutes: u64,
     pub livekit_host: String,
     pub livekit_api_key: String,
@@ -92,6 +95,27 @@ impl Config {
             env::var(key).map_err(|_| format!("La variable d'entorn {} és obligatòria", key))
         }
 
+        fn get_bool_var(key: &str, default: bool) -> Result<bool, String> {
+            match env::var(key) {
+                Ok(value) => match value.trim().to_ascii_lowercase().as_str() {
+                    "true" | "1" | "yes" | "on" => Ok(true),
+                    "false" | "0" | "no" | "off" => Ok(false),
+                    _ => Err(format!("La variable {} ha de ser true/false", key)),
+                },
+                Err(_) => Ok(default),
+            }
+        }
+
+        let open_register = get_bool_var("OPEN_REGISTER", true)?;
+        let admin_user = env::var("ADMIN_USER").ok().filter(|s| !s.trim().is_empty());
+        let admin_password = env::var("ADMIN_PASSWORD").ok().filter(|s| !s.trim().is_empty());
+
+        if !open_register && (admin_user.is_none() || admin_password.is_none()) {
+            return Err(
+                "Quan OPEN_REGISTER=false, ADMIN_USER i ADMIN_PASSWORD són obligatoris".to_string(),
+            );
+        }
+
         Ok((Self {
             server_host: env::var("SERVER_HOST").unwrap_or_else(|_| "0.0.0.0".into()),
             server_port: env::var("SERVER_PORT")
@@ -104,6 +128,9 @@ impl Config {
                 .transpose()?
                 .unwrap_or(LogLevel::Info),
             database_url: get_var("DATABASE_URL")?,
+            open_register,
+            admin_user,
+            admin_password,
             ttl_cleanup_interval_minutes: env::var("TTL_CLEANUP_INTERVAL_MINUTES")
                 .ok()
                 .and_then(|i| i.parse().ok())

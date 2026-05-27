@@ -24,10 +24,12 @@ interface ChannelListProps {
   onManageFriends?: () => void
   onChangePassword?: () => void
   onManagePermissions?: () => void
+  onManageAdminUsers?: () => void
   onLogout?: () => void
   onCreateTextChannel?: () => void
   onCreateVoiceChannel?: () => void
   canCreateChannel?: boolean
+  canManageAdminUsers?: boolean
   friends?: FriendPresence[]
   serverMembers?: ServerMember[]
   serverMemberPresenceById?: Record<string, boolean>
@@ -55,10 +57,12 @@ export function ChannelList({
   onManageFriends,
   onChangePassword,
   onManagePermissions,
+  onManageAdminUsers,
   onLogout,
   onCreateTextChannel,
   onCreateVoiceChannel,
   canCreateChannel = false,
+  canManageAdminUsers = false,
   friends = [],
   serverMembers = [],
   serverMemberPresenceById = {},
@@ -140,6 +144,9 @@ export function ChannelList({
               <button onClick={() => { setIsUserMenuOpen(false); onManageFriends?.() }}>👥 Gestió d'amics</button>
               <button onClick={() => { setIsUserMenuOpen(false); onChangePassword?.() }}>🔒 Canviar password</button>
               <button onClick={() => { setIsUserMenuOpen(false); onManagePermissions?.() }}>🛡️ Permisos</button>
+              {canManageAdminUsers && (
+                <button onClick={() => { setIsUserMenuOpen(false); onManageAdminUsers?.() }}>🧑‍💼 Gestió usuaris</button>
+              )}
               <button onClick={() => { setIsUserMenuOpen(false); onLogout?.() }}>🚪 Sortir</button>
             </div>
           )}

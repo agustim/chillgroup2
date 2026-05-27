@@ -49,6 +49,12 @@ pub enum AppError {
     RateLimitExceeded,
     #[error("Password massa feble (mínim {min} caràcters)")]
     WeakPassword { min: usize },
+    #[error("El registre està tancat")]
+    RegistrationClosed,
+    #[error("Codi d'invitació no vàlid o desactivat")]
+    InvitationInvalid,
+    #[error("Aquesta invitació ha assolit el límit d'usos")]
+    InvitationExhausted,
     // Servidors (2000-2099)
     #[error("Servidor no trobat")]
     ServerNotFound,
@@ -160,6 +166,15 @@ impl IntoResponse for AppError {
             AppError::RateLimitExceeded => (
                 StatusCode::TOO_MANY_REQUESTS, 1009, "Massa intents. Espera uns segons".to_string(), None,
             ),
+            AppError::RegistrationClosed => (
+                StatusCode::FORBIDDEN, 1010, "El registre està tancat".to_string(), None,
+            ),
+            AppError::InvitationInvalid => (
+                StatusCode::NOT_FOUND, 1011, "Codi d'invitació no vàlid o desactivat".to_string(), None,
+            ),
+            AppError::InvitationExhausted => (
+                StatusCode::GONE, 1012, "Aquesta invitació ha assolit el límit d'usos".to_string(), None,
+            ),
             AppError::ServerNotFound => (
                 StatusCode::NOT_FOUND, 2001, "Servidor no trobat".to_string(), None,
             ),
@@ -171,6 +186,9 @@ impl IntoResponse for AppError {
             ),
             AppError::ServerNameExists => (
                 StatusCode::CONFLICT, 2003, "Ja existeix un servidor amb aquest nom".to_string(), None,
+            ),
+            AppError::ServerLimitExceeded => (
+                StatusCode::TOO_MANY_REQUESTS, 2004, "Has arribat al límit de servidors".to_string(), None,
             ),
             AppError::MemberExists => (
                 StatusCode::CONFLICT, 2006, "Aquest usuari ja és membre del servidor".to_string(), None,
@@ -192,6 +210,9 @@ impl IntoResponse for AppError {
             ),
             AppError::ChannelNameExists => (
                 StatusCode::CONFLICT, 3004, "Ja existeix un canal amb aquest nom al servidor".to_string(), None,
+            ),
+            AppError::ChannelLimitExceeded => (
+                StatusCode::TOO_MANY_REQUESTS, 3005, "Has arribat al límit de canals".to_string(), None,
             ),
             AppError::MessageTooLong { max } => (
                 StatusCode::BAD_REQUEST, 4001, format!("El missatge és massa llarg (màxim {max} caràcters)"),

@@ -12,17 +12,20 @@ use tracing::{info, error};
 pub async fn connect_db(config: &Config) -> Result<DatabasePool, String> {
     info!("🔌 Connexió a la base de dades: {}", config.database_url);
 
-    if config.database_url.starts_with("postgres") || config.database_url.starts_with("postgresql") {
+    let db = if config.database_url.starts_with("postgres") || config.database_url.starts_with("postgresql") {
         info!("📦 Utilitzant PostgreSQL");
-        connect_postgres(config).await
+        connect_postgres(config).await?
     } else if config.database_url.starts_with("sqlite") {
         info!("📦 Utilitzant SQLite");
-        connect_sqlite(config).await
+        connect_sqlite(config).await?
     } else {
         let msg = format!("URL de base de dades no suportada: {}", config.database_url);
         error!("❌ {}", msg);
-        Err(msg)
-    }
+        return Err(msg);
+    };
+
+    db.ensure_default_plans().await?;
+    Ok(db)
 }
 /// Connexió a PostgreSQL amb comprovació.
 async fn connect_postgres(config: &Config) -> Result<DatabasePool, String> {
@@ -83,17 +86,39 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
     info!("📋 Creant taules si no existeixen...");
 
     let queries = [
+        // Plans
+        r#"
+        CREATE TABLE IF NOT EXISTS plans (
+            id TEXT PRIMARY KEY,
+            name TEXT UNIQUE NOT NULL,
+            display_name TEXT NOT NULL,
+            description TEXT,
+            max_servers INTEGER NOT NULL,
+            max_channels_text_per_server INTEGER NOT NULL,
+            max_channels_voice_per_server INTEGER NOT NULL,
+            max_members_per_server INTEGER NOT NULL,
+            api_calls_per_minute INTEGER NOT NULL,
+            messages_per_day INTEGER NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        "#,
+        r#"CREATE INDEX IF NOT EXISTS idx_plans_name ON plans(name)"#,
+
         // Users
         r#"
         CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
             username TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'user',
+            plan_id TEXT,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (plan_id) REFERENCES plans(id)
         )
         "#,
         r#"CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)"#,
+        r#"CREATE INDEX IF NOT EXISTS idx_users_plan_id ON users(plan_id)"#,
 
             // Friendships
             r#"
@@ -269,6 +294,22 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
         r#"CREATE INDEX IF NOT EXISTS idx_messages_channel_id ON messages(channel_id)"#,
         r#"CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp)"#,
 
+        // Invitations
+        r#"
+        CREATE TABLE IF NOT EXISTS invitations (
+            id TEXT PRIMARY KEY,
+            code TEXT UNIQUE NOT NULL,
+            created_by_user_id TEXT NOT NULL,
+            max_uses INTEGER NOT NULL DEFAULT 1,
+            uses_count INTEGER NOT NULL DEFAULT 0,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+        "#,
+        r#"CREATE INDEX IF NOT EXISTS idx_invitations_code ON invitations(code)"#,
+        r#"CREATE INDEX IF NOT EXISTS idx_invitations_active ON invitations(is_active)"#,
+
         // Channel read state (unread counters server-authoritative)
         r#"
         CREATE TABLE IF NOT EXISTS channel_read_state (
@@ -293,6 +334,7 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
             .map_err(|e| format!("Error creant taula: {}", e))?;
     }
 
+    migrate_sqlite_users_add_role_and_plan(pool).await?;
     migrate_sqlite_channels_for_dm(pool).await?;
     migrate_sqlite_messages_add_key_version(pool).await?;
 
@@ -307,6 +349,50 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
     }
 
     info!("✅ Taules creades/verificades correctament");
+    Ok(())
+}
+
+async fn migrate_sqlite_users_add_role_and_plan(pool: &sqlx::SqlitePool) -> Result<(), String> {
+    let table_info = sqlx::query("PRAGMA table_info(users)")
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("Error llegint schema de users a SQLite: {}", e))?;
+
+    if table_info.is_empty() {
+        return Ok(());
+    }
+
+    let mut has_role = false;
+    let mut has_plan_id = false;
+
+    for row in table_info {
+        let name: String = row.get(1);
+        match name.as_str() {
+            "role" => has_role = true,
+            "plan_id" => has_plan_id = true,
+            _ => {}
+        }
+    }
+
+    if !has_role {
+        sqlx::query("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'")
+            .execute(pool)
+            .await
+            .map_err(|e| format!("Error afegint role a users SQLite: {}", e))?;
+    }
+
+    if !has_plan_id {
+        sqlx::query("ALTER TABLE users ADD COLUMN plan_id TEXT")
+            .execute(pool)
+            .await
+            .map_err(|e| format!("Error afegint plan_id a users SQLite: {}", e))?;
+    }
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_users_plan_id ON users(plan_id)")
+        .execute(pool)
+        .await
+        .map_err(|e| format!("Error creant idx_users_plan_id a SQLite: {}", e))?;
+
     Ok(())
 }
 
@@ -528,11 +614,27 @@ impl DatabasePool {
 
     /// Crear un nou usuari. Retorna el user_id generat.
     pub async fn create_user(&self, username: &str, password_hash: &str) -> Result<Uuid, String> {
+        self.create_user_with_role(username, password_hash, "user").await
+    }
+
+    pub async fn create_user_with_role(
+        &self,
+        username: &str,
+        password_hash: &str,
+        role: &str,
+    ) -> Result<Uuid, String> {
+        let free_plan_id = self
+            .get_plan_id_by_name("free")
+            .await?
+            .ok_or_else(|| "No s'ha trobat el pla 'free'".to_string())?;
+
         match self {
             DatabasePool::Postgres(pool) => {
-                let row = sqlx::query("INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id")
+                let row = sqlx::query("INSERT INTO users (username, password_hash, role, plan_id) VALUES ($1, $2, $3, $4) RETURNING id")
                     .bind(username)
                     .bind(password_hash)
+                    .bind(role)
+                    .bind(free_plan_id)
                     .fetch_one(pool)
                     .await
                     .map_err(|e| format!("Error PostgreSQL: {}", e))?;
@@ -540,16 +642,483 @@ impl DatabasePool {
             }
             DatabasePool::Sqlite(pool) => {
                 let user_id = Uuid::new_v4();
-                sqlx::query("INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)")
+                sqlx::query("INSERT INTO users (id, username, password_hash, role, plan_id) VALUES (?, ?, ?, ?, ?)")
                     .bind(user_id)
                     .bind(username)
                     .bind(password_hash)
+                    .bind(role)
+                    .bind(free_plan_id)
                     .execute(pool)
                     .await
                     .map_err(|e| format!("Error SQLite: {}", e))?;
                 Ok(user_id)
             }
         }
+    }
+
+    pub async fn ensure_default_plans(&self) -> Result<(), String> {
+        let free_id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655441001")
+            .map_err(|e| format!("UUID free invàlid: {}", e))?;
+        let pro_id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655441002")
+            .map_err(|e| format!("UUID pro invàlid: {}", e))?;
+        let enterprise_id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655441003")
+            .map_err(|e| format!("UUID enterprise invàlid: {}", e))?;
+
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let insert = "INSERT INTO plans (id, name, display_name, description, max_servers, max_channels_text_per_server, max_channels_voice_per_server, max_members_per_server, api_calls_per_minute, messages_per_day) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (name) DO NOTHING";
+                sqlx::query(insert)
+                    .bind(free_id)
+                    .bind("free")
+                    .bind("Free")
+                    .bind("Plan gratuït")
+                    .bind(1i32)
+                    .bind(3i32)
+                    .bind(2i32)
+                    .bind(20i32)
+                    .bind(60i32)
+                    .bind(10000i32)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error inserint plan free (Postgres): {}", e))?;
+
+                sqlx::query(insert)
+                    .bind(pro_id)
+                    .bind("pro")
+                    .bind("Pro")
+                    .bind("Plan professional")
+                    .bind(5i32)
+                    .bind(20i32)
+                    .bind(10i32)
+                    .bind(500i32)
+                    .bind(600i32)
+                    .bind(-1i32)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error inserint plan pro (Postgres): {}", e))?;
+
+                sqlx::query(insert)
+                    .bind(enterprise_id)
+                    .bind("enterprise")
+                    .bind("Enterprise")
+                    .bind("Plan enterprise")
+                    .bind(-1i32)
+                    .bind(-1i32)
+                    .bind(-1i32)
+                    .bind(-1i32)
+                    .bind(-1i32)
+                    .bind(-1i32)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error inserint plan enterprise (Postgres): {}", e))?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                let insert = "INSERT INTO plans (id, name, display_name, description, max_servers, max_channels_text_per_server, max_channels_voice_per_server, max_members_per_server, api_calls_per_minute, messages_per_day) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(name) DO NOTHING";
+                sqlx::query(insert)
+                    .bind(free_id)
+                    .bind("free")
+                    .bind("Free")
+                    .bind("Plan gratuït")
+                    .bind(1i32)
+                    .bind(3i32)
+                    .bind(2i32)
+                    .bind(20i32)
+                    .bind(60i32)
+                    .bind(10000i32)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error inserint plan free (SQLite): {}", e))?;
+
+                sqlx::query(insert)
+                    .bind(pro_id)
+                    .bind("pro")
+                    .bind("Pro")
+                    .bind("Plan professional")
+                    .bind(5i32)
+                    .bind(20i32)
+                    .bind(10i32)
+                    .bind(500i32)
+                    .bind(600i32)
+                    .bind(-1i32)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error inserint plan pro (SQLite): {}", e))?;
+
+                sqlx::query(insert)
+                    .bind(enterprise_id)
+                    .bind("enterprise")
+                    .bind("Enterprise")
+                    .bind("Plan enterprise")
+                    .bind(-1i32)
+                    .bind(-1i32)
+                    .bind(-1i32)
+                    .bind(-1i32)
+                    .bind(-1i32)
+                    .bind(-1i32)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error inserint plan enterprise (SQLite): {}", e))?;
+            }
+        }
+
+        self.ensure_users_have_default_plan().await
+    }
+
+    pub async fn ensure_users_have_default_plan(&self) -> Result<(), String> {
+        let free_plan_id = self
+            .get_plan_id_by_name("free")
+            .await?
+            .ok_or_else(|| "No s'ha trobat el pla 'free'".to_string())?;
+
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query("UPDATE users SET plan_id = $1 WHERE plan_id IS NULL")
+                    .bind(free_plan_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error assignant pla free (Postgres): {}", e))?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query("UPDATE users SET plan_id = ? WHERE plan_id IS NULL")
+                    .bind(free_plan_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error assignant pla free (SQLite): {}", e))?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn get_plan_id_by_name(&self, name: &str) -> Result<Option<Uuid>, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query("SELECT id FROM plans WHERE name = $1")
+                    .bind(name)
+                    .fetch_optional(pool)
+                    .await
+                    .map_err(|e| format!("Error obtenint plan_id (Postgres): {}", e))?;
+                Ok(row.map(|r| r.get(0)))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query("SELECT id FROM plans WHERE name = ?")
+                    .bind(name)
+                    .fetch_optional(pool)
+                    .await
+                    .map_err(|e| format!("Error obtenint plan_id (SQLite): {}", e))?;
+                Ok(row.map(|r| r.get(0)))
+            }
+        }
+    }
+
+    pub async fn set_user_plan_by_name(&self, user_id: Uuid, plan_name: &str) -> Result<(), String> {
+        let plan_id = self
+            .get_plan_id_by_name(plan_name)
+            .await?
+            .ok_or_else(|| format!("No s'ha trobat el pla '{}'", plan_name))?;
+
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query("UPDATE users SET plan_id = $1 WHERE id = $2")
+                    .bind(plan_id)
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error canviant pla d'usuari (Postgres): {}", e))?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query("UPDATE users SET plan_id = ? WHERE id = ?")
+                    .bind(plan_id)
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error canviant pla d'usuari (SQLite): {}", e))?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn plan_exists_by_id(&self, plan_id: Uuid) -> Result<bool, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query("SELECT EXISTS(SELECT 1 FROM plans WHERE id = $1)")
+                    .bind(plan_id)
+                    .fetch_one(pool)
+                    .await
+                    .map_err(|e| format!("Error comprovant plan_id (Postgres): {}", e))?;
+                Ok(row.get(0))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query("SELECT EXISTS(SELECT 1 FROM plans WHERE id = ?)")
+                    .bind(plan_id)
+                    .fetch_one(pool)
+                    .await
+                    .map_err(|e| format!("Error comprovant plan_id (SQLite): {}", e))?;
+                Ok(row.get(0))
+            }
+        }
+    }
+
+    pub async fn set_user_plan_by_id(&self, user_id: Uuid, plan_id: Uuid) -> Result<bool, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let result = sqlx::query("UPDATE users SET plan_id = $1 WHERE id = $2")
+                    .bind(plan_id)
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error canviant pla per id (Postgres): {}", e))?;
+                Ok(result.rows_affected() > 0)
+            }
+            DatabasePool::Sqlite(pool) => {
+                let result = sqlx::query("UPDATE users SET plan_id = ? WHERE id = ?")
+                    .bind(plan_id)
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error canviant pla per id (SQLite): {}", e))?;
+                Ok(result.rows_affected() > 0)
+            }
+        }
+    }
+
+    pub async fn list_all_users_admin(&self) -> Result<Vec<(Uuid, String, String, Option<Uuid>)>, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let rows = sqlx::query("SELECT id, username, role, plan_id FROM users ORDER BY created_at ASC")
+                    .fetch_all(pool)
+                    .await
+                    .map_err(|e| format!("Error llistant usuaris (Postgres): {}", e))?;
+                Ok(rows
+                    .into_iter()
+                    .map(|r| (r.get(0), r.get(1), r.get(2), r.get(3)))
+                    .collect())
+            }
+            DatabasePool::Sqlite(pool) => {
+                let rows = sqlx::query("SELECT id, username, role, plan_id FROM users ORDER BY created_at ASC")
+                    .fetch_all(pool)
+                    .await
+                    .map_err(|e| format!("Error llistant usuaris (SQLite): {}", e))?;
+                Ok(rows
+                    .into_iter()
+                    .map(|r| (r.get(0), r.get(1), r.get(2), r.get(3)))
+                    .collect())
+            }
+        }
+    }
+
+    pub async fn get_user_max_servers(&self, user_id: Uuid) -> Result<i32, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(
+                    "SELECT p.max_servers FROM users u JOIN plans p ON p.id = u.plan_id WHERE u.id = $1",
+                )
+                .bind(user_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| format!("Error obtenint límit de servidors (Postgres): {}", e))?;
+                Ok(row.map(|r| r.get(0)).unwrap_or(1))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query(
+                    "SELECT p.max_servers FROM users u JOIN plans p ON p.id = u.plan_id WHERE u.id = ?",
+                )
+                .bind(user_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| format!("Error obtenint límit de servidors (SQLite): {}", e))?;
+                Ok(row.map(|r| r.get(0)).unwrap_or(1))
+            }
+        }
+    }
+
+    pub async fn get_user_channel_limits(&self, user_id: Uuid) -> Result<(i32, i32), String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(
+                    "SELECT p.max_channels_text_per_server, p.max_channels_voice_per_server FROM users u JOIN plans p ON p.id = u.plan_id WHERE u.id = $1",
+                )
+                .bind(user_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| format!("Error obtenint límits de canals (Postgres): {}", e))?;
+                Ok(row.map(|r| (r.get(0), r.get(1))).unwrap_or((3, 2)))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query(
+                    "SELECT p.max_channels_text_per_server, p.max_channels_voice_per_server FROM users u JOIN plans p ON p.id = u.plan_id WHERE u.id = ?",
+                )
+                .bind(user_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| format!("Error obtenint límits de canals (SQLite): {}", e))?;
+                Ok(row.map(|r| (r.get(0), r.get(1))).unwrap_or((3, 2)))
+            }
+        }
+    }
+
+    pub async fn count_channels_by_type_in_server(&self, server_id: Uuid, channel_type: &str) -> Result<i64, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query("SELECT COUNT(*) FROM channels WHERE server_id = $1 AND type = $2")
+                    .bind(server_id)
+                    .bind(channel_type)
+                    .fetch_one(pool)
+                    .await
+                    .map_err(|e| format!("Error comptant canals (Postgres): {}", e))?;
+                Ok(row.get(0))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query("SELECT COUNT(*) FROM channels WHERE server_id = ? AND type = ?")
+                    .bind(server_id)
+                    .bind(channel_type)
+                    .fetch_one(pool)
+                    .await
+                    .map_err(|e| format!("Error comptant canals (SQLite): {}", e))?;
+                Ok(row.get(0))
+            }
+        }
+    }
+
+    pub async fn count_owned_servers(&self, user_id: Uuid) -> Result<i64, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query("SELECT COUNT(*) FROM servers WHERE owner_id = $1")
+                    .bind(user_id)
+                    .fetch_one(pool)
+                    .await
+                    .map_err(|e| format!("Error comptant servidors (Postgres): {}", e))?;
+                Ok(row.get(0))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query("SELECT COUNT(*) FROM servers WHERE owner_id = ?")
+                    .bind(user_id)
+                    .fetch_one(pool)
+                    .await
+                    .map_err(|e| format!("Error comptant servidors (SQLite): {}", e))?;
+                Ok(row.get(0))
+            }
+        }
+    }
+
+    pub async fn find_user_auth_by_username(
+        &self,
+        username: &str,
+    ) -> Result<Option<(Uuid, String, String, bool)>, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query("SELECT id, username, password_hash, role FROM users WHERE username = $1")
+                    .bind(username)
+                    .fetch_optional(pool)
+                    .await
+                    .map_err(|e| format!("Error PostgreSQL: {}", e))?;
+                Ok(row.map(|r| {
+                    let role: String = r.get(3);
+                    (r.get(0), r.get(1), r.get(2), role == "admin")
+                }))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query("SELECT id, username, password_hash, role FROM users WHERE username = ?")
+                    .bind(username)
+                    .fetch_optional(pool)
+                    .await
+                    .map_err(|e| format!("Error SQLite: {}", e))?;
+                Ok(row.map(|r| {
+                    let role: String = r.get(3);
+                    (r.get(0), r.get(1), r.get(2), role == "admin")
+                }))
+            }
+        }
+    }
+
+    pub async fn create_invitation(
+        &self,
+        code: &str,
+        created_by_user_id: Uuid,
+        max_uses: i32,
+    ) -> Result<Uuid, String> {
+        let id = Uuid::new_v4();
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "INSERT INTO invitations (id, code, created_by_user_id, max_uses, uses_count, is_active) VALUES ($1, $2, $3, $4, 0, true)",
+                )
+                .bind(id)
+                .bind(code)
+                .bind(created_by_user_id)
+                .bind(max_uses)
+                .execute(pool)
+                .await
+                .map_err(|e| format!("Error PostgreSQL: {}", e))?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "INSERT INTO invitations (id, code, created_by_user_id, max_uses, uses_count, is_active) VALUES (?, ?, ?, ?, 0, 1)",
+                )
+                .bind(id)
+                .bind(code)
+                .bind(created_by_user_id)
+                .bind(max_uses)
+                .execute(pool)
+                .await
+                .map_err(|e| format!("Error SQLite: {}", e))?;
+            }
+        }
+        Ok(id)
+    }
+
+    pub async fn find_active_invitation_by_code(
+        &self,
+        code: &str,
+    ) -> Result<Option<(Uuid, i32, i32, bool)>, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(
+                    "SELECT id, max_uses, uses_count, is_active FROM invitations WHERE code = $1",
+                )
+                .bind(code)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| format!("Error PostgreSQL: {}", e))?;
+
+                Ok(row.map(|r| (r.get(0), r.get(1), r.get(2), r.get(3))))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query(
+                    "SELECT id, max_uses, uses_count, is_active FROM invitations WHERE code = ?",
+                )
+                .bind(code)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| format!("Error SQLite: {}", e))?;
+
+                Ok(row.map(|r| {
+                    let is_active: i64 = r.get(3);
+                    (r.get(0), r.get(1), r.get(2), is_active != 0)
+                }))
+            }
+        }
+    }
+
+    pub async fn increment_invitation_uses(&self, invitation_id: Uuid) -> Result<(), String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query("UPDATE invitations SET uses_count = uses_count + 1 WHERE id = $1")
+                    .bind(invitation_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error PostgreSQL: {}", e))?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query("UPDATE invitations SET uses_count = uses_count + 1 WHERE id = ?")
+                    .bind(invitation_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error SQLite: {}", e))?;
+            }
+        }
+        Ok(())
     }
 
     /// Comprovar si un usuari ja existeix.
@@ -723,6 +1292,91 @@ impl DatabasePool {
     #[allow(dead_code)]
     pub async fn check_connection(&self) -> Result<(), String> {
         self.execute_query("SELECT 1").await
+    }
+
+    pub async fn count_users(&self) -> Result<i64, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query("SELECT COUNT(*) FROM users")
+                    .fetch_one(pool)
+                    .await
+                    .map_err(|e| format!("Error PostgreSQL: {}", e))?;
+                Ok(row.get::<i64, _>(0))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query("SELECT COUNT(*) FROM users")
+                    .fetch_one(pool)
+                    .await
+                    .map_err(|e| format!("Error SQLite: {}", e))?;
+                Ok(row.get::<i64, _>(0))
+            }
+        }
+    }
+
+    pub async fn update_user_role_by_username(&self, username: &str, role: &str) -> Result<(), String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query("UPDATE users SET role = $1 WHERE username = $2")
+                    .bind(role)
+                    .bind(username)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error PostgreSQL: {}", e))?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query("UPDATE users SET role = ? WHERE username = ?")
+                    .bind(role)
+                    .bind(username)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error SQLite: {}", e))?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn update_user_role_by_id(&self, user_id: Uuid, role: &str) -> Result<bool, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let result = sqlx::query("UPDATE users SET role = $1 WHERE id = $2")
+                    .bind(role)
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error PostgreSQL: {}", e))?;
+                Ok(result.rows_affected() > 0)
+            }
+            DatabasePool::Sqlite(pool) => {
+                let result = sqlx::query("UPDATE users SET role = ? WHERE id = ?")
+                    .bind(role)
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error SQLite: {}", e))?;
+                Ok(result.rows_affected() > 0)
+            }
+        }
+    }
+
+    pub async fn delete_user_by_id(&self, user_id: Uuid) -> Result<bool, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let result = sqlx::query("DELETE FROM users WHERE id = $1")
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error PostgreSQL: {}", e))?;
+                Ok(result.rows_affected() > 0)
+            }
+            DatabasePool::Sqlite(pool) => {
+                let result = sqlx::query("DELETE FROM users WHERE id = ?")
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error SQLite: {}", e))?;
+                Ok(result.rows_affected() > 0)
+            }
+        }
     }
 
     pub async fn list_servers_for_user(&self, user_id: Uuid) -> Result<Vec<ServerInfo>, sqlx::Error> {

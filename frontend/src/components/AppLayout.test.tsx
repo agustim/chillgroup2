@@ -37,6 +37,7 @@ vi.mock('../lib/storage', () => ({
 vi.mock('../lib/channel-crypto', () => ({
   ensureChannelKey: vi.fn(),
   distributeChannelKey: vi.fn(),
+  syncChannelKeys: vi.fn(async () => undefined),
 }))
 
 vi.mock('../lib/device-keys', () => ({
@@ -193,6 +194,7 @@ vi.mock('../lib/api', () => ({
   serversCreate: vi.fn(),
   serversGet: vi.fn(),
   channelsList: vi.fn(),
+  dmChannelsList: vi.fn(),
   channelsCreate: vi.fn(),
   channelsUpdate: vi.fn(),
   channelsMarkRead: vi.fn(),
@@ -209,6 +211,7 @@ import {
   serversCreate,
   serversGet,
   channelsList,
+  dmChannelsList,
   channelsCreate,
   channelsUpdate,
   channelsMarkRead,
@@ -227,6 +230,7 @@ const mockServersList = vi.mocked(serversList)
 const mockServersCreate = vi.mocked(serversCreate)
 const mockServersGet = vi.mocked(serversGet)
 const mockChannelsList = vi.mocked(channelsList)
+const mockDmChannelsList = vi.mocked(dmChannelsList)
 const mockChannelsCreate = vi.mocked(channelsCreate)
 const mockChannelsUpdate = vi.mocked(channelsUpdate)
 const mockChannelsMarkRead = vi.mocked(channelsMarkRead)
@@ -271,6 +275,7 @@ describe('AppLayout', () => {
     mockServersList.mockResolvedValue({ success: true, data: [testServer] })
     mockServersGet.mockResolvedValue({ success: true, data: { ...testServer, members: [] } })
     mockChannelsList.mockResolvedValue({ success: true, data: [testChannel] })
+    mockDmChannelsList.mockResolvedValue({ success: true, data: [] })
     mockChannelsCreate.mockResolvedValue({ success: true, data: testChannel })
     mockChannelsUpdate.mockResolvedValue({ success: true, data: { ...testChannel, name: 'general-modificat' } })
     mockChannelsMarkRead.mockResolvedValue({ success: true, data: undefined })

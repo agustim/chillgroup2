@@ -3,10 +3,15 @@ import { useAuth } from '../contexts/AuthContext'
 import { Button } from './shared/Button'
 
 export function LoginScreen() {
-  const { login, register, isLoading, error } = useAuth()
+  const { login, register, registerWithInvitation, isLoading, error } = useAuth()
+  const openRegisterEnv = (import.meta.env.VITE_OPEN_REGISTER ?? 'true').toString().toLowerCase()
+  const initialOpenRegister = openRegisterEnv === 'true' || openRegisterEnv === '1' || openRegisterEnv === 'yes' || openRegisterEnv === 'on'
   const [isLogin, setIsLogin] = useState(true)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [isOpenRegister, setIsOpenRegister] = useState(initialOpenRegister)
+  const [invitationCode, setInvitationCode] = useState('')
   const [validationError, setValidationError] = useState('')
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -28,14 +33,37 @@ export function LoginScreen() {
       return
     }
 
+    if (!isLogin && !confirmPassword) {
+      setValidationError('Confirma la contrasenya')
+      return
+    }
+
+    if (!isLogin && password !== confirmPassword) {
+      setValidationError('Les contrasenyes no coincideixen')
+      return
+    }
+
+    const invitation = invitationCode.trim()
+
+    if (!isLogin && !isOpenRegister && !invitation) {
+      setValidationError('Introdueix el codi d\'invitació')
+      return
+    }
+
     try {
       if (isLogin) {
         await login(username, password)
       } else {
-        await register(username, password)
+        if (!isOpenRegister || invitation) {
+          await registerWithInvitation(invitation, username, password)
+        } else {
+          await register(username, password)
+        }
       }
     } catch (err) {
-      // L'error ja està gestionat per l'AuthContext
+      if (err instanceof Error && err.message.toLowerCase().includes('registre està tancat')) {
+        setIsOpenRegister(false)
+      }
     }
   }
 
@@ -44,6 +72,8 @@ export function LoginScreen() {
     setValidationError('')
     setUsername('')
     setPassword('')
+    setConfirmPassword('')
+    setInvitationCode('')
   }
 
   const displayError = error || validationError
@@ -88,6 +118,45 @@ export function LoginScreen() {
               <span className="password-hint">Mínim 8 caràcters</span>
             )}
           </div>
+
+          {!isLogin && (
+            <div className="form-group">
+              <label htmlFor="confirm-password">Confirmar contrasenya</label>
+              <input
+                id="confirm-password"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="••••••••"
+                autoComplete="new-password"
+                required
+                disabled={isLoading}
+              />
+            </div>
+          )}
+
+          {!isLogin && (
+            <div className="form-group">
+              <label htmlFor="invitation-code">
+                Codi d'invitació {isOpenRegister ? '(opcional)' : ''}
+              </label>
+              <input
+                id="invitation-code"
+                type="text"
+                value={invitationCode}
+                onChange={(e) => setInvitationCode(e.target.value)}
+                placeholder="ABC123-DEF456-GHI789"
+                autoComplete="off"
+                required={!isOpenRegister}
+                disabled={isLoading}
+              />
+              {!isOpenRegister && (
+                <span className="password-hint">
+                  El registre està tancat. Necessites una invitació per crear compte.
+                </span>
+              )}
+            </div>
+          )}
 
           {displayError && <div className="error-message">{displayError}</div>}
 

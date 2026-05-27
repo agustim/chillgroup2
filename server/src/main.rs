@@ -27,6 +27,7 @@ use uuid::Uuid;
 
 use config::Config;
 use crate::db::DatabasePool;
+use crate::crypto::hash;
 use middleware::{AppState, auth::UserPresenceState};
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -197,6 +198,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .await
         .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))?;
     info!("✅ Base de dades connectada correctament");
+
+    if !config.open_register {
+        let admin_username = config
+            .admin_user
+            .as_deref()
+            .ok_or_else(|| "ADMIN_USER és obligatori quan OPEN_REGISTER=false".to_string())?;
+        let admin_password = config
+            .admin_password
+            .as_deref()
+            .ok_or_else(|| "ADMIN_PASSWORD és obligatori quan OPEN_REGISTER=false".to_string())?;
+
+        match db_pool.find_user_auth_by_username(admin_username).await {
+            Ok(Some((_id, _name, _hash, is_admin))) => {
+                if !is_admin {
+                    db_pool
+                        .update_user_role_by_username(admin_username, "admin")
+                        .await
+                        .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))?;
+                    info!("✅ Usuari existent promogut a admin: {}", admin_username);
+                }
+            }
+            Ok(None) => {
+                let password_hash = hash::hash_password(admin_password)
+                    .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e.to_string()))?;
+                db_pool
+                    .create_user_with_role(admin_username, &password_hash, "admin")
+                    .await
+                    .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))?;
+                info!("✅ Admin inicial creat: {}", admin_username);
+            }
+            Err(e) => return Err(Box::<dyn std::error::Error + Send + Sync>::from(e)),
+        }
+    }
 
     // Inicialitzar Socket.IO i la purga periòdica de TTL
     let (socket_layer, io) = SocketIo::new_layer();
@@ -648,6 +682,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let livekit_routes = routes::livekit::router(state.clone());
     let user_routes = routes::user::router(state.clone());
     let friends_routes = routes::friends::router(state.clone());
+    let admin_routes = routes::admin::router(state.clone());
 
     let protected_app = server_routes
         .merge(channel_routes)
@@ -655,6 +690,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .merge(livekit_routes)
         .merge(friends_routes)
         .merge(user_routes)
+        .merge(admin_routes)
         .layer(from_fn(middleware::extract_claims))
         .layer(from_fn_with_state(state.clone(), middleware::insert_state));
 

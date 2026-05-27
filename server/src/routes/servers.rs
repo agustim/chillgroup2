@@ -59,6 +59,21 @@ pub async fn create_server(
 ) -> Result<(StatusCode, Json<ServerFullInfo>), AppError> {
     info!("Endpoint create_server cridat per user_id={}, name={}", claims.user_id, req.name);
 
+    let max_servers = state
+        .db
+        .get_user_max_servers(claims.user_id)
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+    let owned_servers = state
+        .db
+        .count_owned_servers(claims.user_id)
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+
+    if max_servers != -1 && owned_servers >= i64::from(max_servers) {
+        return Err(AppError::ServerLimitExceeded);
+    }
+
     if state.db.server_name_exists(&req.name).await.map_err(AppError::DatabaseError)? {
         return Err(AppError::ServerNameExists);
     }
@@ -248,4 +263,129 @@ pub fn router(state: AppState) -> Router {
         .route("/api/servers/{server_id}/members", get(list_server_members).post(invite_server_member))
         .route("/api/servers/{server_id}/members/{user_id}/role", put(update_member_role))
         .with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        config::{Config, LogLevel},
+        db::connect_db,
+        middleware::auth::UserPresenceState,
+    };
+    use axum::response::IntoResponse;
+    use std::{
+        collections::{HashMap, HashSet},
+        sync::Arc,
+    };
+    use tokio::sync::RwLock;
+
+    async fn make_state() -> AppState {
+        let config = Config {
+            server_host: "127.0.0.1".to_string(),
+            server_port: 8080,
+            database_url: "sqlite::memory:".to_string(),
+            open_register: true,
+            admin_user: None,
+            admin_password: None,
+            ttl_cleanup_interval_minutes: 5,
+            livekit_host: "http://localhost:7880".to_string(),
+            livekit_api_key: "test-key".to_string(),
+            livekit_api_secret: "test-secret".to_string(),
+            jwt_secret: "test-secret".to_string(),
+            jwt_expiration_days: 7,
+            backend_debug: LogLevel::Info,
+            server_master_key: [7u8; 32],
+        };
+
+        let db = connect_db(&config).await.expect("sqlite test db should initialize");
+        let (_layer, io) = socketioxide::SocketIo::new_layer();
+
+        AppState {
+            db,
+            config,
+            io,
+            user_presence: Arc::new(RwLock::new(UserPresenceState {
+                online_sockets: HashMap::<Uuid, HashSet<String>>::new(),
+            })),
+        }
+    }
+
+    fn claims_for(user_id: Uuid, username: &str) -> AuthClaims {
+        AuthClaims {
+            user_id,
+            username: username.to_string(),
+            device_id: Uuid::new_v4(),
+            is_admin: false,
+            exp: 0,
+            iat: 0,
+            jti: Uuid::new_v4().to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn create_server_returns_429_when_free_plan_limit_reached() {
+        let state = make_state().await;
+        let user_id = state
+            .db
+            .create_user_with_role("free_user", "hash", "user")
+            .await
+            .expect("user creation should work");
+
+        state
+            .db
+            .create_server_with_owner(Uuid::new_v4(), "existing-server", None, user_id)
+            .await
+            .expect("initial server should be created");
+
+        let result = create_server(
+            State(state),
+            axum::Extension(claims_for(user_id, "free_user")),
+            Json(CreateServerRequest {
+                name: "new-server".to_string(),
+                icon_url: None,
+            }),
+        )
+        .await;
+
+        let err = result.expect_err("free plan should not allow second server");
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn create_server_allows_second_server_on_pro_plan() {
+        let state = make_state().await;
+        let user_id = state
+            .db
+            .create_user_with_role("pro_user", "hash", "user")
+            .await
+            .expect("user creation should work");
+
+        state
+            .db
+            .set_user_plan_by_name(user_id, "pro")
+            .await
+            .expect("should assign pro plan");
+
+        state
+            .db
+            .create_server_with_owner(Uuid::new_v4(), "existing-server-pro", None, user_id)
+            .await
+            .expect("initial server should be created");
+
+        let result = create_server(
+            State(state),
+            axum::Extension(claims_for(user_id, "pro_user")),
+            Json(CreateServerRequest {
+                name: "second-server-pro".to_string(),
+                icon_url: None,
+            }),
+        )
+        .await;
+
+        assert!(result.is_ok(), "pro plan should allow creating second server");
+        let (status, _) = result.expect("request should succeed");
+        assert_eq!(status, StatusCode::CREATED);
+    }
 }

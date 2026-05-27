@@ -196,6 +196,35 @@ pub async fn create_channel(
         return Err(AppError::Forbidden);
     }
 
+    let (max_text_channels, max_voice_channels) = state
+        .db
+        .get_user_channel_limits(claims.user_id)
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+
+    match req.channel_type {
+        ChannelType::Text => {
+            let current = state
+                .db
+                .count_channels_by_type_in_server(server_id, "text")
+                .await
+                .map_err(|_| AppError::DatabaseUnavailable)?;
+            if max_text_channels != -1 && current >= i64::from(max_text_channels) {
+                return Err(AppError::ChannelLimitExceeded);
+            }
+        }
+        ChannelType::Voice => {
+            let current = state
+                .db
+                .count_channels_by_type_in_server(server_id, "voice")
+                .await
+                .map_err(|_| AppError::DatabaseUnavailable)?;
+            if max_voice_channels != -1 && current >= i64::from(max_voice_channels) {
+                return Err(AppError::ChannelLimitExceeded);
+            }
+        }
+    }
+
     let channel_id = Uuid::new_v4();
     let now = chrono::Utc::now();
 
@@ -686,4 +715,169 @@ pub fn router(state: AppState) -> Router {
         .route("/api/channels/{channel_id}/invite", post(invite_to_channel))
         .route("/api/channels/{channel_id}", put(update_channel).delete(delete_channel))
         .with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        config::{Config, LogLevel},
+        db::connect_db,
+        middleware::auth::UserPresenceState,
+    };
+    use axum::response::IntoResponse;
+    use std::{
+        collections::{HashMap, HashSet},
+        sync::Arc,
+    };
+    use tokio::sync::RwLock;
+
+    async fn make_state() -> AppState {
+        let config = Config {
+            server_host: "127.0.0.1".to_string(),
+            server_port: 8080,
+            database_url: "sqlite::memory:".to_string(),
+            open_register: true,
+            admin_user: None,
+            admin_password: None,
+            ttl_cleanup_interval_minutes: 5,
+            livekit_host: "http://localhost:7880".to_string(),
+            livekit_api_key: "test-key".to_string(),
+            livekit_api_secret: "test-secret".to_string(),
+            jwt_secret: "test-secret".to_string(),
+            jwt_expiration_days: 7,
+            backend_debug: LogLevel::Info,
+            server_master_key: [7u8; 32],
+        };
+
+        let db = connect_db(&config).await.expect("sqlite test db should initialize");
+        let (_layer, io) = socketioxide::SocketIo::new_layer();
+
+        AppState {
+            db,
+            config,
+            io,
+            user_presence: Arc::new(RwLock::new(UserPresenceState {
+                online_sockets: HashMap::<Uuid, HashSet<String>>::new(),
+            })),
+        }
+    }
+
+    fn claims_for(user_id: Uuid, username: &str) -> AuthClaims {
+        AuthClaims {
+            user_id,
+            username: username.to_string(),
+            device_id: Uuid::new_v4(),
+            is_admin: false,
+            exp: 0,
+            iat: 0,
+            jti: Uuid::new_v4().to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn create_text_channel_returns_429_when_free_limit_reached() {
+        let state = make_state().await;
+        let user_id = state
+            .db
+            .create_user_with_role("channel_free_user", "hash", "user")
+            .await
+            .expect("user creation should work");
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "channels-free-server", None, user_id)
+            .await
+            .expect("server should be created");
+
+        for i in 0..3 {
+            state
+                .db
+                .create_channel(
+                    Uuid::new_v4(),
+                    server_id,
+                    &format!("text-{}", i),
+                    "text",
+                    "none",
+                    None,
+                    false,
+                )
+                .await
+                .expect("seed channel should be created");
+        }
+
+        let result = create_channel(
+            State(state),
+            axum::Extension(claims_for(user_id, "channel_free_user")),
+            Path(server_id),
+            Json(CreateChannelRequest {
+                name: "text-over-limit".to_string(),
+                channel_type: ChannelType::Text,
+                encryption_type: EncryptionType::None,
+                message_ttl: None,
+                is_private: false,
+            }),
+        )
+        .await;
+
+        let err = result.expect_err("free plan should block 4th text channel");
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn create_text_channel_allows_above_free_limit_on_pro_plan() {
+        let state = make_state().await;
+        let user_id = state
+            .db
+            .create_user_with_role("channel_pro_user", "hash", "user")
+            .await
+            .expect("user creation should work");
+        state
+            .db
+            .set_user_plan_by_name(user_id, "pro")
+            .await
+            .expect("plan assignment should work");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "channels-pro-server", None, user_id)
+            .await
+            .expect("server should be created");
+
+        for i in 0..3 {
+            state
+                .db
+                .create_channel(
+                    Uuid::new_v4(),
+                    server_id,
+                    &format!("text-pro-{}", i),
+                    "text",
+                    "none",
+                    None,
+                    false,
+                )
+                .await
+                .expect("seed channel should be created");
+        }
+
+        let result = create_channel(
+            State(state),
+            axum::Extension(claims_for(user_id, "channel_pro_user")),
+            Path(server_id),
+            Json(CreateChannelRequest {
+                name: "text-pro-4".to_string(),
+                channel_type: ChannelType::Text,
+                encryption_type: EncryptionType::None,
+                message_ttl: None,
+                is_private: false,
+            }),
+        )
+        .await;
+
+        assert!(result.is_ok(), "pro plan should allow creating 4th text channel");
+        let (status, _) = result.expect("request should succeed");
+        assert_eq!(status, StatusCode::CREATED);
+    }
 }

@@ -13,6 +13,7 @@ import { ChannelKeysModal } from './modals/ChannelKeysModal'
 import { PermissionsModal } from './modals/PermissionsModal'
 import { ChangePasswordModal } from './modals/ChangePasswordModal'
 import { FriendsModal } from './modals/FriendsModal'
+import { AdminUsersPanel } from './main/AdminUsersPanel'
 import { useLiveKit } from '../hooks/useLiveKit'
 import { Channel, FriendPresence, Server, ServerFullInfo, VoiceParticipant } from '../types'
 import { disconnectSocket, getSocket } from '../lib/socket'
@@ -44,7 +45,7 @@ interface AppLayoutProps {
   onLogout?: () => void
 }
 
-type PanelType = 'none' | 'serverConfig' | 'channelConfig' | 'devices'
+type PanelType = 'none' | 'serverConfig' | 'channelConfig' | 'devices' | 'adminUsers'
 type ServerMenuAction = 'config' | 'invite' | 'createText' | 'createVoice' | null
 
 function formatDmRepairFeedback(result: {
@@ -897,6 +898,15 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     setShowPermissionsModal(true)
   }
 
+  const handleManageAdminUsers = () => {
+    if (!user?.isAdmin) {
+      setFeedback('No tens permisos d\'administració global')
+      return
+    }
+    setSelectedChannel(null)
+    setPanel('adminUsers')
+  }
+
   const refreshFriends = async () => {
     const result = await friendsList()
     if (result.success) {
@@ -997,7 +1007,10 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     <div
       key={channel.channelId}
       className={`main-content-tab ${resolvedSelectedChannel?.channelId === channel.channelId ? 'active' : ''}`}
-      onClick={() => setSelectedChannel(channel)}
+      onClick={() => {
+        setPanel('none')
+        setSelectedChannel(channel)
+      }}
     >
       <span>#</span>
       <span>{channel.name}</span>
@@ -1020,7 +1033,10 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const voiceTabNode = activeVoiceChannel ? (
     <div
       className={`main-content-tab ${resolvedSelectedChannel?.channelId === activeVoiceChannel.channelId ? 'active' : ''}`}
-      onClick={() => setSelectedChannel(activeVoiceChannel)}
+      onClick={() => {
+        setPanel('none')
+        setSelectedChannel(activeVoiceChannel)
+      }}
     >
       <span>🔊</span>
       <span>{activeVoiceChannel.name}</span>
@@ -1032,6 +1048,27 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           handleLeaveVoiceChannel()
         }}
         title="Surt del canal de veu"
+      >
+        ✕
+      </button>
+    </div>
+  ) : null
+
+  const adminUsersTabNode = panel === 'adminUsers' ? (
+    <div
+      className="main-content-tab active"
+      onClick={() => setPanel('adminUsers')}
+    >
+      <span>🛠️</span>
+      <span>Usuaris</span>
+      <button
+        type="button"
+        className="main-content-tab-close"
+        onClick={(event) => {
+          event.stopPropagation()
+          setPanel('none')
+        }}
+        title="Tancar pestanya"
       >
         ✕
       </button>
@@ -1110,9 +1147,11 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           onManageFriends={handleManageFriends}
           onChangePassword={handleChangePassword}
           onManagePermissions={handleManagePermissions}
+          onManageAdminUsers={handleManageAdminUsers}
           onCreateTextChannel={canManageServer ? () => setShowCreateTextChannel(true) : undefined}
           onCreateVoiceChannel={canManageServer ? () => setShowCreateVoiceChannel(true) : undefined}
           canCreateChannel={canManageServer}
+          canManageAdminUsers={user?.isAdmin ?? false}
           friends={friends}
           serverMembers={serverDetails?.members ?? []}
           serverMemberPresenceById={serverMemberPresenceById}
@@ -1120,17 +1159,24 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
       )}
 
       <div className="main-content-area">
-        {selectedServer && (openTextTabs.length > 0 || activeVoiceChannel) && (
+        {selectedServer && (openTextTabs.length > 0 || activeVoiceChannel || panel === 'adminUsers') && (
           <div className="main-content-tabs">
             {textTabNodes}
             {voiceTabNode}
+            {adminUsersTabNode}
           </div>
         )}
 
         {feedback && <div className="feedback-banner">{feedback}</div>}
         {liveKitError && <div className="feedback-banner" style={{ backgroundColor: '#ff4444' }}>{liveKitError}</div>}
 
-        {resolvedSelectedChannel ? (
+        {panel === 'adminUsers' ? (
+          <AdminUsersPanel
+            isOpen={true}
+            onClose={() => setPanel('none')}
+            onFeedback={setFeedback}
+          />
+        ) : resolvedSelectedChannel ? (
           <>
             <MainContent
               channel={resolvedSelectedChannel}

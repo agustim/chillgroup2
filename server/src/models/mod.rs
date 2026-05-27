@@ -12,6 +12,10 @@ pub mod channel;
 pub mod message;
 #[allow(dead_code)]
 pub mod key;
+#[allow(dead_code)]
+pub mod plan;
+#[allow(dead_code)]
+pub mod invitation;
 
 #[allow(dead_code)]
 pub use channel::Channel;
@@ -21,3 +25,9 @@ pub use channel::ChannelType;
 pub use channel::EncryptionType;
 #[allow(dead_code)]
 pub use message::Message;
+#[allow(unused_imports)]
+#[allow(dead_code)]
+pub use plan::Plan;
+#[allow(unused_imports)]
+#[allow(dead_code)]
+pub use invitation::Invitation;
