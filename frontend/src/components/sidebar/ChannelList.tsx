@@ -302,63 +302,63 @@ export function ChannelList({
         })}
       </div>
 
-      <div className="channel-category friends-category">
-        <div className="category-header">
-          <button
-            className="category-toggle"
-            onClick={() => toggleSection('friends')}
-            aria-expanded={!collapsedSections.friends}
-            title={collapsedSections.friends ? 'Desplegar secció' : 'Plegar secció'}
-          >
-            <span className="category-name">💛 AMICS</span>
-            <span className="category-chevron">{collapsedSections.friends ? '🔻' : '🔺'}</span>
-          </button>
-        </div>
-        {!collapsedSections.friends && (friends.length > 0 ? (
-          <div className="friends-list">
-            {sortedFriends.map((friend) => (
-              <div
-                key={friend.userId}
-                className="friend-item friend-item-clickable"
-                onClick={() => onStartDirectMessage?.(friend.userId, friend.username)}
-                role={onStartDirectMessage ? 'button' : undefined}
-                tabIndex={onStartDirectMessage ? 0 : undefined}
-                onKeyDown={(event) => {
-                  if (!onStartDirectMessage) return
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault()
-                    onStartDirectMessage(friend.userId, friend.username)
-                  }
-                }}
-              >
-                <div
-                  className={`friend-avatar ${friend.isOnline ? 'online' : 'offline'}`}
-                  title={friend.isOnline ? 'Actiu' : 'Inactiu'}
-                >
-                  {friend.username.charAt(0).toUpperCase()}
-                </div>
-                <div className="friend-meta">
-                  <span className="friend-name">{friend.username}</span>
-                </div>
-                {onStartDirectMessage && (
-                  <button
-                    className="channel-item-settings-btn"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      onStartDirectMessage(friend.userId, friend.username)
-                    }}
-                    title="Obrir DM"
-                  >
-                    💬
-                  </button>
-                )}
-              </div>
-            ))}
+      {friends.length > 0 && (
+        <div className="channel-category friends-category">
+          <div className="category-header">
+            <button
+              className="category-toggle"
+              onClick={() => toggleSection('friends')}
+              aria-expanded={!collapsedSections.friends}
+              title={collapsedSections.friends ? 'Desplegar secció' : 'Plegar secció'}
+            >
+              <span className="category-name">💛 AMICS</span>
+              <span className="category-chevron">{collapsedSections.friends ? '🔻' : '🔺'}</span>
+            </button>
           </div>
-        ) : (
-          <p className="friends-empty-state">Encara no tens amics guardats.</p>
-        ))}
-      </div>
+          {!collapsedSections.friends && (
+            <div className="friends-list">
+              {sortedFriends.map((friend) => (
+                <div
+                  key={friend.userId}
+                  className="friend-item friend-item-clickable"
+                  onClick={() => onStartDirectMessage?.(friend.userId, friend.username)}
+                  role={onStartDirectMessage ? 'button' : undefined}
+                  tabIndex={onStartDirectMessage ? 0 : undefined}
+                  onKeyDown={(event) => {
+                    if (!onStartDirectMessage) return
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      onStartDirectMessage(friend.userId, friend.username)
+                    }
+                  }}
+                >
+                  <div
+                    className={`friend-avatar ${friend.isOnline ? 'online' : 'offline'}`}
+                    title={friend.isOnline ? 'Actiu' : 'Inactiu'}
+                  >
+                    {friend.username.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="friend-meta">
+                    <span className="friend-name">{friend.username}</span>
+                  </div>
+                  {onStartDirectMessage && (
+                    <button
+                      className="channel-item-settings-btn"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onStartDirectMessage(friend.userId, friend.username)
+                      }}
+                      title="Obrir DM"
+                    >
+                      💬
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="channel-category server-members-category friends-category">
         <div className="category-header">
