@@ -12,6 +12,7 @@ use shared::types::{AuthResponse, RefreshResponse};
 use serde::Deserialize;
 use uuid::Uuid;
 use tracing::{info, error, warn};
+use serde::Serialize;
 
 use crate::{
     crypto::hash,
@@ -47,6 +48,18 @@ pub struct RegisterWithInvitationRequest {
 #[derive(Debug, Deserialize)]
 pub struct CreateInvitationRequest {
     pub max_uses: Option<i32>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InvitationListItem {
+    pub invitation_id: Uuid,
+    pub code: String,
+    pub max_uses: i32,
+    pub uses_count: i32,
+    pub remaining_uses: Option<i32>,
+    pub is_active: bool,
+    pub created_by: String,
 }
 
 fn generate_invitation_code() -> String {
@@ -368,6 +381,48 @@ pub async fn create_invitation(
     ))
 }
 
+#[axum::debug_handler]
+pub async fn list_invitations(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<crate::middleware::AuthClaims>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    if !claims.is_admin {
+        return Err(AppError::Forbidden);
+    }
+
+    let invitations = state
+        .db
+        .list_invitations_admin()
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+
+    let data: Vec<InvitationListItem> = invitations
+        .into_iter()
+        .map(|(invitation_id, code, max_uses, uses_count, is_active, created_by)| {
+            let remaining_uses = if max_uses < 0 {
+                None
+            } else {
+                Some((max_uses - uses_count).max(0))
+            };
+
+            InvitationListItem {
+                invitation_id,
+                code,
+                max_uses,
+                uses_count,
+                remaining_uses,
+                is_active,
+                created_by,
+            }
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "data": data,
+    })))
+}
+
 // ── Refresh ──────────────────────────────────────────────────────
 
 #[axum::debug_handler]
@@ -386,10 +441,15 @@ pub async fn refresh(
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/auth/register", routing::post(register))
-    .route("/api/auth/register-with-invitation", routing::post(register_with_invitation))
+        .route("/api/auth/register-with-invitation", routing::post(register_with_invitation))
         .route("/api/auth/login", routing::post(login))
         .route("/api/auth/refresh", routing::post(refresh))
-    .route("/api/invitations", routing::post(create_invitation))
+        .with_state(state)
+}
+
+pub fn protected_router(state: AppState) -> Router {
+    Router::new()
+    .route("/api/invitations", routing::get(list_invitations).post(create_invitation))
         .with_state(state)
 }
 

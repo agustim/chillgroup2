@@ -6,8 +6,11 @@ import {
   adminUsersList,
   adminUsersUpdatePlan,
   adminUsersUpdateRole,
+  invitationsCreate,
+  invitationsList,
   type AdminUserItem,
   type AdminUserRole,
+  type InvitationListItem,
 } from '../../lib/api'
 import { Button } from '../shared/Button'
 
@@ -17,75 +20,72 @@ interface AdminUsersPanelProps {
   onFeedback: (message: string) => void
 }
 
-interface PlanOption {
-  id: string
-  label: string
-}
-
-const PLAN_OPTIONS: PlanOption[] = [
+const PLAN_OPTIONS = [
   { id: '550e8400-e29b-41d4-a716-446655441001', label: 'Free' },
   { id: '550e8400-e29b-41d4-a716-446655441002', label: 'Pro' },
   { id: '550e8400-e29b-41d4-a716-446655441003', label: 'Enterprise' },
 ]
 
+type ActiveTab = 'users' | 'invitations'
+
 export function AdminUsersPanel({ isOpen, onClose, onFeedback }: AdminUsersPanelProps) {
-  const [users, setUsers] = useState<AdminUserItem[]>([])
-  const [loading, setLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState<ActiveTab>('users')
   const [error, setError] = useState('')
 
+  // Users state
+  const [users, setUsers] = useState<AdminUserItem[]>([])
+  const [loadingUsers, setLoadingUsers] = useState(false)
   const [newUsername, setNewUsername] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [newRole, setNewRole] = useState<AdminUserRole>('user')
-  const [newPlanId, setNewPlanId] = useState<string>(PLAN_OPTIONS[0].id)
-  const [isCreating, setIsCreating] = useState(false)
+  const [newPlanId, setNewPlanId] = useState(PLAN_OPTIONS[0].id)
+  const [isCreatingUser, setIsCreatingUser] = useState(false)
+
+  // Invitations state
+  const [invitations, setInvitations] = useState<InvitationListItem[]>([])
+  const [loadingInvitations, setLoadingInvitations] = useState(false)
+  const [inviteMaxUses, setInviteMaxUses] = useState(1)
+  const [lastCreatedCode, setLastCreatedCode] = useState<string | null>(null)
+  const [isCreatingInvite, setIsCreatingInvite] = useState(false)
 
   const loadUsers = async () => {
-    setLoading(true)
-    setError('')
-
+    setLoadingUsers(true)
     const result = await adminUsersList()
-    if (result.success) {
-      setUsers(result.data)
-      setLoading(false)
-      return
-    }
+    setLoadingUsers(false)
+    if (!result.success) { setError(result.error.message); return }
+    setUsers(result.data)
+  }
 
-    setLoading(false)
-    setError(result.error.message)
+  const loadInvitations = async () => {
+    setLoadingInvitations(true)
+    const result = await invitationsList()
+    setLoadingInvitations(false)
+    if (!result.success) { setError(result.error.message); return }
+    setInvitations(result.data)
   }
 
   useEffect(() => {
-    if (!isOpen) {
-      return
-    }
-
+    if (!isOpen) return
+    setError('')
     setNewUsername('')
     setNewPassword('')
     setNewRole('user')
     setNewPlanId(PLAN_OPTIONS[0].id)
+    setInviteMaxUses(1)
+    setLastCreatedCode(null)
     void loadUsers()
+    void loadInvitations()
   }, [isOpen])
 
   const handleCreateUser = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const username = newUsername.trim()
-
-    if (!username || !newPassword.trim()) {
-      setError('Usuari i contrasenya son obligatoris')
-      return
-    }
-
-    setIsCreating(true)
+    if (!username || !newPassword.trim()) { setError('Usuari i contrasenya son obligatoris'); return }
+    setIsCreatingUser(true)
     setError('')
-
     const result = await adminUsersCreate(username, newPassword, newRole, newPlanId)
-    setIsCreating(false)
-
-    if (!result.success) {
-      setError(result.error.message)
-      return
-    }
-
+    setIsCreatingUser(false)
+    if (!result.success) { setError(result.error.message); return }
     onFeedback(`Usuari ${result.data.username} creat`)
     setNewUsername('')
     setNewPassword('')
@@ -96,35 +96,45 @@ export function AdminUsersPanel({ isOpen, onClose, onFeedback }: AdminUsersPanel
 
   const handleRoleChange = async (userId: string, role: AdminUserRole) => {
     const result = await adminUsersUpdateRole(userId, role)
-    if (!result.success) {
-      setError(result.error.message)
-      return
-    }
-
-    setUsers((current) => current.map((user) => (user.userId === userId ? { ...user, role } : user)))
+    if (!result.success) { setError(result.error.message); return }
+    setUsers((c) => c.map((u) => (u.userId === userId ? { ...u, role } : u)))
     onFeedback('Rol actualitzat')
   }
 
   const handlePlanChange = async (userId: string, planId: string) => {
     const result = await adminUsersUpdatePlan(userId, planId)
-    if (!result.success) {
-      setError(result.error.message)
-      return
-    }
-
-    setUsers((current) => current.map((user) => (user.userId === userId ? { ...user, planId } : user)))
+    if (!result.success) { setError(result.error.message); return }
+    setUsers((c) => c.map((u) => (u.userId === userId ? { ...u, planId } : u)))
     onFeedback('Pla actualitzat')
   }
 
   const handleDeleteUser = async (userId: string, username: string) => {
     const result = await adminUsersDelete(userId)
-    if (!result.success) {
-      setError(result.error.message)
-      return
-    }
-
-    setUsers((current) => current.filter((user) => user.userId !== userId))
+    if (!result.success) { setError(result.error.message); return }
+    setUsers((c) => c.filter((u) => u.userId !== userId))
     onFeedback(`Usuari ${username} eliminat`)
+  }
+
+  const handleCreateInvitation = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const maxUses = Number.isFinite(inviteMaxUses) ? Math.max(1, Math.floor(inviteMaxUses)) : 1
+    setIsCreatingInvite(true)
+    setError('')
+    const result = await invitationsCreate(maxUses)
+    setIsCreatingInvite(false)
+    if (!result.success) { setError(result.error.message); return }
+    setLastCreatedCode(result.data.code)
+    onFeedback('Invitacio creada')
+    await loadInvitations()
+  }
+
+  const handleCopyCode = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code)
+      onFeedback('Codi copiat al porta-retalls')
+    } catch {
+      onFeedback('No s\'ha pogut copiar el codi')
+    }
   }
 
   if (!isOpen) return null
@@ -132,91 +142,94 @@ export function AdminUsersPanel({ isOpen, onClose, onFeedback }: AdminUsersPanel
   return (
     <div className="panel admin-users-panel">
       <div className="admin-users-panel-header">
-        <h3>Gestio usuaris (admin)</h3>
-        <Button type="button" variant="ghost" size="sm" onClick={onClose}>Tancar</Button>
+        <h3>Gestio (admin)</h3>
+        <div className="admin-panel-tabs">
+          <button
+            type="button"
+            className={`admin-panel-tab${activeTab === 'users' ? ' active' : ''}`}
+            onClick={() => setActiveTab('users')}
+          >
+            Usuaris
+          </button>
+          <button
+            type="button"
+            className={`admin-panel-tab${activeTab === 'invitations' ? ' active' : ''}`}
+            onClick={() => setActiveTab('invitations')}
+          >
+            Invitacions
+          </button>
+        </div>
+        <Button type="button" variant="ghost" size="sm" onClick={onClose}>✕</Button>
       </div>
 
-      <div className="admin-users-grid">
-        <section className="device-keys-section">
-          <h4>Crear usuari</h4>
-          <form className="modal-inline-stack" onSubmit={handleCreateUser}>
-            <div className="form-group">
-              <label htmlFor="admin-create-username">Nom d'usuari</label>
-              <input
-                id="admin-create-username"
-                type="text"
-                value={newUsername}
-                onChange={(event) => setNewUsername(event.target.value)}
-                placeholder="nou-usuari"
-              />
-            </div>
+      {error && <div className="modal-error" style={{ marginBottom: '8px' }}>{error}</div>}
 
-            <div className="form-group">
-              <label htmlFor="admin-create-password">Contrasenya</label>
-              <input
-                id="admin-create-password"
-                type="password"
-                value={newPassword}
-                onChange={(event) => setNewPassword(event.target.value)}
-                placeholder="********"
-              />
-            </div>
+      {activeTab === 'users' && (
+        <div className="admin-users-grid">
+          <section className="device-keys-section">
+            <h4>Crear usuari</h4>
+            <form className="modal-inline-stack" onSubmit={handleCreateUser}>
+              <div className="form-group">
+                <label htmlFor="admin-create-username">Nom d'usuari</label>
+                <input
+                  id="admin-create-username"
+                  type="text"
+                  value={newUsername}
+                  onChange={(e) => setNewUsername(e.target.value)}
+                  placeholder="nou-usuari"
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="admin-create-password">Contrasenya</label>
+                <input
+                  id="admin-create-password"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="********"
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="admin-create-role">Rol</label>
+                <select
+                  id="admin-create-role"
+                  value={newRole}
+                  onChange={(e) => setNewRole(e.target.value === 'admin' ? 'admin' : 'user')}
+                >
+                  <option value="user">User</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label htmlFor="admin-create-plan">Pla</label>
+                <select
+                  id="admin-create-plan"
+                  value={newPlanId}
+                  onChange={(e) => setNewPlanId(e.target.value)}
+                >
+                  {PLAN_OPTIONS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+                </select>
+              </div>
+              <div className="modal-actions-row">
+                <Button type="submit" disabled={isCreatingUser}>
+                  {isCreatingUser ? 'Creant...' : 'Crear usuari'}
+                </Button>
+              </div>
+            </form>
+          </section>
 
-            <div className="form-group">
-              <label htmlFor="admin-create-role">Rol</label>
-              <select
-                id="admin-create-role"
-                value={newRole}
-                onChange={(event) => setNewRole((event.target.value === 'admin' ? 'admin' : 'user') as AdminUserRole)}
-              >
-                <option value="user">User</option>
-                <option value="admin">Admin</option>
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="admin-create-plan">Pla</label>
-              <select
-                id="admin-create-plan"
-                value={newPlanId}
-                onChange={(event) => setNewPlanId(event.target.value)}
-              >
-                {PLAN_OPTIONS.map((plan) => (
-                  <option key={plan.id} value={plan.id}>{plan.label}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="modal-actions-row">
-              <Button type="submit" disabled={isCreating}>
-                {isCreating ? 'Creant...' : 'Crear usuari'}
-              </Button>
-            </div>
-          </form>
-        </section>
-
-        <section className="device-keys-section">
-          <h4>Usuaris</h4>
-          {loading && <p>Carregant usuaris...</p>}
-          {error && <div className="modal-error">{error}</div>}
-          {!loading && users.length === 0 && <p>No hi ha usuaris.</p>}
-
-          {users.length > 0 && (
-            <ul className="device-keys-list">
-              {users.map((user) => (
-                <li key={user.userId} className="device-keys-list-item">
-                  <div className="device-keys-list-main">
-                    <strong>{user.username}</strong>
-                    <span>ID: {user.userId}</span>
-                  </div>
-                  <div className="device-keys-list-actions">
+          <section className="device-keys-section">
+            <h4>Usuaris {loadingUsers ? '...' : `(${users.length})`}</h4>
+            {!loadingUsers && users.length === 0 && <p>No hi ha usuaris.</p>}
+            {users.length > 0 && (
+              <ul className="admin-compact-list">
+                {users.map((user) => (
+                  <li key={user.userId} className="admin-compact-list-item">
+                    <span className="admin-compact-name">{user.username}</span>
                     <select
                       aria-label={`rol-${user.username}`}
                       value={user.role}
-                      onChange={(event) => {
-                        const role = event.target.value === 'admin' ? 'admin' : 'user'
-                        void handleRoleChange(user.userId, role)
-                      }}
+                      onChange={(e) => { void handleRoleChange(user.userId, e.target.value === 'admin' ? 'admin' : 'user') }}
                     >
                       <option value="user">User</option>
                       <option value="admin">Admin</option>
@@ -224,22 +237,82 @@ export function AdminUsersPanel({ isOpen, onClose, onFeedback }: AdminUsersPanel
                     <select
                       aria-label={`pla-${user.username}`}
                       value={user.planId ?? PLAN_OPTIONS[0].id}
-                      onChange={(event) => { void handlePlanChange(user.userId, event.target.value) }}
+                      onChange={(e) => { void handlePlanChange(user.userId, e.target.value) }}
                     >
-                      {PLAN_OPTIONS.map((plan) => (
-                        <option key={plan.id} value={plan.id}>{plan.label}</option>
-                      ))}
+                      {PLAN_OPTIONS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
                     </select>
-                    <Button type="button" variant="danger" onClick={() => { void handleDeleteUser(user.userId, user.username) }}>
+                    <Button type="button" variant="danger" size="sm" onClick={() => { void handleDeleteUser(user.userId, user.username) }}>
                       Eliminar
                     </Button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      )}
+
+      {activeTab === 'invitations' && (
+        <div className="admin-users-grid">
+          <section className="device-keys-section">
+            <h4>Crear invitacio</h4>
+            <form className="modal-inline-stack" onSubmit={handleCreateInvitation}>
+              <div className="form-group">
+                <label htmlFor="admin-invite-max-uses">Usos maxims</label>
+                <input
+                  id="admin-invite-max-uses"
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={inviteMaxUses}
+                  onChange={(e) => setInviteMaxUses(Number(e.target.value || '1'))}
+                />
+              </div>
+              <div className="modal-actions-row">
+                <Button type="submit" disabled={isCreatingInvite}>
+                  {isCreatingInvite ? 'Creant...' : 'Crear invitacio'}
+                </Button>
+              </div>
+            </form>
+
+            {lastCreatedCode && (
+              <div className="admin-invite-code-box">
+                <span className="admin-invite-code">{lastCreatedCode}</span>
+                <Button type="button" variant="secondary" size="sm" onClick={() => { void handleCopyCode(lastCreatedCode) }}>
+                  Copiar
+                </Button>
+              </div>
+            )}
+          </section>
+
+          <section className="device-keys-section">
+            <h4>Invitacions {loadingInvitations ? '...' : `(${invitations.length})`}</h4>
+            {!loadingInvitations && invitations.length === 0 && <p>No hi ha invitacions creades.</p>}
+            {invitations.length > 0 && (
+              <ul className="admin-compact-list">
+                {invitations.map((inv) => (
+                  <li key={inv.invitationId} className="admin-compact-list-item admin-compact-list-item--col">
+                    <div className="admin-compact-invite-row">
+                      <span className="admin-invite-code-inline">{inv.code}</span>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => { void handleCopyCode(inv.code) }}>
+                        Copiar
+                      </Button>
+                    </div>
+                    <div className="admin-compact-invite-meta">
+                      <span>Fets: <strong>{inv.usesCount}</strong></span>
+                      <span>Restants: <strong>{inv.remainingUses === null ? '∞' : inv.remainingUses}</strong></span>
+                      <span>Max: <strong>{inv.maxUses < 0 ? '∞' : inv.maxUses}</strong></span>
+                      <span className={inv.isActive ? 'admin-badge-active' : 'admin-badge-inactive'}>
+                        {inv.isActive ? 'Activa' : 'Inactiva'}
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      )}
     </div>
   )
 }

@@ -36,6 +36,8 @@ import {
   adminUsersUpdateRole,
   adminUsersUpdatePlan,
   adminUsersDelete,
+  invitationsCreate,
+  invitationsList,
 } from './api'
 
 // Mock de sessionStorage
@@ -429,6 +431,58 @@ describe('API Client', () => {
       const deleteResult = await adminUsersDelete('u-3')
       expect(deleteResult.success).toBe(true)
       expect(mockFetch.mock.calls[2]?.[0]).toBe('/api/admin/users/u-3')
+    })
+
+    it('crea una invitacio i mapeja la resposta', async () => {
+      setupMocks({
+        success: true,
+        data: {
+          invitationId: 'inv-1',
+          code: 'ABCDEF-GHIJKL-MNOPQR-STUVWX',
+          maxUses: 3,
+          usesCount: 0,
+          isActive: true,
+          createdBy: 'admin',
+        },
+      })
+
+      const result = await invitationsCreate(3)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data.code).toBe('ABCDEF-GHIJKL-MNOPQR-STUVWX')
+        expect(result.data.maxUses).toBe(3)
+      }
+
+      const requestBody = JSON.parse(String(mockFetch.mock.calls[0]?.[1]?.body ?? '{}')) as {
+        max_uses?: number
+      }
+      expect(requestBody).toEqual({ max_uses: 3 })
+      expect(mockFetch.mock.calls[0]?.[0]).toBe('/api/invitations')
+    })
+
+    it('llista invitacions amb usos fets i restants', async () => {
+      setupMocks({
+        success: true,
+        data: [
+          {
+            invitationId: 'inv-2',
+            code: 'ZZZZZZ-YYYYYY-XXXXXX-WWWWWW',
+            maxUses: 10,
+            usesCount: 4,
+            remainingUses: 6,
+            isActive: true,
+            createdBy: 'admin',
+          },
+        ],
+      })
+
+      const result = await invitationsList()
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data[0].usesCount).toBe(4)
+        expect(result.data[0].remainingUses).toBe(6)
+      }
+      expect(mockFetch.mock.calls[0]?.[0]).toBe('/api/invitations')
     })
   })
 

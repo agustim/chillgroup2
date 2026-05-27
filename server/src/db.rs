@@ -1121,6 +1121,46 @@ impl DatabasePool {
         Ok(())
     }
 
+    pub async fn list_invitations_admin(&self) -> Result<Vec<(Uuid, String, i32, i32, bool, String)>, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let rows = sqlx::query(
+                    "SELECT i.id, i.code, i.max_uses, i.uses_count, i.is_active, u.username \
+                     FROM invitations i \
+                     JOIN users u ON u.id = i.created_by_user_id \
+                     ORDER BY i.created_at DESC",
+                )
+                .fetch_all(pool)
+                .await
+                .map_err(|e| format!("Error PostgreSQL: {}", e))?;
+
+                Ok(rows
+                    .into_iter()
+                    .map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5)))
+                    .collect())
+            }
+            DatabasePool::Sqlite(pool) => {
+                let rows = sqlx::query(
+                    "SELECT i.id, i.code, i.max_uses, i.uses_count, i.is_active, u.username \
+                     FROM invitations i \
+                     JOIN users u ON u.id = i.created_by_user_id \
+                     ORDER BY i.created_at DESC",
+                )
+                .fetch_all(pool)
+                .await
+                .map_err(|e| format!("Error SQLite: {}", e))?;
+
+                Ok(rows
+                    .into_iter()
+                    .map(|r| {
+                        let is_active: i64 = r.get(4);
+                        (r.get(0), r.get(1), r.get(2), r.get(3), is_active != 0, r.get(5))
+                    })
+                    .collect())
+            }
+        }
+    }
+
     /// Comprovar si un usuari ja existeix.
     pub async fn user_exists(&self, username: &str) -> Result<bool, String> {
         match self {

@@ -1712,12 +1712,126 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   margin-bottom: 12px;
 }
 
+.admin-panel-tabs {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+
+.admin-panel-tab {
+  padding: 4px 14px;
+  border: 1px solid var(--bg-active);
+  border-radius: var(--input-radius);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.admin-panel-tab:hover {
+  background: var(--bg-active);
+  color: var(--text-primary);
+}
+
+.admin-panel-tab.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.admin-compact-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.admin-compact-list-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--input-radius);
+  background: var(--bg-secondary);
+  flex-wrap: wrap;
+}
+
+.admin-compact-list-item--col {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.admin-compact-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 80px;
+  flex: 1;
+}
+
+.admin-compact-invite-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.admin-compact-invite-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.admin-invite-code-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px dashed var(--accent);
+  border-radius: var(--input-radius);
+  background: var(--bg-secondary);
+}
+
+.admin-invite-code {
+  font-family: monospace;
+  font-size: 13px;
+  color: var(--text-primary);
+  flex: 1;
+  word-break: break-all;
+}
+
+.admin-invite-code-inline {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text-primary);
+  flex: 1;
+  word-break: break-all;
+}
+
+.admin-badge-active {
+  color: var(--color-success, #4ade80);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.admin-badge-inactive {
+  color: var(--text-muted, var(--text-secondary));
+  font-size: 11px;
+}
+
 .admin-users-grid {
-  display: grid;
-  grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 12px;
 }
 
@@ -1727,12 +1841,6 @@ body {
   background: var(--bg-input);
   color: var(--text-primary);
   padding: 6px 8px;
-}
-
-@media (max-width: 980px) {
-  .admin-users-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* ── Voice Channel Participants (sidebar) ───────── */

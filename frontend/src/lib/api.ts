@@ -163,6 +163,19 @@ export interface AdminUserItem {
   planId: string | null
 }
 
+export interface InvitationCreateInfo {
+  invitationId: string
+  code: string
+  maxUses: number
+  usesCount: number
+  isActive: boolean
+  createdBy: string
+}
+
+export interface InvitationListItem extends InvitationCreateInfo {
+  remainingUses: number | null
+}
+
 export interface ServerInfo {
   serverId: string
   name: string
@@ -944,6 +957,38 @@ export async function adminUsersDelete(userId: string): Promise<ApiResult<void>>
   const result = await apiRequest<void>('DELETE', `/api/admin/users/${userId}`)
   if (!result.success) return result
   return { success: true, data: undefined }
+}
+
+function mapInvitationCreateInfo(raw: any): InvitationCreateInfo {
+  return {
+    invitationId: raw.invitationId ?? raw.invitation_id,
+    code: raw.code,
+    maxUses: raw.maxUses ?? raw.max_uses ?? 1,
+    usesCount: raw.usesCount ?? raw.uses_count ?? 0,
+    isActive: raw.isActive ?? raw.is_active ?? true,
+    createdBy: raw.createdBy ?? raw.created_by ?? '',
+  }
+}
+
+function mapInvitationListItem(raw: any): InvitationListItem {
+  const base = mapInvitationCreateInfo(raw)
+  return {
+    ...base,
+    remainingUses: raw.remainingUses ?? raw.remaining_uses ?? null,
+  }
+}
+
+export async function invitationsCreate(maxUses: number): Promise<ApiResult<InvitationCreateInfo>> {
+  const result = await apiRequest<any>('POST', '/api/invitations', { max_uses: maxUses })
+  if (!result.success) return result
+  return { success: true, data: mapInvitationCreateInfo(result.data) }
+}
+
+export async function invitationsList(): Promise<ApiResult<InvitationListItem[]>> {
+  const result = await apiRequest<any>('GET', '/api/invitations')
+  if (!result.success) return result
+  const data = Array.isArray(result.data) ? result.data : (result.data?.data ?? [])
+  return { success: true, data: data.map(mapInvitationListItem) }
 }
 
 // ── LiveKit ─────────────────────────────────────────────────────
