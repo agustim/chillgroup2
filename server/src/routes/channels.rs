@@ -428,6 +428,12 @@ pub struct ChannelPermissionEntry {
     pub permission: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateChannelExplicitPermissionRequest {
+    #[serde(default)]
+    pub permission_level: Option<i32>,
+}
+
 pub async fn get_all_channel_key_bundles(
     State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
@@ -650,12 +656,98 @@ pub async fn get_channel_permissions(
         .unwrap_or(0);
 
     if server_permission < SERVER_PERMISSION_MANAGE_MEMBERS {
-        return Err(AppError::Forbidden);
+        ensure_channel_permission(&state, channel_id, claims.user_id, CHANNEL_PERMISSION_MANAGE).await?;
     }
 
     let rows = state
         .db
         .list_channel_permission_levels(channel_id)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+    let entries: Vec<ChannelPermissionEntry> = rows
+        .into_iter()
+        .map(|(user_id, username, permission_level)| ChannelPermissionEntry {
+            user_id,
+            username,
+            permission_level,
+            permission: match permission_level {
+                3 => "manage",
+                2 => "write",
+                1 => "read",
+                _ => "none",
+            }
+            .to_string(),
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({ "success": true, "data": entries })))
+}
+
+pub async fn update_channel_explicit_permission(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path((channel_id, user_id)): Path<(Uuid, Uuid)>,
+    Json(req): Json<UpdateChannelExplicitPermissionRequest>,
+) -> Result<StatusCode, AppError> {
+    let channel = state
+        .db
+        .get_channel(channel_id)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .ok_or(AppError::ChannelNotFound)?;
+
+    if channel.server_id == Uuid::nil() {
+        return Err(AppError::Forbidden);
+    }
+
+    ensure_channel_permission(&state, channel_id, claims.user_id, CHANNEL_PERMISSION_MANAGE).await?;
+
+    let is_server_member = state
+        .db
+        .is_server_member(channel.server_id, user_id)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .is_some();
+
+    if !is_server_member {
+        return Err(AppError::UserNotFound);
+    }
+
+    if let Some(level) = req.permission_level {
+        state
+            .db
+            .set_explicit_channel_permission(channel_id, user_id, level)
+            .await
+            .map_err(AppError::DatabaseError)?;
+    } else {
+        state
+            .db
+            .remove_explicit_channel_permission(channel_id, user_id)
+            .await
+            .map_err(AppError::DatabaseError)?;
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn get_channel_explicit_permissions(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path(channel_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    state
+        .db
+        .get_channel(channel_id)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .ok_or(AppError::ChannelNotFound)?;
+
+    ensure_channel_permission(&state, channel_id, claims.user_id, CHANNEL_PERMISSION_MANAGE).await?;
+
+    let rows = state
+        .db
+        .list_explicit_channel_permissions(channel_id)
         .await
         .map_err(AppError::DatabaseError)?;
 
@@ -837,6 +929,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/channels/{channel_id}/keys/rotate", post(rotate_channel_key))
         .route("/api/channels/{channel_id}/member-devices", get(get_channel_member_devices))
         .route("/api/channels/{channel_id}/permissions", get(get_channel_permissions))
+        .route("/api/channels/{channel_id}/permissions/explicit", get(get_channel_explicit_permissions))
+        .route("/api/channels/{channel_id}/permissions/explicit/{user_id}", put(update_channel_explicit_permission))
             .route("/api/channels/{channel_id}/keys/all", get(get_all_channel_key_bundles))
         .route("/api/channels/{channel_id}/invite", post(invite_to_channel))
         .route("/api/channels/{channel_id}", put(update_channel).delete(delete_channel))
@@ -1005,5 +1099,119 @@ mod tests {
         assert!(result.is_ok(), "pro plan should allow creating 4th text channel");
         let (status, _) = result.expect("request should succeed");
         assert_eq!(status, StatusCode::CREATED);
+    }
+
+    #[tokio::test]
+    async fn update_channel_allows_public_explicit_manage_override() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("channel_owner", "hash", "user")
+            .await
+            .expect("owner creation should work");
+        let manager_id = state
+            .db
+            .create_user_with_role("channel_manager", "hash", "user")
+            .await
+            .expect("manager creation should work");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "channels-manage-server", None, owner_id)
+            .await
+            .expect("server should be created");
+        state
+            .db
+            .add_server_member(server_id, manager_id, "member")
+            .await
+            .expect("manager should join server");
+
+        let channel_id = Uuid::new_v4();
+        state
+            .db
+            .create_channel(channel_id, server_id, "general", "text", "none", None, false)
+            .await
+            .expect("public channel should be created");
+        state
+            .db
+            .set_explicit_channel_permission(channel_id, manager_id, CHANNEL_PERMISSION_MANAGE)
+            .await
+            .expect("explicit manage override should be stored");
+
+        let result = update_channel(
+            State(state),
+            axum::Extension(claims_for(manager_id, "channel_manager")),
+            Path(channel_id),
+            Json(UpdateChannelRequest {
+                name: Some("general-updated".to_string()),
+                message_ttl: None,
+                channel_type: None,
+                encryption_type: None,
+                is_private: None,
+            }),
+        )
+        .await;
+
+        assert!(result.is_ok(), "explicit manage override should allow channel updates");
+        let Json(updated_channel) = result.expect("request should succeed");
+        assert_eq!(updated_channel.name, "general-updated");
+    }
+
+    #[tokio::test]
+    async fn update_channel_blocks_public_explicit_read_override() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("channel_owner_read", "hash", "user")
+            .await
+            .expect("owner creation should work");
+        let reader_id = state
+            .db
+            .create_user_with_role("channel_reader", "hash", "user")
+            .await
+            .expect("reader creation should work");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "channels-read-server", None, owner_id)
+            .await
+            .expect("server should be created");
+        state
+            .db
+            .add_server_member(server_id, reader_id, "member")
+            .await
+            .expect("reader should join server");
+
+        let channel_id = Uuid::new_v4();
+        state
+            .db
+            .create_channel(channel_id, server_id, "general-read", "text", "none", None, false)
+            .await
+            .expect("public channel should be created");
+        state
+            .db
+            .set_explicit_channel_permission(channel_id, reader_id, CHANNEL_PERMISSION_READ)
+            .await
+            .expect("explicit read override should be stored");
+
+        let result = update_channel(
+            State(state),
+            axum::Extension(claims_for(reader_id, "channel_reader")),
+            Path(channel_id),
+            Json(UpdateChannelRequest {
+                name: Some("general-forbidden".to_string()),
+                message_ttl: None,
+                channel_type: None,
+                encryption_type: None,
+                is_private: None,
+            }),
+        )
+        .await;
+
+        let err = result.expect_err("read-only override should forbid updates");
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 }

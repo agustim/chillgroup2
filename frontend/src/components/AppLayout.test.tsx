@@ -202,6 +202,9 @@ vi.mock('../lib/api', () => ({
   serverUpdateMemberRole: vi.fn(),
   serverRemoveMember: vi.fn(),
   channelInvite: vi.fn(),
+  channelGetPermissions: vi.fn(),
+  channelGetExplicitPermissions: vi.fn(),
+  channelSetExplicitPermission: vi.fn(),
   friendsList: vi.fn(),
   friendsAdd: vi.fn(),
   friendsRemove: vi.fn(),
@@ -222,6 +225,9 @@ import {
   serverUpdateMemberRole,
   serverRemoveMember,
   channelInvite,
+  channelGetPermissions,
+  channelGetExplicitPermissions,
+  channelSetExplicitPermission,
   friendsList,
   friendsAdd,
   friendsRemove,
@@ -244,6 +250,9 @@ const mockServerInviteMember = vi.mocked(serverInviteMember)
 const mockServerUpdateMemberRole = vi.mocked(serverUpdateMemberRole)
 const mockServerRemoveMember = vi.mocked(serverRemoveMember)
 const mockChannelInvite = vi.mocked(channelInvite)
+const mockChannelGetPermissions = vi.mocked(channelGetPermissions)
+const mockChannelGetExplicitPermissions = vi.mocked(channelGetExplicitPermissions)
+const mockChannelSetExplicitPermission = vi.mocked(channelSetExplicitPermission)
 const mockFriendsList = vi.mocked(friendsList)
 const mockFriendsAdd = vi.mocked(friendsAdd)
 const mockFriendsRemove = vi.mocked(friendsRemove)
@@ -292,6 +301,14 @@ describe('AppLayout', () => {
     mockServerUpdateMemberRole.mockResolvedValue({ success: true, data: { userId: 'friend-1', username: 'amic', role: 'member', joinedAt: '2026-01-01T00:00:00Z' } })
     mockServerRemoveMember.mockResolvedValue({ success: true, data: { userId: 'friend-1', removed: true } })
     mockChannelInvite.mockResolvedValue({ success: true, data: { invitedUser: 'x' } })
+    mockChannelGetPermissions.mockResolvedValue({
+      success: true,
+      data: [
+        { userId: 'user-1', username: 'testuser', permissionLevel: 3, permission: 'manage' },
+      ],
+    })
+    mockChannelGetExplicitPermissions.mockResolvedValue({ success: true, data: [] })
+    mockChannelSetExplicitPermission.mockResolvedValue({ success: true, data: undefined })
     mockFriendsList.mockResolvedValue({ success: true, data: [{ userId: 'friend-1', username: 'amic', status: 'online', isOnline: true }] })
     mockFriendsAdd.mockResolvedValue({ success: true, data: undefined })
     mockFriendsRemove.mockResolvedValue({ success: true, data: undefined })

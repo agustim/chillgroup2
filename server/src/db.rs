@@ -2269,7 +2269,7 @@ impl DatabasePool {
                     "SELECT \
                         CASE \
                             WHEN COALESCE(c.scope, 'server') = 'dm' THEN CASE WHEN cm.user_id IS NOT NULL THEN 3 ELSE 0 END \
-                            WHEN c.is_private THEN COALESCE(cm.permission_level, 0) \
+                            WHEN cm.user_id IS NOT NULL THEN cm.permission_level \
                             WHEN sm.user_id IS NULL THEN 0 \
                             WHEN sm.role IN ('owner', 'admin') THEN 3 \
                             ELSE 2 \
@@ -2291,7 +2291,7 @@ impl DatabasePool {
                     "SELECT \
                         CASE \
                             WHEN COALESCE(c.scope, 'server') = 'dm' THEN CASE WHEN cm.user_id IS NOT NULL THEN 3 ELSE 0 END \
-                            WHEN c.is_private = 1 THEN COALESCE(cm.permission_level, 0) \
+                            WHEN cm.user_id IS NOT NULL THEN cm.permission_level \
                             WHEN sm.user_id IS NULL THEN 0 \
                             WHEN sm.role IN ('owner', 'admin') THEN 3 \
                             ELSE 2 \
@@ -2323,7 +2323,7 @@ impl DatabasePool {
                         u.id,
                         u.username,
                         CASE
-                            WHEN c.is_private THEN COALESCE(cm.permission_level, 0)
+                            WHEN cm.user_id IS NOT NULL THEN cm.permission_level
                             WHEN sm.role IN ('owner', 'admin') THEN 3
                             ELSE 2
                         END AS permission_level
@@ -2349,7 +2349,7 @@ impl DatabasePool {
                         u.id,
                         u.username,
                         CASE
-                            WHEN c.is_private = 1 THEN COALESCE(cm.permission_level, 0)
+                            WHEN cm.user_id IS NOT NULL THEN cm.permission_level
                             WHEN sm.role IN ('owner', 'admin') THEN 3
                             ELSE 2
                         END AS permission_level
@@ -2370,6 +2370,124 @@ impl DatabasePool {
                     .collect())
             }
         }
+    }
+
+    pub async fn list_explicit_channel_permissions(
+        &self,
+        channel_id: Uuid,
+    ) -> Result<Vec<(Uuid, String, i32)>, sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let rows = sqlx::query(
+                    "SELECT
+                        u.id,
+                        u.username,
+                        cm.permission_level
+                     FROM channel_members cm
+                     JOIN users u ON u.id = cm.user_id
+                     WHERE cm.channel_id = $1
+                     ORDER BY cm.permission_level DESC, u.username ASC"
+                )
+                .bind(channel_id)
+                .fetch_all(pool)
+                .await?;
+
+                Ok(rows
+                    .into_iter()
+                    .map(|row| (row.get(0), row.get(1), row.get(2)))
+                    .collect())
+            }
+            DatabasePool::Sqlite(pool) => {
+                let rows = sqlx::query(
+                    "SELECT
+                        u.id,
+                        u.username,
+                        cm.permission_level
+                     FROM channel_members cm
+                     JOIN users u ON u.id = cm.user_id
+                     WHERE cm.channel_id = ?
+                     ORDER BY cm.permission_level DESC, u.username ASC"
+                )
+                .bind(channel_id)
+                .fetch_all(pool)
+                .await?;
+
+                Ok(rows
+                    .into_iter()
+                    .map(|row| (row.get(0), row.get(1), row.get(2)))
+                    .collect())
+            }
+        }
+    }
+
+    pub async fn set_explicit_channel_permission(
+        &self,
+        channel_id: Uuid,
+        user_id: Uuid,
+        permission_level: i32,
+    ) -> Result<(), sqlx::Error> {
+        let id = Uuid::new_v4();
+        let now = chrono::Utc::now().to_rfc3339();
+        let permission_level = permission_level.clamp(CHANNEL_PERMISSION_READ, CHANNEL_PERMISSION_MANAGE);
+
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "INSERT INTO channel_members (id, channel_id, user_id, permission_level, joined_at)
+                     VALUES ($1, $2, $3, $4, NOW())
+                     ON CONFLICT (channel_id, user_id)
+                     DO UPDATE SET permission_level = EXCLUDED.permission_level"
+                )
+                .bind(id)
+                .bind(channel_id)
+                .bind(user_id)
+                .bind(permission_level)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "INSERT INTO channel_members (id, channel_id, user_id, permission_level, joined_at)
+                     VALUES (?, ?, ?, ?, ?)
+                     ON CONFLICT(channel_id, user_id)
+                     DO UPDATE SET permission_level = excluded.permission_level"
+                )
+                .bind(id)
+                .bind(channel_id)
+                .bind(user_id)
+                .bind(permission_level)
+                .bind(now)
+                .execute(pool)
+                .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn remove_explicit_channel_permission(
+        &self,
+        channel_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query("DELETE FROM channel_members WHERE channel_id = $1 AND user_id = $2")
+                    .bind(channel_id)
+                    .bind(user_id)
+                    .execute(pool)
+                    .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query("DELETE FROM channel_members WHERE channel_id = ? AND user_id = ?")
+                    .bind(channel_id)
+                    .bind(user_id)
+                    .execute(pool)
+                    .await?;
+            }
+        }
+
+        Ok(())
     }
 
     pub async fn find_dm_channel_by_users(&self, user_a: Uuid, user_b: Uuid) -> Result<Option<Uuid>, sqlx::Error> {

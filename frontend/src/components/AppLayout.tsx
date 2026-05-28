@@ -35,6 +35,9 @@ import {
   channelsList,
   channelsMarkRead,
   channelInvite,
+  channelGetPermissions,
+  channelGetExplicitPermissions,
+  channelSetExplicitPermission,
   channelsUpdate,
   channelDelete,
   usersSearch,
@@ -113,6 +116,22 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const [channelConfigMessageTTL, setChannelConfigMessageTTL] = useState('')
   const [channelConfigIsPrivate, setChannelConfigIsPrivate] = useState(false)
   const [channelConfigInviteUsername, setChannelConfigInviteUsername] = useState('')
+  const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Array<{
+    userId: string
+    username: string
+    permissionLevel: number
+    permission: 'none' | 'read' | 'write' | 'manage'
+  }>>([])
+  const [channelExplicitPermissionsLoading, setChannelExplicitPermissionsLoading] = useState(false)
+  const [canViewChannelExplicitPermissions, setCanViewChannelExplicitPermissions] = useState(false)
+  const [channelPermissionRows, setChannelPermissionRows] = useState<Array<{
+    userId: string
+    username: string
+    effectiveLevel: number
+    effectivePermission: 'none' | 'read' | 'write' | 'manage'
+    explicitLevel: number | null
+  }>>([])
+  const [updatingChannelPermissionUserId, setUpdatingChannelPermissionUserId] = useState<string | null>(null)
   
   // LiveKit hook
   const {
@@ -238,6 +257,105 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     setChannelConfigIsPrivate(!!resolvedSelectedChannel.isPrivate)
     setChannelConfigInviteUsername('')
   }, [panel, resolvedSelectedChannel?.channelId, resolvedSelectedChannel?.name, resolvedSelectedChannel?.messageTTL, resolvedSelectedChannel?.isPrivate])
+
+  useEffect(() => {
+    if (panel !== 'channelConfig' || !resolvedSelectedChannel) {
+      setChannelExplicitPermissions([])
+      setCanViewChannelExplicitPermissions(false)
+      setChannelExplicitPermissionsLoading(false)
+      return
+    }
+
+    let cancelled = false
+    const loadExplicitPermissions = async () => {
+      setChannelExplicitPermissionsLoading(true)
+      const result = await channelGetExplicitPermissions(resolvedSelectedChannel.channelId)
+      if (cancelled) return
+
+      if (result.success) {
+        setCanViewChannelExplicitPermissions(true)
+        setChannelExplicitPermissions(result.data)
+      } else {
+        setCanViewChannelExplicitPermissions(false)
+        setChannelExplicitPermissions([])
+      }
+
+      setChannelExplicitPermissionsLoading(false)
+    }
+
+    void loadExplicitPermissions()
+
+    return () => {
+      cancelled = true
+    }
+  }, [panel, resolvedSelectedChannel?.channelId])
+
+  useEffect(() => {
+    if (panel !== 'channelConfig' || !resolvedSelectedChannel) {
+      setChannelPermissionRows([])
+      return
+    }
+
+    let cancelled = false
+    const loadChannelPermissions = async () => {
+      const [effectiveResult, explicitResult] = await Promise.all([
+        channelGetPermissions(resolvedSelectedChannel.channelId),
+        channelGetExplicitPermissions(resolvedSelectedChannel.channelId),
+      ])
+
+      if (cancelled) return
+
+      if (!effectiveResult.success) {
+        setChannelPermissionRows([])
+        return
+      }
+
+      const explicitMap = new Map<string, number>()
+      if (explicitResult.success) {
+        for (const entry of explicitResult.data) {
+          explicitMap.set(entry.userId, entry.permissionLevel)
+        }
+      }
+
+      setChannelPermissionRows(
+        effectiveResult.data.map((entry) => ({
+          userId: entry.userId,
+          username: entry.username,
+          effectiveLevel: entry.permissionLevel,
+          effectivePermission: entry.permission,
+          explicitLevel: explicitMap.get(entry.userId) ?? null,
+        }))
+      )
+    }
+
+    void loadChannelPermissions()
+
+    return () => {
+      cancelled = true
+    }
+  }, [panel, resolvedSelectedChannel?.channelId, channelExplicitPermissions])
+
+  const handleUpdateChannelExplicitPermission = async (userId: string, value: string) => {
+    if (!resolvedSelectedChannel) return
+
+    setUpdatingChannelPermissionUserId(userId)
+    const nextLevel = value === 'inherited' ? null : Number(value)
+    const result = await channelSetExplicitPermission(resolvedSelectedChannel.channelId, userId, nextLevel)
+    setUpdatingChannelPermissionUserId(null)
+
+    if (!result.success) {
+      setFeedback(result.error.message)
+      return
+    }
+
+    const explicitResult = await channelGetExplicitPermissions(resolvedSelectedChannel.channelId)
+    if (!explicitResult.success) {
+      setFeedback(explicitResult.error.message)
+      return
+    }
+    setChannelExplicitPermissions(explicitResult.data)
+    setFeedback('Permís del canal actualitzat')
+  }
 
   useEffect(() => {
     const socket = getSocket()
@@ -1584,6 +1702,55 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
                 Esborrar canal
               </button>
             </div>
+
+            {canViewChannelExplicitPermissions && (
+              <div className="server-members" style={{ marginTop: '12px' }}>
+                <h4>Permisos del canal (efectius + override explícit)</h4>
+                {channelExplicitPermissionsLoading ? (
+                  <p>Carregant permisos explícits...</p>
+                ) : channelPermissionRows.length > 0 ? (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                      <thead>
+                        <tr>
+                          <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>Usuari</th>
+                          <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>Permís efectiu</th>
+                          <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>Override explícit</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {channelPermissionRows.map((entry) => (
+                          <tr key={entry.userId}>
+                            <td style={{ padding: '6px 4px', borderBottom: '1px solid var(--bg-active)' }}>{entry.username}</td>
+                            <td style={{ padding: '6px 4px', borderBottom: '1px solid var(--bg-active)' }}>
+                              {entry.effectivePermission} ({entry.effectiveLevel})
+                            </td>
+                            <td style={{ padding: '6px 4px', borderBottom: '1px solid var(--bg-active)' }}>
+                              <select
+                                value={entry.explicitLevel === null ? 'inherited' : String(entry.explicitLevel)}
+                                onChange={(event) => {
+                                  void handleUpdateChannelExplicitPermission(entry.userId, event.target.value)
+                                }}
+                                disabled={updatingChannelPermissionUserId === entry.userId}
+                                className="device-keys-input"
+                                style={{ width: '180px', padding: '4px 8px' }}
+                              >
+                                <option value="inherited">heretat (rol servidor)</option>
+                                <option value="1">read (1)</option>
+                                <option value="2">write (2)</option>
+                                <option value="3">manage (3)</option>
+                              </select>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p>No hi ha dades de permisos visibles en aquest canal.</p>
+                )}
+              </div>
+            )}
           </div>
         ) : resolvedSelectedChannel ? (
           <>

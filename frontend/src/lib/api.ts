@@ -951,6 +951,40 @@ export async function channelGetPermissions(channelId: string): Promise<ApiResul
   }
 }
 
+export async function channelGetExplicitPermissions(channelId: string): Promise<ApiResult<Array<{
+  userId: string
+  username: string
+  permissionLevel: number
+  permission: 'none' | 'read' | 'write' | 'manage'
+}>>> {
+  const result = await apiRequest<any>('GET', `/api/channels/${channelId}/permissions/explicit`)
+  if (!result.success) return result
+  const data = Array.isArray(result.data) ? result.data : (result.data?.data ?? [])
+  return {
+    success: true,
+    data: data.map((item: any) => ({
+      userId: item.userId ?? item.user_id,
+      username: item.username,
+      permissionLevel: Number(item.permissionLevel ?? item.permission_level ?? 0),
+      permission: (item.permission ?? 'none') as 'none' | 'read' | 'write' | 'manage',
+    })),
+  }
+}
+
+export async function channelSetExplicitPermission(
+  channelId: string,
+  userId: string,
+  permissionLevel: number | null,
+): Promise<ApiResult<void>> {
+  const result = await apiRequest<void>(
+    'PUT',
+    `/api/channels/${channelId}/permissions/explicit/${userId}`,
+    { permission_level: permissionLevel }
+  )
+  if (!result.success) return result
+  return { success: true, data: undefined }
+}
+
 export async function deviceUpdatePublicKey(kemPublicKey: string, dsaPublicKey: string): Promise<ApiResult<void>> {
   const result = await apiRequest<void>('PUT', '/api/user/me/device/publickey', {
     kem_public_key: kemPublicKey,
