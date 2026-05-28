@@ -278,6 +278,7 @@ const testChannel: any = {
   name: 'general',
   type: 'text',
   encryptionType: 'none',
+  permissionLevel: 3,
   isPrivate: false,
   messageTTL: null,
   createdAt: '2026-01-01T00:00:00Z',

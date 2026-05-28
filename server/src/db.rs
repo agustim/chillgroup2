@@ -2075,10 +2075,18 @@ impl DatabasePool {
     }
 
         pub async fn list_channels_for_server(&self, server_id: Uuid, user_id: Uuid) -> Result<Vec<Channel>, sqlx::Error> {
-                let query = "SELECT c.id, c.server_id, c.name, c.type AS channel_type, c.encryption_type, c.message_ttl, c.is_private, c.created_at \
+                let query = "SELECT c.id, c.server_id, c.name, c.type AS channel_type, c.encryption_type, c.message_ttl, c.is_private, c.created_at, \
+                                         CASE \
+                                             WHEN COALESCE(c.scope, 'server') = 'dm' THEN CASE WHEN cm.user_id IS NOT NULL THEN 3 ELSE 0 END \
+                                             WHEN cm.user_id IS NOT NULL THEN cm.permission_level \
+                                             WHEN sm.role IN ('owner', 'admin') THEN 3 \
+                                             ELSE 2 \
+                                         END AS permission_level \
                                          FROM channels c \
+                                         LEFT JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = $2 \
+                                         LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = $2 \
                                          WHERE c.server_id = $1 \
-                                             AND (c.is_private = 0 OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = $2)) \
+                                             AND (c.is_private = 0 OR cm.user_id IS NOT NULL) \
                                          ORDER BY c.type ASC, c.name ASC";
         let mut channels = Vec::new();
         match self {
@@ -2119,6 +2127,7 @@ impl DatabasePool {
                         encryption_type,
                         message_ttl: row.get(5),
                         is_private: is_private != 0,
+                        permission_level: Some(row.get::<i32, _>(8)),
                         unread_count: 0,
                         key_version_id,
                         key_version,
@@ -2127,14 +2136,23 @@ impl DatabasePool {
                 }
             }
             DatabasePool::Sqlite(pool) => {
-                                let query = "SELECT c.id, c.server_id, c.name, c.type AS channel_type, c.encryption_type, c.message_ttl, c.is_private, c.created_at \
+                                let query = "SELECT c.id, c.server_id, c.name, c.type AS channel_type, c.encryption_type, c.message_ttl, c.is_private, c.created_at, \
+                                                         CASE \
+                                                             WHEN COALESCE(c.scope, 'server') = 'dm' THEN CASE WHEN cm.user_id IS NOT NULL THEN 3 ELSE 0 END \
+                                                             WHEN cm.user_id IS NOT NULL THEN cm.permission_level \
+                                                             WHEN sm.role IN ('owner', 'admin') THEN 3 \
+                                                             ELSE 2 \
+                                                         END AS permission_level \
                                                          FROM channels c \
+                                                         LEFT JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = ? \
+                                                         LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = ? \
                                                          WHERE c.server_id = ? \
-                                                             AND (c.is_private = 0 OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?)) \
+                                                             AND (c.is_private = 0 OR cm.user_id IS NOT NULL) \
                                                          ORDER BY c.type ASC, c.name ASC";
                 let rows = sqlx::query(&query)
+                    .bind(user_id)
+                    .bind(user_id)
                     .bind(server_id)
-                                        .bind(user_id)
                     .fetch_all(pool)
                     .await?;
                 for row in rows {
@@ -2168,6 +2186,7 @@ impl DatabasePool {
                         encryption_type,
                         message_ttl: row.get(5),
                         is_private: is_private != 0,
+                        permission_level: Some(row.get::<i32, _>(8)),
                         unread_count: 0,
                         key_version_id,
                         key_version,
@@ -2838,6 +2857,7 @@ impl DatabasePool {
                         encryption_type,
                         message_ttl: row.get(5),
                         is_private: is_private != 0,
+                        permission_level: None,
                         unread_count: 0,
                         key_version_id,
                         key_version,
@@ -2883,6 +2903,7 @@ impl DatabasePool {
                         encryption_type,
                         message_ttl: row.get(5),
                         is_private: is_private != 0,
+                        permission_level: None,
                         unread_count: 0,
                         key_version_id,
                         key_version,

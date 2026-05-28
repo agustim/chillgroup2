@@ -748,6 +748,7 @@ function mapChannelToTypes(channel: any): Channel {
     name: channel.name,
     type: channel.channel_type ?? channel.type,
     encryptionType: channel.encryption_type ?? channel.encryptionType,
+    permissionLevel: channel.permission_level ?? channel.permissionLevel ?? null,
     messageTTL: channel.message_ttl ?? channel.messageTTL ?? null,
     isPrivate: channel.is_private ?? channel.isPrivate ?? false,
     unreadCount: channel.unread_count ?? channel.unreadCount ?? 0,

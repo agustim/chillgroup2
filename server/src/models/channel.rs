@@ -30,6 +30,9 @@ pub struct Channel {
     pub encryption_type: EncryptionType,
     pub message_ttl: Option<i32>,
     pub is_private: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub permission_level: Option<i32>,
     #[serde(default)]
     pub unread_count: usize,
     #[serde(skip_serializing_if = "Option::is_none")]

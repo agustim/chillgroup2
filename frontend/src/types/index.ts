@@ -75,6 +75,7 @@ export interface Channel {
   name: string
   type: ChannelType
   encryptionType: EncryptionType
+  permissionLevel?: number | null
   scope?: 'server' | 'dm'
   dmPeerUserId?: string | null
   messageTTL: number | null

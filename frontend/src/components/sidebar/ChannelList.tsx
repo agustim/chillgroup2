@@ -218,7 +218,7 @@ export function ChannelList({
               <span className="channel-unread-badge">{channel.unreadCount}</span>
             )}
             <EncryptionIcon type={channel.encryptionType} />
-            {onConfigureChannel && (
+            {onConfigureChannel && (channel.permissionLevel ?? 0) >= 3 && (
               <button
                 className="channel-item-settings-btn"
                 onClick={(event) => {
@@ -268,7 +268,7 @@ export function ChannelList({
                 <span className="channel-voice-icon">🔊</span>
                 <span className="channel-name">{channel.name}</span>
                 <EncryptionIcon type={channel.encryptionType} />
-                {onConfigureChannel && (
+                {onConfigureChannel && (channel.permissionLevel ?? 0) >= 3 && (
                   <button
                     className="channel-item-settings-btn"
                     onClick={(event) => {

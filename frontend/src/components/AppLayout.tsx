@@ -1156,6 +1156,11 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
 
   // Obrir pestanya integrada de configuració de canal
   const handleConfigureChannel = (channel?: Channel) => {
+    if (channel && (channel.permissionLevel ?? 0) < 3) {
+      setFeedback('No tens permisos per configurar aquest canal')
+      return
+    }
+
     if (channel) {
       setSelectedChannel(channel)
     }
@@ -1715,6 +1720,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
                         <tr>
                           <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>Usuari</th>
                           <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>Permís efectiu</th>
+                          <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>Origen</th>
                           <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>Override explícit</th>
                         </tr>
                       </thead>
@@ -1724,6 +1730,20 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
                             <td style={{ padding: '6px 4px', borderBottom: '1px solid var(--bg-active)' }}>{entry.username}</td>
                             <td style={{ padding: '6px 4px', borderBottom: '1px solid var(--bg-active)' }}>
                               {entry.effectivePermission} ({entry.effectiveLevel})
+                            </td>
+                            <td style={{ padding: '6px 4px', borderBottom: '1px solid var(--bg-active)' }}>
+                              <span
+                                style={{
+                                  display: 'inline-block',
+                                  padding: '2px 8px',
+                                  borderRadius: '999px',
+                                  fontSize: '11px',
+                                  border: '1px solid var(--bg-active)',
+                                  background: entry.explicitLevel === null ? 'transparent' : 'var(--bg-active)',
+                                }}
+                              >
+                                {entry.explicitLevel === null ? 'heretat' : 'explícit'}
+                              </span>
                             </td>
                             <td style={{ padding: '6px 4px', borderBottom: '1px solid var(--bg-active)' }}>
                               <select

@@ -317,6 +317,7 @@ pub async fn create_channel(
             encryption_type: req.encryption_type,
             message_ttl: req.message_ttl,
             is_private: req.is_private,
+            permission_level: Some(CHANNEL_PERMISSION_MANAGE),
             unread_count: 0,
             key_version_id: initial_key_version_id,
             key_version: initial_key_version,

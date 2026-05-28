@@ -82,4 +82,40 @@ describe('ChannelList', () => {
     expect(onStartDirectMessage).toHaveBeenCalledWith('friend-1', 'amic')
     expect(onStartDirectMessage).toHaveBeenCalledWith('member-1', 'membre')
   })
+
+  it('mostra la roda de configuracio nomes per canals amb permissionLevel manage', () => {
+    const onConfigureChannel = vi.fn()
+
+    render(
+      <ChannelList
+        {...baseProps}
+        onConfigureChannel={onConfigureChannel}
+        channels={[
+          {
+            channelId: 'ch-member',
+            name: 'member-channel',
+            type: 'text',
+            encryptionType: 'none',
+            messageTTL: null,
+            isPrivate: false,
+            permissionLevel: 2,
+            createdAt: '2026-01-01T00:00:00Z',
+          },
+          {
+            channelId: 'ch-manage',
+            name: 'manage-channel',
+            type: 'text',
+            encryptionType: 'none',
+            messageTTL: null,
+            isPrivate: false,
+            permissionLevel: 3,
+            createdAt: '2026-01-01T00:00:00Z',
+          },
+        ]}
+      />
+    )
+
+    const settingsButtons = screen.getAllByTitle('Configuració del canal')
+    expect(settingsButtons.length).toBe(1)
+  })
 })
