@@ -4,7 +4,7 @@ import { Button } from './shared/Button'
 
 export function LoginScreen() {
   const { login, register, registerWithInvitation, isLoading, error } = useAuth()
-  const openRegisterEnv = (import.meta.env.VITE_OPEN_REGISTER ?? 'true').toString().toLowerCase()
+  const openRegisterEnv = (__OPEN_REGISTER__ ?? 'true').toString().toLowerCase()
   const initialOpenRegister = openRegisterEnv === 'true' || openRegisterEnv === '1' || openRegisterEnv === 'yes' || openRegisterEnv === 'on'
   const [isLogin, setIsLogin] = useState(true)
   const [username, setUsername] = useState('')

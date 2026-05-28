@@ -346,9 +346,9 @@ export function useLiveKit(): UseLiveKitResult {
       localAudioTrackRef.current = null
 
       // Obtenir URL del LiveKit (carregada des del .env de l'arrel)
-      const livekitUrl = import.meta.env.VITE_LIVEKIT_URL
+      const livekitUrl = __LIVEKIT_HOST__
       if (!livekitUrl) {
-        throw new Error('VITE_LIVEKIT_URL no està configurada')
+        throw new Error('LIVEKIT_HOST no està configurada')
       }
 
       // Obtenir token del backend
