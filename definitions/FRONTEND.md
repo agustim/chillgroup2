@@ -13,6 +13,22 @@
 | **Ícones** | Emoji + Unicode symbols | Sense llibreries externes |
 | **Build** | Node 20+ | Vite build |
 
+## Variables d'Entorn del Frontend
+
+El frontend utilitza el fitxer `.env` de l'arrel del projecte com a font única de configuració compartida amb el backend.
+
+Variables rellevants:
+
+- `LIVEKIT_HOST`: URL del servidor LiveKit utilitzada per `useLiveKit`
+- `OPEN_REGISTER`: Controla si la pantalla de login mostra registre o només accés per invitació/admin
+- `FRONTEND_DEBUG`: Nivell de logging del frontend
+
+Detall tècnic:
+
+- Vite no exposa automàticament variables sense prefix `VITE_` al codi client.
+- Per aquest motiu, `frontend/vite.config.ts` carrega el `.env` de l'arrel i injecta constants de compilació (`__LIVEKIT_HOST__`, `__OPEN_REGISTER__`, `__FRONTEND_DEBUG__`).
+- No s'ha de mantenir un `frontend/.env` duplicat per aquestes claus, per evitar desincronització.
+
 ## Estructura de Directoris
 
 ```
@@ -144,6 +160,14 @@ frontend/
 - El canal seleccionat es destaca a la llista
 - Els missatges històrics es carreguen al bloc principal
 - No hi ha "entrar" ni "sortir" — sempre pots veure els missatges
+- La roda dentada de configuració del canal només es mostra si l'usuari té `permissionLevel >= 3` (`manage`)
+
+#### Configuració integrada de permisos de canal
+- La pantalla integrada de configuració mostra permisos efectius per usuari
+- També mostra l'origen del permís amb etiqueta visual:
+  - `heretat` (sense override explícit)
+  - `explícit` (override a `channel_members.permission_level`)
+- L'admin/manager pot canviar l'override per usuari (`read`/`write`/`manage`) o tornar-lo a `heretat`
 
 #### Canals de Veu
 - **Click = connectar/desconnectar** a la sala de veu

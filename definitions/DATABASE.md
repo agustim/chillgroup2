@@ -373,6 +373,7 @@ CREATE TABLE invitations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     code VARCHAR(32) UNIQUE NOT NULL,  -- 32 chars alphanumeric + hyphens
     created_by_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    server_id UUID REFERENCES servers(id) ON DELETE SET NULL,
     max_uses INT NOT NULL DEFAULT 1,   -- -1 = unlimited, 0 = disabled
     uses_count INT NOT NULL DEFAULT 0,
     is_active BOOLEAN NOT NULL DEFAULT true,
@@ -382,6 +383,18 @@ CREATE TABLE invitations (
 CREATE INDEX idx_invitations_code ON invitations(code);
 CREATE INDEX idx_invitations_active ON invitations(is_active) WHERE is_active = true;
 CREATE INDEX idx_invitations_created_by ON invitations(created_by_user_id);
+CREATE INDEX idx_invitations_server_id ON invitations(server_id);
+```
+
+### Migració 19 — Invitation Server Binding
+
+```sql
+-- migrations/20260119000000_add_server_id_to_invitations.sql
+
+ALTER TABLE invitations
+ADD COLUMN IF NOT EXISTS server_id UUID REFERENCES servers(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_invitations_server_id ON invitations(server_id);
 ```
 
 ### Migració 18 — Channel Member Permissions

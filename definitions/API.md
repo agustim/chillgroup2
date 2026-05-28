@@ -159,6 +159,8 @@ Login d'usuari existent. Retorna JWT + device info.
 
 Registrar un nou usuari utilitzant una invitació. **Funciona fins i tot si `OPEN_REGISTER=false`**.
 
+Si la invitació està vinculada a un servidor (`serverId`/`server_id`), l'usuari queda afegit automàticament com a membre (`role=member`) en completar el registre.
+
 **Request:**
 ```json
 {
@@ -820,7 +822,8 @@ Generar una nova invitació (admin only).
 **Request Body:**
 ```json
 {
-  "maxUses": 5  // optional, default 1. -1 = unlimited
+  "max_uses": 5,  // optional, default 1. -1 = unlimited
+  "server_id": "550e8400-e29b-41d4-a716-446655440100" // optional, null/absent = registre global
 }
 ```
 
@@ -831,10 +834,10 @@ Generar una nova invitació (admin only).
   "data": {
     "invitationId": "550e8400-e29b-41d4-a716-446655440200",
     "code": "abc123-def456-ghi789-xyz000",
+    "serverId": "550e8400-e29b-41d4-a716-446655440100",
     "maxUses": 5,
     "usesCount": 0,
     "isActive": true,
-    "createdAt": "2026-05-13T12:30:00Z",
     "createdBy": "admin"
   }
 }
@@ -859,10 +862,6 @@ Llistar invitacions creades (admin only).
 
 **Headers:** `Authorization: Bearer <JWT>` (usuari admin requerida)
 
-**Query Params:**
-- `limit` (number, opcional): màxim de resultats, per defecte 50
-- `offset` (number, opcional): offset per paginació, per defecte 0
-
 **Response 200 OK:**
 ```json
 {
@@ -871,19 +870,14 @@ Llistar invitacions creades (admin only).
     {
       "invitationId": "550e8400-e29b-41d4-a716-446655440200",
       "code": "abc123-def456-ghi789-xyz000",
+      "serverId": "550e8400-e29b-41d4-a716-446655440100",
       "maxUses": 5,
       "usesCount": 2,
       "isActive": true,
-      "createdAt": "2026-05-13T12:30:00Z",
       "createdBy": "admin",
       "remainingUses": 3
     }
-  ],
-  "pagination": {
-    "total": 15,
-    "limit": 50,
-    "offset": 0
-  }
+  ]
 }
 ```
 
@@ -1221,8 +1215,9 @@ El backend resol permisos de canal amb nivells explícits:
 
 Regles especials:
 
-- En canals públics, `member` rep nivell `2`; `owner/admin` rep nivell `3`.
-- En canals privats, mana `channel_members.permission_level`.
+- Si existeix override explícit a `channel_members.permission_level`, aquest valor **preval** tant en canals públics com privats.
+- Si NO existeix override explícit: en canals públics, `member` rep nivell `2`; `owner/admin` rep nivell `3`.
+- En canals privats, sense override explícit, l'usuari queda sense accés (`0`).
 - En DM (`scope=dm`), els dos membres tenen nivell `3`.
 
 ### GET `/api/servers/:serverId/channels`
@@ -1242,6 +1237,7 @@ Llistar canals d'un servidor. Per a canals E2EE, només retorna canals on l'usua
       "name": "general",
       "type": "text",
       "encryptionType": "none",
+      "permissionLevel": 3,
       "messageTTL": null,
       "isPrivate": false,
       "createdAt": "2026-05-01T08:00:00Z"
@@ -1251,6 +1247,7 @@ Llistar canals d'un servidor. Per a canals E2EE, només retorna canals on l'usua
       "name": "secret-room",
       "type": "text",
       "encryptionType": "asymmetric",
+      "permissionLevel": 2,
       "messageTTL": null,
       "isPrivate": true,
       "createdAt": "2026-05-01T08:00:00Z"
@@ -1258,6 +1255,8 @@ Llistar canals d'un servidor. Per a canals E2EE, només retorna canals on l'usua
   ]
 }
 ```
+
+**Nota:** `permissionLevel` és el nivell efectiu resolt pel backend (`0..3`) i es pot usar al frontend per habilitar/deshabilitar accions (p. ex. configuració de canal).
 
 ---
 
@@ -1287,6 +1286,7 @@ Crear un nou canal.
     "name": "general",
     "type": "text",
     "encryptionType": "none",
+    "permissionLevel": 3,
     "messageTTL": null,
     "isPrivate": false,
     "createdAt": "2026-05-13T10:30:00Z"
@@ -1449,6 +1449,99 @@ Eliminar un canal.
 ```
 
 **Autorització:** mínim nivell `3` (`manage`).
+
+---
+
+### GET `/api/channels/:channelId/permissions`
+
+Llistar permisos efectius per usuari d'un canal.
+
+**Headers:** `Authorization: Bearer <JWT>`
+**Path Params:** `{ "channelId": "string" }`
+
+**Autorització:**
+
+- Nivell servidor `3` (`manage_members`) **o**
+- Nivell canal `3` (`manage`)
+
+**Response 200 OK:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "userId": "550e8400-e29b-41d4-a716-446655440111",
+      "username": "agusti",
+      "permissionLevel": 3,
+      "permission": "manage"
+    },
+    {
+      "userId": "550e8400-e29b-41d4-a716-446655440112",
+      "username": "pop",
+      "permissionLevel": 1,
+      "permission": "read"
+    }
+  ]
+}
+```
+
+---
+
+### GET `/api/channels/:channelId/permissions/explicit`
+
+Llistar només overrides explícits (`channel_members.permission_level`) del canal.
+
+**Headers:** `Authorization: Bearer <JWT>`
+**Path Params:** `{ "channelId": "string" }`
+
+**Autorització:** mínim nivell canal `3` (`manage`).
+
+**Response 200 OK:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "userId": "550e8400-e29b-41d4-a716-446655440112",
+      "username": "pop",
+      "permissionLevel": 1,
+      "permission": "read"
+    }
+  ]
+}
+```
+
+---
+
+### PUT `/api/channels/:channelId/permissions/explicit/:userId`
+
+Crear/actualitzar o eliminar un override explícit de permís per a un usuari concret.
+
+**Headers:** `Authorization: Bearer <JWT>`
+**Path Params:** `{ "channelId": "string", "userId": "string" }`
+
+**Request Body (set override):**
+```json
+{
+  "permissionLevel": 1
+}
+```
+
+**Request Body (eliminar override i tornar a heretat):**
+```json
+{
+  "permissionLevel": null
+}
+```
+
+**Autorització:** mínim nivell canal `3` (`manage`).
+
+**Response 204 No Content**
+
+**Notes:**
+
+- `permissionLevel` accepta `1`, `2`, `3` o `null`.
+- `null` elimina el registre de `channel_members` i el permís torna a ser heretat.
 
 ---
 

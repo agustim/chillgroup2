@@ -938,6 +938,18 @@ El frontend ha de detectar si `OPEN_REGISTER=false` i mostrar:
 - Només formulari de login si és **registre restringit**
 - Banner informatiu: "El registre està desactivat. Si ets administrador, fes login aquí."
 
+Configuració actual implementada:
+
+- El valor es llegeix des del `.env` de l'arrel (`OPEN_REGISTER`) com a font única.
+- `frontend/vite.config.ts` injecta aquest valor al client com a constant de compilació (`__OPEN_REGISTER__`).
+- No s'ha de duplicar `OPEN_REGISTER` en un `frontend/.env` separat.
+
+Per la connexió de veu passa el mateix:
+
+- La URL de LiveKit també prové de l'arrel (`LIVEKIT_HOST`).
+- Vite la injecta com a `__LIVEKIT_HOST__`.
+- S'evita la duplicació amb `VITE_LIVEKIT_URL` al frontend.
+
 Endpoints a cridardi frontend:
 
 ```typescript
@@ -1106,11 +1118,11 @@ JWT=$(curl -s -X POST http://localhost:8080/api/auth/login \
   -d '{"username":"admin","password":"admin_password"}' \
   | jq -r '.data.token')
 
-# 2. Crear invitació amb múltiples usos
+# 2. Crear invitació amb múltiples usos i servidor opcional
 curl -X POST http://localhost:8080/api/invitations \
   -H "Authorization: Bearer $JWT" \
   -H "Content-Type: application/json" \
-  -d '{"maxUses": 5}'
+    -d '{"max_uses": 5, "server_id": "550e8400-e29b-41d4-a716-446655440010"}'
 
 # Response:
 # {
@@ -1118,10 +1130,11 @@ curl -X POST http://localhost:8080/api/invitations \
 #   "data": {
 #     "invitationId": "550e8400-...",
 #     "code": "ABC123-DEF456-GHI789-XYZ000",
+#     "serverId": "550e8400-e29b-41d4-a716-446655440010",
 #     "maxUses": 5,
 #     "usesCount": 0,
 #     "isActive": true,
-#     "createdAt": "2026-05-13T12:30:00Z"
+#     "createdBy": "admin"
 #   }
 # }
 
@@ -1157,6 +1170,9 @@ curl -X POST http://localhost:8080/api/auth/register-with-invitation \
 #   }
 # }
 
+# Si la invitació té server_id, el nou usuari entra automàticament
+# com a member al servidor vinculat.
+
 # Error si codi invàlid/exhausted:
 # {
 #   "success": false,
@@ -1184,7 +1200,7 @@ curl -X POST http://localhost:8080/api/auth/register-with-invitation \
 curl -X POST http://localhost:8080/api/invitations \
   -H "Authorization: Bearer $JWT" \
   -H "Content-Type: application/json" \
-  -d '{"maxUses": -1}'
+    -d '{"max_uses": -1}'
 
 # Es pot usar indefinides vegades
 ```
@@ -1194,7 +1210,7 @@ curl -X POST http://localhost:8080/api/invitations \
 # Crear amb maxUses=1
 curl -X POST http://localhost:8080/api/invitations \
   -H "Authorization: Bearer $JWT" \
-  -d '{"maxUses": 1}'
+    -d '{"max_uses": 1}'
 # → code: "ABC123-..."
 
 # Primer use: SUCCESS

@@ -528,8 +528,9 @@ Permisos de canal (resolts per backend):
 - `2` -> `write`
 - `3` -> `manage`
 
-En canals privats, la font de veritat és `channel_members.permission_level`.
-En canals públics, `member` té `write` i `owner/admin` tenen `manage`.
+Si existeix `channel_members.permission_level`, aquest valor és la font de veritat tant en canals privats com públics.
+Si no existeix override explícit, en canals públics `member` té `write` i `owner/admin` tenen `manage`.
+En canals privats sense override explícit, l'usuari no té accés al canal.
 En canals `scope=dm`, ambdós membres tenen `manage`.
 
 ### SQLite Compatibility
