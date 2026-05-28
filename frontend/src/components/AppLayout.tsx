@@ -7,10 +7,9 @@ import { CreateServerModal } from './modals/CreateServerModal'
 import { CreateTextChannelModal } from './modals/CreateTextChannelModal'
 import { CreateVoiceChannelModal } from './modals/CreateVoiceChannelModal'
 import { InviteMemberModal } from './modals/InviteMemberModal'
-import { ConfigureChannelModal } from './modals/ConfigureChannelModal'
 import { DeviceKeysModal } from './modals/DeviceKeysModal'
 import { ChannelKeysModal } from './modals/ChannelKeysModal'
-import { PermissionsModal } from './modals/PermissionsModal'
+import { PermissionsPanel } from './modals/PermissionsModal'
 import { ChangePasswordModal } from './modals/ChangePasswordModal'
 import { FriendsModal } from './modals/FriendsModal'
 import { AdminUsersPanel } from './main/AdminUsersPanel'
@@ -27,6 +26,8 @@ import {
   dmChannelOpen,
   dmChannelsList,
   serverInviteMember,
+  serverUpdateMemberRole,
+  serverRemoveMember,
   serversCreate,
   serversGet,
   serversList,
@@ -46,7 +47,7 @@ interface AppLayoutProps {
   onLogout?: () => void
 }
 
-type PanelType = 'none' | 'serverConfig' | 'channelConfig' | 'devices' | 'adminUsers'
+type PanelType = 'none' | 'serverConfig' | 'channelConfig' | 'devices' | 'adminUsers' | 'permissions'
 type ServerMenuAction = 'config' | 'invite' | 'createText' | 'createVoice' | null
 
 function formatDmRepairFeedback(result: {
@@ -102,12 +103,16 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const [showCreateTextChannel, setShowCreateTextChannel] = useState(false)
   const [showCreateVoiceChannel, setShowCreateVoiceChannel] = useState(false)
   const [showInviteServer, setShowInviteServer] = useState(false)
-  const [showConfigureChannel, setShowConfigureChannel] = useState(false)
   const [showDeviceKeysModal, setShowDeviceKeysModal] = useState(false)
   const [showChannelKeysModal, setShowChannelKeysModal] = useState(false)
-  const [showPermissionsModal, setShowPermissionsModal] = useState(false)
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false)
   const [showFriendsModal, setShowFriendsModal] = useState(false)
+  const [serverConfigInviteUsername, setServerConfigInviteUsername] = useState('')
+  const [pendingMemberRemovalId, setPendingMemberRemovalId] = useState<string | null>(null)
+  const [channelConfigName, setChannelConfigName] = useState('')
+  const [channelConfigMessageTTL, setChannelConfigMessageTTL] = useState('')
+  const [channelConfigIsPrivate, setChannelConfigIsPrivate] = useState(false)
+  const [channelConfigInviteUsername, setChannelConfigInviteUsername] = useState('')
   
   // LiveKit hook
   const {
@@ -221,6 +226,20 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     serverDetails?.myRole === 'admin'
 
   useEffect(() => {
+    if (panel !== 'channelConfig' || !resolvedSelectedChannel) {
+      return
+    }
+    setChannelConfigName(resolvedSelectedChannel.name)
+    setChannelConfigMessageTTL(
+      resolvedSelectedChannel.messageTTL === null || resolvedSelectedChannel.messageTTL === undefined
+        ? ''
+        : String(resolvedSelectedChannel.messageTTL)
+    )
+    setChannelConfigIsPrivate(!!resolvedSelectedChannel.isPrivate)
+    setChannelConfigInviteUsername('')
+  }, [panel, resolvedSelectedChannel?.channelId, resolvedSelectedChannel?.name, resolvedSelectedChannel?.messageTTL, resolvedSelectedChannel?.isPrivate])
+
+  useEffect(() => {
     const socket = getSocket()
     const handleFriendPresenceUpdated = (payload: { userId: string; username: string; status: string }) => {
       const status = payload.status === 'online' ? 'online' : 'offline'
@@ -318,6 +337,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
       setSelectedChannel(null)
       setOpenTextChannelIds([])
       setPanel('none')
+      setPendingMemberRemovalId(null)
       fetchServerDetails(selectedServer)
       fetchChannels(selectedServer)
     }
@@ -870,6 +890,41 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     }
   }
 
+  const handleServerConfigInviteSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    const usernameToInvite = serverConfigInviteUsername.trim()
+    if (!usernameToInvite) {
+      setFeedback("El nom d'usuari és obligatori")
+      return
+    }
+    await handleInviteServerSubmit(usernameToInvite)
+    setServerConfigInviteUsername('')
+  }
+
+  const handleUpdateServerMemberRole = async (userId: string, role: 'admin' | 'member') => {
+    if (!selectedServer) return
+    const result = await serverUpdateMemberRole(selectedServer, userId, role)
+    if (!result.success) {
+      setFeedback(result.error.message)
+      return
+    }
+    await fetchServerDetails(selectedServer)
+    setFeedback(`Rol actualitzat: ${result.data.username} → ${result.data.role}`)
+  }
+
+  const handleRemoveServerMember = async (userId: string) => {
+    if (!selectedServer) return
+    setPendingMemberRemovalId(null)
+    const result = await serverRemoveMember(selectedServer, userId)
+    if (!result.success) {
+      setFeedback(result.error.message)
+      return
+    }
+    await fetchServerDetails(selectedServer)
+    await fetchServers()
+    setFeedback('Membre eliminat del servidor')
+  }
+
   const handleInviteChannelSubmit = async (username: string) => {
     const channel = resolvedSelectedChannel
     if (!channel) return
@@ -930,7 +985,8 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   }
 
   const handleManagePermissions = () => {
-    setShowPermissionsModal(true)
+    setSelectedChannel(null)
+    setPanel('permissions')
   }
 
   const handleManageAdminUsers = () => {
@@ -980,12 +1036,12 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     logout()
   }
 
-  // Obrir modal de configuració de canal
+  // Obrir pestanya integrada de configuració de canal
   const handleConfigureChannel = (channel?: Channel) => {
     if (channel) {
       setSelectedChannel(channel)
     }
-    setShowConfigureChannel(true)
+    setPanel('channelConfig')
   }
 
   // Desar canvis del canal
@@ -1012,10 +1068,46 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     if (result.success) {
       await fetchChannels(selectedServer!)
       setSelectedChannel(null)
+      setPanel('serverConfig')
       setFeedback('Canal esborrat')
     } else {
       setFeedback(result.error.message)
     }
+  }
+
+  const handleChannelConfigSave = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!resolvedSelectedChannel) return
+
+    const trimmedName = channelConfigName.trim()
+    if (!trimmedName) {
+      setFeedback('El nom del canal és obligatori')
+      return
+    }
+
+    const ttlRaw = channelConfigMessageTTL.trim()
+    let parsedTtl: number | null = null
+    if (ttlRaw) {
+      const value = Number(ttlRaw)
+      if (Number.isNaN(value) || value < 0) {
+        setFeedback('TTL ha de ser un número positiu o buit')
+        return
+      }
+      parsedTtl = value
+    }
+
+    await handleConfigureChannelSubmit(trimmedName, parsedTtl, channelConfigIsPrivate)
+  }
+
+  const handleChannelConfigInvite = async (event: React.FormEvent) => {
+    event.preventDefault()
+    const usernameToInvite = channelConfigInviteUsername.trim()
+    if (!usernameToInvite) {
+      setFeedback("El nom d'usuari és obligatori")
+      return
+    }
+    await handleInviteChannelSubmit(usernameToInvite)
+    setChannelConfigInviteUsername('')
   }
 
   // Gestiona les accions del menú del servidor
@@ -1096,6 +1188,69 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     >
       <span>🛠️</span>
       <span>Usuaris</span>
+      <button
+        type="button"
+        className="main-content-tab-close"
+        onClick={(event) => {
+          event.stopPropagation()
+          setPanel('none')
+        }}
+        title="Tancar pestanya"
+      >
+        ✕
+      </button>
+    </div>
+  ) : null
+
+  const permissionsTabNode = panel === 'permissions' ? (
+    <div
+      className="main-content-tab active"
+      onClick={() => setPanel('permissions')}
+    >
+      <span>🛡️</span>
+      <span>Permisos</span>
+      <button
+        type="button"
+        className="main-content-tab-close"
+        onClick={(event) => {
+          event.stopPropagation()
+          setPanel('none')
+        }}
+        title="Tancar pestanya"
+      >
+        ✕
+      </button>
+    </div>
+  ) : null
+
+  const serverConfigTabNode = panel === 'serverConfig' ? (
+    <div
+      className="main-content-tab active"
+      onClick={() => setPanel('serverConfig')}
+    >
+      <span>⚙️</span>
+      <span>Servidor</span>
+      <button
+        type="button"
+        className="main-content-tab-close"
+        onClick={(event) => {
+          event.stopPropagation()
+          setPanel('none')
+        }}
+        title="Tancar pestanya"
+      >
+        ✕
+      </button>
+    </div>
+  ) : null
+
+  const channelConfigTabNode = panel === 'channelConfig' && resolvedSelectedChannel ? (
+    <div
+      className="main-content-tab active"
+      onClick={() => setPanel('channelConfig')}
+    >
+      <span>#</span>
+      <span>{resolvedSelectedChannel.name}</span>
       <button
         type="button"
         className="main-content-tab-close"
@@ -1196,10 +1351,13 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
       )}
 
       <div className="main-content-area">
-        {selectedServer && (openTextTabs.length > 0 || activeVoiceChannel || panel === 'adminUsers') && (
+        {selectedServer && (openTextTabs.length > 0 || activeVoiceChannel || panel === 'adminUsers' || panel === 'serverConfig' || panel === 'channelConfig' || panel === 'permissions') && (
           <div className="main-content-tabs">
             {textTabNodes}
             {voiceTabNode}
+            {serverConfigTabNode}
+            {channelConfigTabNode}
+            {permissionsTabNode}
             {adminUsersTabNode}
           </div>
         )}
@@ -1213,6 +1371,220 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
             onClose={() => setPanel('none')}
             onFeedback={setFeedback}
           />
+        ) : panel === 'permissions' ? (
+          <div className="panel admin-users-panel">
+            <div className="admin-users-panel-header">
+              <h3>Permisos i accessos</h3>
+              <button className="admin-panel-tab" onClick={() => setPanel('serverConfig')}>
+                Tornar a servidor
+              </button>
+            </div>
+
+            <PermissionsPanel
+              server={serverDetails}
+              channels={channels}
+              currentDeviceId={currentDeviceId}
+            />
+          </div>
+        ) : panel === 'serverConfig' && serverDetails ? (
+          <div className="panel admin-users-panel">
+            <div className="admin-users-panel-header">
+              <h3>Configuració del servidor</h3>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button className="admin-panel-tab" onClick={() => setPanel('permissions')}>
+                  Permisos usuaris/canals
+                </button>
+                <button className="admin-panel-tab" onClick={() => setPanel('none')}>
+                  Tancar
+                </button>
+              </div>
+            </div>
+
+            <p>
+              <strong>{serverDetails.name}</strong> · Rol: {serverDetails.myRole}
+            </p>
+
+            {canManageServer && (
+              <form onSubmit={handleServerConfigInviteSubmit} className="modal-form" style={{ marginTop: '12px', marginBottom: '12px' }}>
+                <div className="form-group">
+                  <label htmlFor="integrated-server-invite">Convidar membre al servidor</label>
+                  <input
+                    id="integrated-server-invite"
+                    type="text"
+                    value={serverConfigInviteUsername}
+                    onChange={(e) => setServerConfigInviteUsername(e.target.value)}
+                    placeholder="Nom d'usuari"
+                  />
+                </div>
+                <div className="modal-form-actions" style={{ justifyContent: 'flex-end' }}>
+                  <button type="submit" className="admin-panel-tab">
+                    Convidar
+                  </button>
+                </div>
+              </form>
+            )}
+
+            <div className="server-members" style={{ marginTop: '12px' }}>
+              <h4>Canals del servidor</h4>
+              <ul>
+                {channels.filter((channel) => channel.scope !== 'dm').map((channel) => (
+                  <li key={channel.channelId} style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+                    <span>{channel.type === 'voice' ? '🔊' : '#'} {channel.name}</span>
+                    <button
+                      type="button"
+                      className="admin-panel-tab"
+                      onClick={() => handleConfigureChannel(channel)}
+                    >
+                      Configurar
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="server-members" style={{ marginTop: '12px' }}>
+              <h4>Membres</h4>
+              <ul>
+                {serverDetails.members.map((member) => {
+                  const isCurrentUser = member.userId === user?.userId
+                  const canModify = canManageServer && member.role !== 'owner' && !isCurrentUser
+                  return (
+                    <li key={member.userId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                      <span>{member.username} — {member.role}</span>
+                      {canManageServer && (
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          {member.role !== 'owner' && (
+                            <select
+                              aria-label={`Rol de ${member.username}`}
+                              value={member.role}
+                              onChange={(e) => {
+                                const nextRole = e.target.value as 'admin' | 'member'
+                                void handleUpdateServerMemberRole(member.userId, nextRole)
+                              }}
+                              className="device-keys-input"
+                              style={{ width: '120px', padding: '4px 8px' }}
+                            >
+                              <option value="member">member</option>
+                              <option value="admin">admin</option>
+                            </select>
+                          )}
+                          <button
+                            type="button"
+                            className="admin-panel-tab"
+                            style={{ borderColor: '#ff6b6b', color: '#ff6b6b' }}
+                            disabled={!canModify}
+                            onClick={() => {
+                              setPendingMemberRemovalId(member.userId)
+                            }}
+                          >
+                            Eliminar
+                          </button>
+                          {pendingMemberRemovalId === member.userId && (
+                            <>
+                              <button
+                                type="button"
+                                className="admin-panel-tab"
+                                onClick={() => {
+                                  void handleRemoveServerMember(member.userId)
+                                }}
+                              >
+                                Confirmar
+                              </button>
+                              <button
+                                type="button"
+                                className="admin-panel-tab"
+                                onClick={() => setPendingMemberRemovalId(null)}
+                              >
+                                Cancel·lar
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          </div>
+        ) : panel === 'channelConfig' && resolvedSelectedChannel ? (
+          <div className="panel admin-users-panel">
+            <div className="admin-users-panel-header">
+              <h3>Configuració integrada del canal</h3>
+              <button className="admin-panel-tab" onClick={() => setPanel('serverConfig')}>
+                Tornar a servidor
+              </button>
+            </div>
+
+            <form onSubmit={handleChannelConfigSave} className="modal-form" style={{ marginBottom: '12px' }}>
+              <div className="form-group">
+                <label htmlFor="integrated-channel-name">Nom del canal</label>
+                <input
+                  id="integrated-channel-name"
+                  type="text"
+                  value={channelConfigName}
+                  onChange={(e) => setChannelConfigName(e.target.value)}
+                  maxLength={30}
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="integrated-channel-ttl">TTL (segons)</label>
+                <input
+                  id="integrated-channel-ttl"
+                  type="number"
+                  value={channelConfigMessageTTL}
+                  onChange={(e) => setChannelConfigMessageTTL(e.target.value)}
+                  placeholder="Sense límit"
+                  min="0"
+                />
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                <input
+                  type="checkbox"
+                  checked={channelConfigIsPrivate}
+                  onChange={(e) => setChannelConfigIsPrivate(e.target.checked)}
+                />
+                Canal privat
+              </label>
+              <div className="modal-form-actions" style={{ justifyContent: 'space-between' }}>
+                <button type="button" className="admin-panel-tab" onClick={() => setPanel('none')}>
+                  Tancar
+                </button>
+                <button type="submit" className="admin-panel-tab active">
+                  Desar canvis
+                </button>
+              </div>
+            </form>
+
+            <form onSubmit={handleChannelConfigInvite} className="modal-form" style={{ marginBottom: '12px' }}>
+              <div className="form-group">
+                <label htmlFor="integrated-channel-invite">Convidar usuari</label>
+                <input
+                  id="integrated-channel-invite"
+                  type="text"
+                  value={channelConfigInviteUsername}
+                  onChange={(e) => setChannelConfigInviteUsername(e.target.value)}
+                  placeholder="Nom d'usuari"
+                />
+              </div>
+              <div className="modal-form-actions" style={{ justifyContent: 'flex-end' }}>
+                <button type="submit" className="admin-panel-tab">
+                  Convidar
+                </button>
+              </div>
+            </form>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="admin-panel-tab"
+                style={{ borderColor: '#ff6b6b', color: '#ff6b6b' }}
+                onClick={() => handleDeleteChannel(resolvedSelectedChannel.channelId)}
+              >
+                Esborrar canal
+              </button>
+            </div>
+          </div>
         ) : resolvedSelectedChannel ? (
           <>
             <MainContent
@@ -1250,25 +1622,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           </div>
         )}
 
-        {panel === 'serverConfig' && serverDetails && (
-          <div className="panel server-config-panel">
-            <h3>Configuració del servidor</h3>
-            <p>
-              <strong>{serverDetails.name}</strong> · Rol: {serverDetails.myRole}
-            </p>
-            <div className="server-members">
-              <h4>Membres</h4>
-              <ul>
-                {serverDetails.members.map((member) => (
-                  <li key={member.userId}>
-                    {member.username} — {member.role}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        )}
-
         {/* ── Modals ─────────────────────────────────── */}
         <CreateServerModal
           isOpen={showCreateServer}
@@ -1298,15 +1651,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           />
         )}
 
-        <ConfigureChannelModal
-          isOpen={showConfigureChannel}
-          onClose={() => setShowConfigureChannel(false)}
-          channel={resolvedSelectedChannel}
-          onUpdate={handleConfigureChannelSubmit}
-          onDelete={handleDeleteChannel}
-          onInviteChannel={handleInviteChannelSubmit}
-        />
-
         {user && (
           <DeviceKeysModal
             isOpen={showDeviceKeysModal}
@@ -1324,14 +1668,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
             channels={channels}
           />
         )}
-
-        <PermissionsModal
-          isOpen={showPermissionsModal}
-          onClose={() => setShowPermissionsModal(false)}
-          server={serverDetails}
-          channels={channels}
-          currentDeviceId={currentDeviceId}
-        />
 
         <FriendsModal
           isOpen={showFriendsModal}

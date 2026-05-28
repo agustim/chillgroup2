@@ -546,7 +546,13 @@ export async function serverInviteMember(serverId: string, username: string): Pr
 }
 
 export async function serverUpdateMemberRole(serverId: string, userId: string, role: ServerRole) {
-  return apiRequest<ServerMember>('PUT', `/api/servers/${serverId}/members/${userId}/role`, { role })
+  const result = await apiRequest<any>('PUT', `/api/servers/${serverId}/members/${userId}/role`, { role })
+  if (!result.success) return result
+  return { success: true, data: mapServerMember(result.data) }
+}
+
+export async function serverRemoveMember(serverId: string, userId: string) {
+  return apiRequest<{ userId: string; removed: boolean }>('DELETE', `/api/servers/${serverId}/members/${userId}`)
 }
 
 export async function messagesList(channelId: string, limit = 50, before?: string, scope?: 'server' | 'dm') {
@@ -921,6 +927,26 @@ export async function channelGetMemberDevices(channelId: string): Promise<ApiRes
       dsaPublicKey: d.dsaPublicKey ?? d.dsa_public_key ?? '',
       hasKemPublicKey: d.hasKemPublicKey ?? d.has_kem_public_key ?? false,
       hasDsaPublicKey: d.hasDsaPublicKey ?? d.has_dsa_public_key ?? false,
+    })),
+  }
+}
+
+export async function channelGetPermissions(channelId: string): Promise<ApiResult<Array<{
+  userId: string
+  username: string
+  permissionLevel: number
+  permission: 'none' | 'read' | 'write' | 'manage'
+}>>> {
+  const result = await apiRequest<any>('GET', `/api/channels/${channelId}/permissions`)
+  if (!result.success) return result
+  const data = Array.isArray(result.data) ? result.data : (result.data?.data ?? [])
+  return {
+    success: true,
+    data: data.map((item: any) => ({
+      userId: item.userId ?? item.user_id,
+      username: item.username,
+      permissionLevel: Number(item.permissionLevel ?? item.permission_level ?? 0),
+      permission: (item.permission ?? 'none') as 'none' | 'read' | 'write' | 'manage',
     })),
   }
 }

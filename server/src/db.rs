@@ -2312,6 +2312,66 @@ impl DatabasePool {
         }
     }
 
+    pub async fn list_channel_permission_levels(
+        &self,
+        channel_id: Uuid,
+    ) -> Result<Vec<(Uuid, String, i32)>, sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let rows = sqlx::query(
+                    "SELECT
+                        u.id,
+                        u.username,
+                        CASE
+                            WHEN c.is_private THEN COALESCE(cm.permission_level, 0)
+                            WHEN sm.role IN ('owner', 'admin') THEN 3
+                            ELSE 2
+                        END AS permission_level
+                     FROM channels c
+                     JOIN server_members sm ON sm.server_id = c.server_id
+                     JOIN users u ON u.id = sm.user_id
+                     LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = u.id
+                     WHERE c.id = $1
+                     ORDER BY u.username ASC"
+                )
+                .bind(channel_id)
+                .fetch_all(pool)
+                .await?;
+
+                Ok(rows
+                    .into_iter()
+                    .map(|row| (row.get(0), row.get(1), row.get(2)))
+                    .collect())
+            }
+            DatabasePool::Sqlite(pool) => {
+                let rows = sqlx::query(
+                    "SELECT
+                        u.id,
+                        u.username,
+                        CASE
+                            WHEN c.is_private = 1 THEN COALESCE(cm.permission_level, 0)
+                            WHEN sm.role IN ('owner', 'admin') THEN 3
+                            ELSE 2
+                        END AS permission_level
+                     FROM channels c
+                     JOIN server_members sm ON sm.server_id = c.server_id
+                     JOIN users u ON u.id = sm.user_id
+                     LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = u.id
+                     WHERE c.id = ?
+                     ORDER BY u.username ASC"
+                )
+                .bind(channel_id)
+                .fetch_all(pool)
+                .await?;
+
+                Ok(rows
+                    .into_iter()
+                    .map(|row| (row.get(0), row.get(1), row.get(2)))
+                    .collect())
+            }
+        }
+    }
+
     pub async fn find_dm_channel_by_users(&self, user_a: Uuid, user_b: Uuid) -> Result<Option<Uuid>, sqlx::Error> {
         let (low, high) = if user_a < user_b { (user_a, user_b) } else { (user_b, user_a) };
 

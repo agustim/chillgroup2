@@ -199,6 +199,8 @@ vi.mock('../lib/api', () => ({
   channelsUpdate: vi.fn(),
   channelsMarkRead: vi.fn(),
   serverInviteMember: vi.fn(),
+  serverUpdateMemberRole: vi.fn(),
+  serverRemoveMember: vi.fn(),
   channelInvite: vi.fn(),
   friendsList: vi.fn(),
   friendsAdd: vi.fn(),
@@ -217,6 +219,8 @@ import {
   channelsUpdate,
   channelsMarkRead,
   serverInviteMember,
+  serverUpdateMemberRole,
+  serverRemoveMember,
   channelInvite,
   friendsList,
   friendsAdd,
@@ -237,6 +241,8 @@ const mockChannelsCreate = vi.mocked(channelsCreate)
 const mockChannelsUpdate = vi.mocked(channelsUpdate)
 const mockChannelsMarkRead = vi.mocked(channelsMarkRead)
 const mockServerInviteMember = vi.mocked(serverInviteMember)
+const mockServerUpdateMemberRole = vi.mocked(serverUpdateMemberRole)
+const mockServerRemoveMember = vi.mocked(serverRemoveMember)
 const mockChannelInvite = vi.mocked(channelInvite)
 const mockFriendsList = vi.mocked(friendsList)
 const mockFriendsAdd = vi.mocked(friendsAdd)
@@ -283,6 +289,8 @@ describe('AppLayout', () => {
     mockChannelsUpdate.mockResolvedValue({ success: true, data: { ...testChannel, name: 'general-modificat' } })
     mockChannelsMarkRead.mockResolvedValue({ success: true, data: undefined })
     mockServerInviteMember.mockResolvedValue({ success: true, data: { invitedUser: 'x' } })
+    mockServerUpdateMemberRole.mockResolvedValue({ success: true, data: { userId: 'friend-1', username: 'amic', role: 'member', joinedAt: '2026-01-01T00:00:00Z' } })
+    mockServerRemoveMember.mockResolvedValue({ success: true, data: { userId: 'friend-1', removed: true } })
     mockChannelInvite.mockResolvedValue({ success: true, data: { invitedUser: 'x' } })
     mockFriendsList.mockResolvedValue({ success: true, data: [{ userId: 'friend-1', username: 'amic', status: 'online', isOnline: true }] })
     mockFriendsAdd.mockResolvedValue({ success: true, data: undefined })
@@ -402,13 +410,13 @@ describe('AppLayout', () => {
       })
     })
 
-    it('ConfigureChannelModal mostra la invitacio dins del modal', async () => {
+    it('la configuracio integrada del canal mostra invitacio dins del panell', async () => {
       renderApp()
       const settingsButton = await screen.findByTestId('btn-channel-settings')
       fireEvent.click(settingsButton)
       await waitFor(() => {
-        expect(screen.getByRole('dialog')).toBeTruthy()
-        expect(screen.getByLabelText("Nom d'usuari")).toBeTruthy()
+        expect(screen.getByText('Configuració integrada del canal')).toBeTruthy()
+        expect(screen.getByLabelText('Convidar usuari')).toBeTruthy()
       })
     })
 
@@ -433,7 +441,9 @@ describe('AppLayout', () => {
       const settingsButton = await screen.findByTestId('btn-channel-settings')
       fireEvent.click(settingsButton)
 
-      const inviteButton = await screen.findByTestId('btn-invite-channel')
+      const inviteInput = await screen.findByLabelText('Convidar usuari')
+      fireEvent.change(inviteInput, { target: { value: 'pop' } })
+      const inviteButton = screen.getByRole('button', { name: 'Convidar' })
       fireEvent.click(inviteButton)
 
       await waitFor(() => {
@@ -447,12 +457,12 @@ describe('AppLayout', () => {
       })
     })
 
-    it('ConfigureChannelModal es obre amb el botó Configurar canal', async () => {
+    it('la configuracio de canal s obre en pestanya integrada', async () => {
       renderApp()
       const settingsButton = await screen.findByTestId('btn-channel-settings')
       fireEvent.click(settingsButton)
       await waitFor(() => {
-        expect(screen.getByRole('dialog', { name: 'Configuració del canal' })).toBeTruthy()
+        expect(screen.getByText('Configuració integrada del canal')).toBeTruthy()
       })
     })
 

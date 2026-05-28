@@ -22,6 +22,7 @@ use crate::{
         CHANNEL_PERMISSION_MANAGE,
         CHANNEL_PERMISSION_READ,
         CHANNEL_PERMISSION_WRITE,
+        SERVER_PERMISSION_MANAGE_MEMBERS,
     },
     middleware::{AppState, AuthClaims},
     error::AppError,
@@ -419,6 +420,14 @@ pub struct RotateChannelKeyResponse {
     pub key_version: i32,
 }
 
+#[derive(Debug, Serialize)]
+pub struct ChannelPermissionEntry {
+    pub user_id: Uuid,
+    pub username: String,
+    pub permission_level: i32,
+    pub permission: String,
+}
+
 pub async fn get_all_channel_key_bundles(
     State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
@@ -617,6 +626,58 @@ pub async fn get_channel_member_devices(
     Ok(Json(serde_json::json!({ "success": true, "data": data })))
 }
 
+pub async fn get_channel_permissions(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path(channel_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let channel = state
+        .db
+        .get_channel(channel_id)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .ok_or(AppError::ChannelNotFound)?;
+
+    if channel.server_id == Uuid::nil() {
+        return Err(AppError::Forbidden);
+    }
+
+    let server_permission = state
+        .db
+        .get_server_permission_level(channel.server_id, claims.user_id)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .unwrap_or(0);
+
+    if server_permission < SERVER_PERMISSION_MANAGE_MEMBERS {
+        return Err(AppError::Forbidden);
+    }
+
+    let rows = state
+        .db
+        .list_channel_permission_levels(channel_id)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+    let entries: Vec<ChannelPermissionEntry> = rows
+        .into_iter()
+        .map(|(user_id, username, permission_level)| ChannelPermissionEntry {
+            user_id,
+            username,
+            permission_level,
+            permission: match permission_level {
+                3 => "manage",
+                2 => "write",
+                1 => "read",
+                _ => "none",
+            }
+            .to_string(),
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({ "success": true, "data": entries })))
+}
+
 pub async fn invite_to_channel(
     State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
@@ -775,6 +836,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/channels/{channel_id}/keys", get(get_channel_keys).post(upload_channel_keys))
         .route("/api/channels/{channel_id}/keys/rotate", post(rotate_channel_key))
         .route("/api/channels/{channel_id}/member-devices", get(get_channel_member_devices))
+        .route("/api/channels/{channel_id}/permissions", get(get_channel_permissions))
             .route("/api/channels/{channel_id}/keys/all", get(get_all_channel_key_bundles))
         .route("/api/channels/{channel_id}/invite", post(invite_to_channel))
         .route("/api/channels/{channel_id}", put(update_channel).delete(delete_channel))
