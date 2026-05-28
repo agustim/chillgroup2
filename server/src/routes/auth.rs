@@ -48,6 +48,7 @@ pub struct RegisterWithInvitationRequest {
 #[derive(Debug, Deserialize)]
 pub struct CreateInvitationRequest {
     pub max_uses: Option<i32>,
+    pub server_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize)]
@@ -55,6 +56,7 @@ pub struct CreateInvitationRequest {
 pub struct InvitationListItem {
     pub invitation_id: Uuid,
     pub code: String,
+    pub server_id: Option<Uuid>,
     pub max_uses: i32,
     pub uses_count: i32,
     pub remaining_uses: Option<i32>,
@@ -289,7 +291,7 @@ pub async fn register_with_invitation(
         .await
         .map_err(|_| AppError::DatabaseUnavailable)?;
 
-    let Some((invitation_id, max_uses, uses_count, is_active)) = invitation else {
+    let Some((invitation_id, invitation_server_id, max_uses, uses_count, is_active)) = invitation else {
         return Err(AppError::InvitationInvalid);
     };
 
@@ -317,6 +319,23 @@ pub async fn register_with_invitation(
         .create_user_with_role(&req.username, &password_hash, "user")
         .await
         .map_err(|_| AppError::InternalError)?;
+
+    if let Some(server_id) = invitation_server_id {
+        let already_member = state
+            .db
+            .is_server_member(server_id, user_id)
+            .await
+            .map_err(|_| AppError::InternalError)?
+            .is_some();
+
+        if !already_member {
+            state
+                .db
+                .add_server_member(server_id, user_id, "member")
+                .await
+                .map_err(|_| AppError::InternalError)?;
+        }
+    }
 
     let device_label = "Dispositiu principal".to_string();
     let device_id = state
@@ -361,7 +380,7 @@ pub async fn create_invitation(
     let code = generate_invitation_code();
     let invitation_id = state
         .db
-        .create_invitation(&code, claims.user_id, max_uses)
+        .create_invitation(&code, claims.user_id, req.server_id, max_uses)
         .await
         .map_err(|_| AppError::InternalError)?;
 
@@ -372,6 +391,7 @@ pub async fn create_invitation(
             "data": {
                 "invitationId": invitation_id,
                 "code": code,
+                "serverId": req.server_id,
                 "maxUses": max_uses,
                 "usesCount": 0,
                 "isActive": true,
@@ -398,7 +418,7 @@ pub async fn list_invitations(
 
     let data: Vec<InvitationListItem> = invitations
         .into_iter()
-        .map(|(invitation_id, code, max_uses, uses_count, is_active, created_by)| {
+        .map(|(invitation_id, code, server_id, max_uses, uses_count, is_active, created_by)| {
             let remaining_uses = if max_uses < 0 {
                 None
             } else {
@@ -408,6 +428,7 @@ pub async fn list_invitations(
             InvitationListItem {
                 invitation_id,
                 code,
+                server_id,
                 max_uses,
                 uses_count,
                 remaining_uses,
@@ -530,7 +551,7 @@ mod tests {
             .expect("create admin");
         state
             .db
-            .create_invitation("INVITE-CODE-123", admin_id, 1)
+            .create_invitation("INVITE-CODE-123", admin_id, None, 1)
             .await
             .expect("create invitation");
 
@@ -562,7 +583,7 @@ mod tests {
             .expect("create admin");
         let invitation_id = state
             .db
-            .create_invitation("INVITE-ONCE", admin_id, 1)
+            .create_invitation("INVITE-ONCE", admin_id, None, 1)
             .await
             .expect("create invitation");
         state
@@ -584,5 +605,57 @@ mod tests {
         assert_eq!(response.status_code(), 410);
         let body: serde_json::Value = response.json();
         assert_eq!(body["error"]["code"], 1012);
+    }
+
+    #[tokio::test]
+    async fn register_with_server_invitation_auto_joins_server() {
+        let state = make_state(false).await;
+
+        let admin_hash = crate::crypto::hash::hash_password("admin-pass").expect("hash");
+        let admin_id = state
+            .db
+            .create_user_with_role("admin_owner", &admin_hash, "admin")
+            .await
+            .expect("create admin");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "Server Invitacio", None, admin_id)
+            .await
+            .expect("create server");
+
+        state
+            .db
+            .create_invitation("INVITE-SERVER-123", admin_id, Some(server_id), 1)
+            .await
+            .expect("create invitation");
+
+        let server = TestServer::new(router(state.clone())).expect("router should build");
+        let response = server
+            .post("/api/auth/register-with-invitation")
+            .json(&serde_json::json!({
+                "code": "INVITE-SERVER-123",
+                "username": "invited_server_user",
+                "password": "password123"
+            }))
+            .await;
+
+        assert_eq!(response.status_code(), 201);
+
+        let member = state
+            .db
+            .find_user_by_username("invited_server_user")
+            .await
+            .expect("find invited user")
+            .expect("invited user exists");
+
+        let role = state
+            .db
+            .is_server_member(server_id, member.0)
+            .await
+            .expect("check server membership");
+
+        assert_eq!(role.as_deref(), Some("member"));
     }
 }

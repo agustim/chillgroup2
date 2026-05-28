@@ -301,11 +301,13 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
             id TEXT PRIMARY KEY,
             code TEXT UNIQUE NOT NULL,
             created_by_user_id TEXT NOT NULL,
+            server_id TEXT,
             max_uses INTEGER NOT NULL DEFAULT 1,
             uses_count INTEGER NOT NULL DEFAULT 0,
             is_active INTEGER NOT NULL DEFAULT 1,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE CASCADE
+            FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (server_id) REFERENCES servers(id) ON DELETE SET NULL
         )
         "#,
         r#"CREATE INDEX IF NOT EXISTS idx_invitations_code ON invitations(code)"#,
@@ -339,6 +341,7 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
     migrate_sqlite_channels_for_dm(pool).await?;
     migrate_sqlite_channel_members_permissions(pool).await?;
     migrate_sqlite_messages_add_key_version(pool).await?;
+    migrate_sqlite_invitations_add_server_id(pool).await?;
 
     for idx in [
         "CREATE INDEX IF NOT EXISTS idx_channels_scope ON channels(scope)",
@@ -551,6 +554,36 @@ async fn migrate_sqlite_messages_add_key_version(pool: &sqlx::SqlitePool) -> Res
         .execute(pool)
         .await
         .map_err(|e| format!("Error afegint key_version a messages SQLite: {}", e))?;
+
+    Ok(())
+}
+
+async fn migrate_sqlite_invitations_add_server_id(pool: &sqlx::SqlitePool) -> Result<(), String> {
+    let table_info = sqlx::query("PRAGMA table_info(invitations)")
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("Error llegint schema de invitations a SQLite: {}", e))?;
+
+    if table_info.is_empty() {
+        return Ok(());
+    }
+
+    let has_server_id = table_info.into_iter().any(|row| {
+        let name: String = row.get(1);
+        name == "server_id"
+    });
+
+    if !has_server_id {
+        sqlx::query("ALTER TABLE invitations ADD COLUMN server_id TEXT")
+            .execute(pool)
+            .await
+            .map_err(|e| format!("Error afegint server_id a invitations SQLite: {}", e))?;
+    }
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_invitations_server_id ON invitations(server_id)")
+        .execute(pool)
+        .await
+        .map_err(|e| format!("Error creant idx_invitations_server_id a SQLite: {}", e))?;
 
     Ok(())
 }
@@ -1267,17 +1300,19 @@ impl DatabasePool {
         &self,
         code: &str,
         created_by_user_id: Uuid,
+        server_id: Option<Uuid>,
         max_uses: i32,
     ) -> Result<Uuid, String> {
         let id = Uuid::new_v4();
         match self {
             DatabasePool::Postgres(pool) => {
                 sqlx::query(
-                    "INSERT INTO invitations (id, code, created_by_user_id, max_uses, uses_count, is_active) VALUES ($1, $2, $3, $4, 0, true)",
+                    "INSERT INTO invitations (id, code, created_by_user_id, server_id, max_uses, uses_count, is_active) VALUES ($1, $2, $3, $4, $5, 0, true)",
                 )
                 .bind(id)
                 .bind(code)
                 .bind(created_by_user_id)
+                .bind(server_id)
                 .bind(max_uses)
                 .execute(pool)
                 .await
@@ -1285,11 +1320,12 @@ impl DatabasePool {
             }
             DatabasePool::Sqlite(pool) => {
                 sqlx::query(
-                    "INSERT INTO invitations (id, code, created_by_user_id, max_uses, uses_count, is_active) VALUES (?, ?, ?, ?, 0, 1)",
+                    "INSERT INTO invitations (id, code, created_by_user_id, server_id, max_uses, uses_count, is_active) VALUES (?, ?, ?, ?, ?, 0, 1)",
                 )
                 .bind(id)
                 .bind(code)
                 .bind(created_by_user_id)
+                .bind(server_id)
                 .bind(max_uses)
                 .execute(pool)
                 .await
@@ -1302,22 +1338,22 @@ impl DatabasePool {
     pub async fn find_active_invitation_by_code(
         &self,
         code: &str,
-    ) -> Result<Option<(Uuid, i32, i32, bool)>, String> {
+    ) -> Result<Option<(Uuid, Option<Uuid>, i32, i32, bool)>, String> {
         match self {
             DatabasePool::Postgres(pool) => {
                 let row = sqlx::query(
-                    "SELECT id, max_uses, uses_count, is_active FROM invitations WHERE code = $1",
+                    "SELECT id, server_id, max_uses, uses_count, is_active FROM invitations WHERE code = $1",
                 )
                 .bind(code)
                 .fetch_optional(pool)
                 .await
                 .map_err(|e| format!("Error PostgreSQL: {}", e))?;
 
-                Ok(row.map(|r| (r.get(0), r.get(1), r.get(2), r.get(3))))
+                Ok(row.map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4))))
             }
             DatabasePool::Sqlite(pool) => {
                 let row = sqlx::query(
-                    "SELECT id, max_uses, uses_count, is_active FROM invitations WHERE code = ?",
+                    "SELECT id, server_id, max_uses, uses_count, is_active FROM invitations WHERE code = ?",
                 )
                 .bind(code)
                 .fetch_optional(pool)
@@ -1325,8 +1361,8 @@ impl DatabasePool {
                 .map_err(|e| format!("Error SQLite: {}", e))?;
 
                 Ok(row.map(|r| {
-                    let is_active: i64 = r.get(3);
-                    (r.get(0), r.get(1), r.get(2), is_active != 0)
+                    let is_active: i64 = r.get(4);
+                    (r.get(0), r.get(1), r.get(2), r.get(3), is_active != 0)
                 }))
             }
         }
@@ -1352,11 +1388,11 @@ impl DatabasePool {
         Ok(())
     }
 
-    pub async fn list_invitations_admin(&self) -> Result<Vec<(Uuid, String, i32, i32, bool, String)>, String> {
+    pub async fn list_invitations_admin(&self) -> Result<Vec<(Uuid, String, Option<Uuid>, i32, i32, bool, String)>, String> {
         match self {
             DatabasePool::Postgres(pool) => {
                 let rows = sqlx::query(
-                    "SELECT i.id, i.code, i.max_uses, i.uses_count, i.is_active, u.username \
+                    "SELECT i.id, i.code, i.server_id, i.max_uses, i.uses_count, i.is_active, u.username \
                      FROM invitations i \
                      JOIN users u ON u.id = i.created_by_user_id \
                      ORDER BY i.created_at DESC",
@@ -1367,12 +1403,12 @@ impl DatabasePool {
 
                 Ok(rows
                     .into_iter()
-                    .map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5)))
+                    .map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6)))
                     .collect())
             }
             DatabasePool::Sqlite(pool) => {
                 let rows = sqlx::query(
-                    "SELECT i.id, i.code, i.max_uses, i.uses_count, i.is_active, u.username \
+                    "SELECT i.id, i.code, i.server_id, i.max_uses, i.uses_count, i.is_active, u.username \
                      FROM invitations i \
                      JOIN users u ON u.id = i.created_by_user_id \
                      ORDER BY i.created_at DESC",
@@ -1384,8 +1420,8 @@ impl DatabasePool {
                 Ok(rows
                     .into_iter()
                     .map(|r| {
-                        let is_active: i64 = r.get(4);
-                        (r.get(0), r.get(1), r.get(2), r.get(3), is_active != 0, r.get(5))
+                        let is_active: i64 = r.get(5);
+                        (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), is_active != 0, r.get(6))
                     })
                     .collect())
             }

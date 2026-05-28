@@ -16,10 +16,17 @@ import {
 } from '../../lib/api'
 import { Button } from '../shared/Button'
 
+interface AdminServerOption {
+  serverId: string
+  name: string
+}
+
 interface AdminUsersPanelProps {
   isOpen: boolean
   onClose: () => void
   onFeedback: (message: string) => void
+  selectedServerId?: string | null
+  availableServers?: AdminServerOption[]
 }
 
 const PLAN_OPTIONS = [
@@ -30,7 +37,7 @@ const PLAN_OPTIONS = [
 
 type ActiveTab = 'users' | 'invitations'
 
-export function AdminUsersPanel({ isOpen, onClose, onFeedback }: AdminUsersPanelProps) {
+export function AdminUsersPanel({ isOpen, onClose, onFeedback, selectedServerId, availableServers = [] }: AdminUsersPanelProps) {
   const [activeTab, setActiveTab] = useState<ActiveTab>('users')
   const [error, setError] = useState('')
 
@@ -50,6 +57,7 @@ export function AdminUsersPanel({ isOpen, onClose, onFeedback }: AdminUsersPanel
   const [invitations, setInvitations] = useState<InvitationListItem[]>([])
   const [loadingInvitations, setLoadingInvitations] = useState(false)
   const [inviteMaxUses, setInviteMaxUses] = useState(1)
+  const [inviteServerId, setInviteServerId] = useState<string>('')
   const [lastCreatedCode, setLastCreatedCode] = useState<string | null>(null)
   const [isCreatingInvite, setIsCreatingInvite] = useState(false)
 
@@ -77,10 +85,11 @@ export function AdminUsersPanel({ isOpen, onClose, onFeedback }: AdminUsersPanel
     setNewRole('user')
     setNewPlanId(PLAN_OPTIONS[0].id)
     setInviteMaxUses(1)
+    setInviteServerId(selectedServerId ?? '')
     setLastCreatedCode(null)
     void loadUsers()
     void loadInvitations()
-  }, [isOpen])
+  }, [isOpen, selectedServerId])
 
   const handleCreateUser = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -148,7 +157,7 @@ export function AdminUsersPanel({ isOpen, onClose, onFeedback }: AdminUsersPanel
     const maxUses = Number.isFinite(inviteMaxUses) ? Math.max(1, Math.floor(inviteMaxUses)) : 1
     setIsCreatingInvite(true)
     setError('')
-    const result = await invitationsCreate(maxUses)
+    const result = await invitationsCreate(maxUses, inviteServerId || null)
     setIsCreatingInvite(false)
     if (!result.success) { setError(result.error.message); return }
     setLastCreatedCode(result.data.code)
@@ -332,6 +341,19 @@ export function AdminUsersPanel({ isOpen, onClose, onFeedback }: AdminUsersPanel
                   onChange={(e) => setInviteMaxUses(Number(e.target.value || '1'))}
                 />
               </div>
+              <div className="form-group">
+                <label htmlFor="admin-invite-server-target">Servidor objectiu</label>
+                <select
+                  id="admin-invite-server-target"
+                  value={inviteServerId}
+                  onChange={(e) => setInviteServerId(e.target.value)}
+                >
+                  <option value="">Cap (nomes registre)</option>
+                  {availableServers.map((server) => (
+                    <option key={server.serverId} value={server.serverId}>{server.name}</option>
+                  ))}
+                </select>
+              </div>
               <div className="modal-actions-row">
                 <Button type="submit" disabled={isCreatingInvite}>
                   {isCreatingInvite ? 'Creant...' : 'Crear invitacio'}
@@ -363,6 +385,12 @@ export function AdminUsersPanel({ isOpen, onClose, onFeedback }: AdminUsersPanel
                       </Button>
                     </div>
                     <div className="admin-compact-invite-meta">
+                      <span>Server ID: <strong>{inv.serverId ?? 'Cap'}</strong></span>
+                      {inv.serverId && (
+                        <span>
+                          Server: <strong>{availableServers.find((server) => server.serverId === inv.serverId)?.name ?? 'Desconegut'}</strong>
+                        </span>
+                      )}
                       <span>Fets: <strong>{inv.usesCount}</strong></span>
                       <span>Restants: <strong>{inv.remainingUses === null ? '∞' : inv.remainingUses}</strong></span>
                       <span>Max: <strong>{inv.maxUses < 0 ? '∞' : inv.maxUses}</strong></span>

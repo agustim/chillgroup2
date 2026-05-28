@@ -446,7 +446,7 @@ describe('API Client', () => {
         },
       })
 
-      const result = await invitationsCreate(3)
+      const result = await invitationsCreate(3, 'srv-1')
       expect(result.success).toBe(true)
       if (result.success) {
         expect(result.data.code).toBe('ABCDEF-GHIJKL-MNOPQR-STUVWX')
@@ -455,8 +455,9 @@ describe('API Client', () => {
 
       const requestBody = JSON.parse(String(mockFetch.mock.calls[0]?.[1]?.body ?? '{}')) as {
         max_uses?: number
+        server_id?: string
       }
-      expect(requestBody).toEqual({ max_uses: 3 })
+      expect(requestBody).toEqual({ max_uses: 3, server_id: 'srv-1' })
       expect(mockFetch.mock.calls[0]?.[0]).toBe('/api/invitations')
     })
 

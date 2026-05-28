@@ -1491,6 +1491,11 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
             isOpen={true}
             onClose={() => setPanel('none')}
             onFeedback={setFeedback}
+            selectedServerId={selectedServer}
+            availableServers={servers.map((server) => ({
+              serverId: server.serverId,
+              name: server.name,
+            }))}
           />
         ) : panel === 'permissions' ? (
           <div className="panel admin-users-panel">

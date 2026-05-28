@@ -166,6 +166,7 @@ export interface AdminUserItem {
 export interface InvitationCreateInfo {
   invitationId: string
   code: string
+  serverId: string | null
   maxUses: number
   usesCount: number
   isActive: boolean
@@ -1084,6 +1085,7 @@ function mapInvitationCreateInfo(raw: any): InvitationCreateInfo {
   return {
     invitationId: raw.invitationId ?? raw.invitation_id,
     code: raw.code,
+    serverId: raw.serverId ?? raw.server_id ?? null,
     maxUses: raw.maxUses ?? raw.max_uses ?? 1,
     usesCount: raw.usesCount ?? raw.uses_count ?? 0,
     isActive: raw.isActive ?? raw.is_active ?? true,
@@ -1156,8 +1158,11 @@ function mapUserLimitsInfo(raw: any): UserLimitsInfo {
   }
 }
 
-export async function invitationsCreate(maxUses: number): Promise<ApiResult<InvitationCreateInfo>> {
-  const result = await apiRequest<any>('POST', '/api/invitations', { max_uses: maxUses })
+export async function invitationsCreate(maxUses: number, serverId?: string | null): Promise<ApiResult<InvitationCreateInfo>> {
+  const result = await apiRequest<any>('POST', '/api/invitations', {
+    max_uses: maxUses,
+    ...(serverId ? { server_id: serverId } : {}),
+  })
   if (!result.success) return result
   return { success: true, data: mapInvitationCreateInfo(result.data) }
 }
