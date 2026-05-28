@@ -122,7 +122,7 @@
 | 3005 | 403 | Has arribat al límit de canals | `maxChannels: 50`, `current: 50` |
 | 3006 | 400 | Tipus de canal no vàlid | — |
 | 3007 | 403 | Clau de canal no trobada | `channelId: "uuid"` |
-| 3008 | 403 | No pots eliminar el canal (sense owner) | — |
+| 3008 | 409 | Conflicte de bundle de clau de canal | `keyVersionId: "uuid"`, `deviceId: "uuid"` |
 | 3009 | 400 | TTL invàlid | `min: 3600`, `max: 604800` |
 | 3010 | 403 | No es pot convidar a aquest usuari | `username: "marcus"` |
 

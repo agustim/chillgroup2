@@ -6,13 +6,18 @@ use axum::{
     extract::State,
     http::StatusCode,
     Json,
-    routing::{get, put},
+    routing::{delete, get, put},
     Router, extract::Path,
 };
 use serde::{Deserialize, Serialize};
 use shared::types::{ServerInfo, ServerFullInfo, ServerMember, ServerRole};
 use uuid::Uuid;
 use crate::{
+    db::{
+        SERVER_PERMISSION_MANAGE_MEMBERS,
+        SERVER_PERMISSION_MANAGE_PROFILE,
+        SERVER_PERMISSION_VIEW,
+    },
     middleware::{AppState, AuthClaims},
     error::AppError,
 };
@@ -34,9 +39,47 @@ pub struct UpdateMemberRoleRequest {
     pub role: ServerRole,
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub struct UpdateServerRequest {
+    pub name: Option<String>,
+    pub icon_url: Option<Option<String>>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct InviteMemberResponse {
     pub invited_user: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RemoveMemberResponse {
+    pub user_id: Uuid,
+    pub removed: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DeleteServerResponse {
+    pub server_id: Uuid,
+    pub deleted: bool,
+}
+
+async fn ensure_server_permission(
+    state: &AppState,
+    server_id: Uuid,
+    user_id: Uuid,
+    min_level: i32,
+) -> Result<i32, AppError> {
+    let level = state
+        .db
+        .get_server_permission_level(server_id, user_id)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .unwrap_or(0);
+
+    if level < min_level {
+        return Err(AppError::Forbidden);
+    }
+
+    Ok(level)
 }
 
 pub async fn list_servers(
@@ -103,15 +146,7 @@ pub async fn get_server(
 ) -> Result<Json<ServerFullInfo>, AppError> {
     info!("Endpoint get_server cridat: server_id={}, user_id={}", server_id, claims.user_id);
 
-    if state
-        .db
-        .is_server_member(server_id, claims.user_id)
-        .await
-        .map_err(AppError::DatabaseError)?
-        .is_none()
-    {
-        return Err(AppError::NotServerMember);
-    }
+    ensure_server_permission(&state, server_id, claims.user_id, SERVER_PERMISSION_VIEW).await?;
 
     let server_info = state
         .db
@@ -122,13 +157,65 @@ pub async fn get_server(
     Ok(Json(server_info))
 }
 
-pub async fn delete_server(
-    State(_state): State<AppState>,
+pub async fn update_server(
+    State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
     Path(server_id): Path<Uuid>,
-) -> Result<StatusCode, AppError> {
+    Json(req): Json<UpdateServerRequest>,
+) -> Result<Json<ServerFullInfo>, AppError> {
+    ensure_server_permission(&state, server_id, claims.user_id, SERVER_PERMISSION_MANAGE_PROFILE).await?;
+
+    state
+        .db
+        .update_server_metadata(
+            server_id,
+            req.name.as_deref(),
+            req.icon_url.as_ref().map(|icon| icon.as_deref()),
+        )
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+    let server_info = state
+        .db
+        .get_server_full_info(server_id, claims.user_id)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .ok_or(AppError::ServerNotFound)?;
+
+    Ok(Json(server_info))
+}
+
+pub async fn delete_server(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path(server_id): Path<Uuid>,
+) -> Result<Json<DeleteServerResponse>, AppError> {
     info!("Endpoint delete_server cridat: server_id={}, user_id={}", server_id, claims.user_id);
-    Ok(StatusCode::OK)
+
+    let my_role = state
+        .db
+        .is_server_member(server_id, claims.user_id)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+    if my_role.as_deref() != Some("owner") {
+        return Err(AppError::Forbidden);
+    }
+
+    let deleted = state
+        .db
+        .delete_server(server_id)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+    if !deleted {
+        return Err(AppError::ServerNotFound);
+    }
+
+    Ok(Json(DeleteServerResponse {
+        server_id,
+        deleted: true,
+    }))
 }
 
 pub async fn list_server_members(
@@ -138,15 +225,7 @@ pub async fn list_server_members(
 ) -> Result<Json<Vec<ServerMember>>, AppError> {
     info!("Endpoint list_server_members cridat: server_id={}, user_id={}", server_id, claims.user_id);
 
-    if state
-        .db
-        .is_server_member(server_id, claims.user_id)
-        .await
-        .map_err(AppError::DatabaseError)?
-        .is_none()
-    {
-        return Err(AppError::NotServerMember);
-    }
+    ensure_server_permission(&state, server_id, claims.user_id, SERVER_PERMISSION_VIEW).await?;
 
     let server_info = state
         .db
@@ -166,16 +245,7 @@ pub async fn invite_server_member(
 ) -> Result<(StatusCode, Json<InviteMemberResponse>), AppError> {
     info!("Endpoint invite_server_member cridat: server_id={}, username={}, user_id={}", server_id, req.username, claims.user_id);
 
-    let current_role = state
-        .db
-        .is_server_member(server_id, claims.user_id)
-        .await
-        .map_err(AppError::DatabaseError)?
-        .ok_or(AppError::NotServerMember)?;
-
-    if current_role != "owner" && current_role != "admin" {
-        return Err(AppError::ServerNotOwnerOrAdmin);
-    }
+    ensure_server_permission(&state, server_id, claims.user_id, SERVER_PERMISSION_MANAGE_MEMBERS).await?;
 
     let user = state
         .db
@@ -215,16 +285,7 @@ pub async fn update_member_role(
 ) -> Result<Json<ServerMember>, AppError> {
     info!("Endpoint update_member_role cridat: server_id={}, user_id={}, target_user_id={}", server_id, claims.user_id, user_id);
 
-    let current_role = state
-        .db
-        .is_server_member(server_id, claims.user_id)
-        .await
-        .map_err(AppError::DatabaseError)?
-        .ok_or(AppError::NotServerMember)?;
-
-    if current_role != "owner" && current_role != "admin" {
-        return Err(AppError::ServerNotOwnerOrAdmin);
-    }
+    ensure_server_permission(&state, server_id, claims.user_id, SERVER_PERMISSION_MANAGE_MEMBERS).await?;
 
     if req.role == ServerRole::Owner {
         return Err(AppError::Forbidden);
@@ -256,12 +317,47 @@ pub async fn update_member_role(
     Ok(Json(member))
 }
 
+pub async fn remove_server_member(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path((server_id, user_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<RemoveMemberResponse>, AppError> {
+    ensure_server_permission(&state, server_id, claims.user_id, SERVER_PERMISSION_MANAGE_MEMBERS).await?;
+
+    let target_role = state
+        .db
+        .is_server_member(server_id, user_id)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .ok_or(AppError::MemberNotFound)?;
+
+    if target_role == "owner" {
+        return Err(AppError::Forbidden);
+    }
+
+    let removed = state
+        .db
+        .remove_server_member(server_id, user_id)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+    if !removed {
+        return Err(AppError::MemberNotFound);
+    }
+
+    Ok(Json(RemoveMemberResponse {
+        user_id,
+        removed: true,
+    }))
+}
+
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/servers", get(list_servers).post(create_server))
-        .route("/api/servers/{server_id}", get(get_server).delete(delete_server))
+        .route("/api/servers/{server_id}", get(get_server).put(update_server).delete(delete_server))
         .route("/api/servers/{server_id}/members", get(list_server_members).post(invite_server_member))
         .route("/api/servers/{server_id}/members/{user_id}/role", put(update_member_role))
+        .route("/api/servers/{server_id}/members/{user_id}", delete(remove_server_member))
         .with_state(state)
 }
 
@@ -270,9 +366,10 @@ mod tests {
     use super::*;
     use crate::{
         config::{Config, LogLevel},
-        db::connect_db,
+        db::{connect_db, ChannelKeyBundleWriteResult, DatabasePool},
         middleware::auth::UserPresenceState,
     };
+    use chrono::Utc;
     use axum::response::IntoResponse;
     use std::{
         collections::{HashMap, HashSet},
@@ -387,5 +484,637 @@ mod tests {
         assert!(result.is_ok(), "pro plan should allow creating second server");
         let (status, _) = result.expect("request should succeed");
         assert_eq!(status, StatusCode::CREATED);
+    }
+
+    #[tokio::test]
+    async fn invite_server_member_forbidden_for_plain_member() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("owner_user", "hash", "user")
+            .await
+            .expect("owner user should be created");
+        let member_id = state
+            .db
+            .create_user_with_role("member_user", "hash", "user")
+            .await
+            .expect("member user should be created");
+        state
+            .db
+            .create_user_with_role("target_user", "hash", "user")
+            .await
+            .expect("target user should be created");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "perm-server", None, owner_id)
+            .await
+            .expect("server should be created");
+
+        state
+            .db
+            .add_server_member(server_id, member_id, "member")
+            .await
+            .expect("member should be added");
+
+        let result = invite_server_member(
+            State(state),
+            axum::Extension(claims_for(member_id, "member_user")),
+            Path(server_id),
+            Json(InviteMemberRequest {
+                username: "target_user".to_string(),
+            }),
+        )
+        .await;
+
+        let err = result.expect_err("plain member should not invite users");
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    }
+
+    #[tokio::test]
+    async fn update_server_allows_admin_manage_profile() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("owner_profile", "hash", "user")
+            .await
+            .expect("owner user should be created");
+        let admin_id = state
+            .db
+            .create_user_with_role("admin_profile", "hash", "user")
+            .await
+            .expect("admin user should be created");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "server-before", None, owner_id)
+            .await
+            .expect("server should be created");
+
+        state
+            .db
+            .add_server_member(server_id, admin_id, "admin")
+            .await
+            .expect("admin should be added");
+
+        let result = update_server(
+            State(state),
+            axum::Extension(claims_for(admin_id, "admin_profile")),
+            Path(server_id),
+            Json(UpdateServerRequest {
+                name: Some("server-after".to_string()),
+                icon_url: Some(Some("https://example.com/icon.png".to_string())),
+            }),
+        )
+        .await
+        .expect("admin should be able to update server profile");
+
+        assert_eq!(result.0.name, "server-after");
+        assert_eq!(result.0.icon_url.as_deref(), Some("https://example.com/icon.png"));
+    }
+
+    #[tokio::test]
+    async fn delete_server_forbidden_for_admin() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("owner_delete_admin", "hash", "user")
+            .await
+            .expect("owner user should be created");
+        let admin_id = state
+            .db
+            .create_user_with_role("admin_delete_admin", "hash", "user")
+            .await
+            .expect("admin user should be created");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "delete-admin-server", None, owner_id)
+            .await
+            .expect("server should be created");
+        state
+            .db
+            .add_server_member(server_id, admin_id, "admin")
+            .await
+            .expect("admin should be added");
+
+        let result = delete_server(
+            State(state),
+            axum::Extension(claims_for(admin_id, "admin_delete_admin")),
+            Path(server_id),
+        )
+        .await;
+
+        let err = result.expect_err("admin should not delete server");
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn delete_server_forbidden_for_plain_member() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("owner_delete_member", "hash", "user")
+            .await
+            .expect("owner user should be created");
+        let member_id = state
+            .db
+            .create_user_with_role("member_delete_member", "hash", "user")
+            .await
+            .expect("member user should be created");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "delete-member-server", None, owner_id)
+            .await
+            .expect("server should be created");
+        state
+            .db
+            .add_server_member(server_id, member_id, "member")
+            .await
+            .expect("member should be added");
+
+        let result = delete_server(
+            State(state),
+            axum::Extension(claims_for(member_id, "member_delete_member")),
+            Path(server_id),
+        )
+        .await;
+
+        let err = result.expect_err("member should not delete server");
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn delete_server_succeeds_for_owner() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("owner_delete_ok", "hash", "user")
+            .await
+            .expect("owner user should be created");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "delete-owner-server", None, owner_id)
+            .await
+            .expect("server should be created");
+
+        let result = delete_server(
+            State(state.clone()),
+            axum::Extension(claims_for(owner_id, "owner_delete_ok")),
+            Path(server_id),
+        )
+        .await
+        .expect("owner should delete server");
+
+        assert_eq!(result.0.server_id, server_id);
+        assert!(result.0.deleted);
+
+        let deleted_server = state
+            .db
+            .get_server_full_info(server_id, owner_id)
+            .await
+            .expect("db query should work");
+        assert!(deleted_server.is_none(), "server should be removed");
+
+        let owner_membership = state
+            .db
+            .is_server_member(server_id, owner_id)
+            .await
+            .expect("membership query should work");
+        assert!(owner_membership.is_none(), "owner membership should be removed");
+    }
+
+    #[tokio::test]
+    async fn delete_server_performs_strong_cascade_cleanup() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("owner_delete_cascade", "hash", "user")
+            .await
+            .expect("owner user should be created");
+        let member_id = state
+            .db
+            .create_user_with_role("member_delete_cascade", "hash", "user")
+            .await
+            .expect("member user should be created");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "delete-cascade-server", None, owner_id)
+            .await
+            .expect("server should be created");
+        state
+            .db
+            .add_server_member(server_id, member_id, "member")
+            .await
+            .expect("member should be added");
+
+        let channel_id = Uuid::new_v4();
+        state
+            .db
+            .create_channel(channel_id, server_id, "cascade-text", "text", "symmetric", Some(3600), false)
+            .await
+            .expect("channel should be created");
+
+        let owner_device_id = state
+            .db
+            .upsert_device_for_user(owner_id, "owner-device", None)
+            .await
+            .expect("owner device should be created");
+        let member_device_id = state
+            .db
+            .upsert_device_for_user(member_id, "member-device", None)
+            .await
+            .expect("member device should be created");
+
+        let message_id = Uuid::new_v4();
+        state
+            .db
+            .create_message(
+                message_id,
+                channel_id,
+                owner_id,
+                "owner_delete_cascade",
+                owner_device_id,
+                "encrypted-payload",
+                "iv",
+                Some(1),
+                None,
+                Utc::now(),
+            )
+            .await
+            .expect("message should be created");
+
+        let key_version_id = state
+            .db
+            .create_channel_key_version(channel_id, 1, "encrypted-key", "nonce", owner_id)
+            .await
+            .expect("key version should be created");
+        let bundle_write = state
+            .db
+            .store_channel_key_bundle_for_device(
+                key_version_id,
+                member_device_id,
+                "bundle-key",
+                "bundle-kem",
+                None,
+                None,
+            )
+            .await
+            .expect("bundle store should succeed");
+        assert_eq!(bundle_write, ChannelKeyBundleWriteResult::Inserted);
+
+        state
+            .db
+            .mark_channel_read(owner_id, channel_id, Some(message_id))
+            .await
+            .expect("read state should be created");
+
+        match &state.db {
+            DatabasePool::Sqlite(pool) => {
+                let channels_before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM channels WHERE server_id = ?")
+                    .bind(server_id)
+                    .fetch_one(pool)
+                    .await
+                    .expect("channels count should work");
+                let messages_before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM messages WHERE channel_id = ?")
+                    .bind(channel_id)
+                    .fetch_one(pool)
+                    .await
+                    .expect("messages count should work");
+                let key_versions_before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM channel_key_versions WHERE channel_id = ?")
+                    .bind(channel_id)
+                    .fetch_one(pool)
+                    .await
+                    .expect("key versions count should work");
+                let bundles_before: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM channel_key_device_bundles WHERE key_version_id = ?",
+                )
+                .bind(key_version_id)
+                .fetch_one(pool)
+                .await
+                .expect("bundles count should work");
+                let read_state_before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM channel_read_state WHERE channel_id = ?")
+                    .bind(channel_id)
+                    .fetch_one(pool)
+                    .await
+                    .expect("read state count should work");
+                let members_before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM server_members WHERE server_id = ?")
+                    .bind(server_id)
+                    .fetch_one(pool)
+                    .await
+                    .expect("members count should work");
+
+                assert_eq!(channels_before, 1);
+                assert_eq!(messages_before, 1);
+                assert_eq!(key_versions_before, 1);
+                assert_eq!(bundles_before, 1);
+                assert_eq!(read_state_before, 1);
+                assert_eq!(members_before, 2);
+            }
+            DatabasePool::Postgres(pool) => {
+                let channels_before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM channels WHERE server_id = $1")
+                    .bind(server_id)
+                    .fetch_one(pool)
+                    .await
+                    .expect("channels count should work");
+                let messages_before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM messages WHERE channel_id = $1")
+                    .bind(channel_id)
+                    .fetch_one(pool)
+                    .await
+                    .expect("messages count should work");
+                let key_versions_before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM channel_key_versions WHERE channel_id = $1")
+                    .bind(channel_id)
+                    .fetch_one(pool)
+                    .await
+                    .expect("key versions count should work");
+                let bundles_before: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM channel_key_device_bundles WHERE key_version_id = $1",
+                )
+                .bind(key_version_id)
+                .fetch_one(pool)
+                .await
+                .expect("bundles count should work");
+                let read_state_before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM channel_read_state WHERE channel_id = $1")
+                    .bind(channel_id)
+                    .fetch_one(pool)
+                    .await
+                    .expect("read state count should work");
+                let members_before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM server_members WHERE server_id = $1")
+                    .bind(server_id)
+                    .fetch_one(pool)
+                    .await
+                    .expect("members count should work");
+
+                assert_eq!(channels_before, 1);
+                assert_eq!(messages_before, 1);
+                assert_eq!(key_versions_before, 1);
+                assert_eq!(bundles_before, 1);
+                assert_eq!(read_state_before, 1);
+                assert_eq!(members_before, 2);
+            }
+        }
+
+        let delete_result = delete_server(
+            State(state.clone()),
+            axum::Extension(claims_for(owner_id, "owner_delete_cascade")),
+            Path(server_id),
+        )
+        .await
+        .expect("owner should delete server");
+        assert!(delete_result.0.deleted);
+
+        match &state.db {
+            DatabasePool::Sqlite(pool) => {
+                let servers_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM servers WHERE id = ?")
+                    .bind(server_id)
+                    .fetch_one(pool)
+                    .await
+                    .expect("servers count should work");
+                let channels_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM channels WHERE server_id = ?")
+                    .bind(server_id)
+                    .fetch_one(pool)
+                    .await
+                    .expect("channels count should work");
+                let messages_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM messages WHERE channel_id = ?")
+                    .bind(channel_id)
+                    .fetch_one(pool)
+                    .await
+                    .expect("messages count should work");
+                let key_versions_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM channel_key_versions WHERE channel_id = ?")
+                    .bind(channel_id)
+                    .fetch_one(pool)
+                    .await
+                    .expect("key versions count should work");
+                let bundles_after: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM channel_key_device_bundles WHERE key_version_id = ?",
+                )
+                .bind(key_version_id)
+                .fetch_one(pool)
+                .await
+                .expect("bundles count should work");
+                let read_state_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM channel_read_state WHERE channel_id = ?")
+                    .bind(channel_id)
+                    .fetch_one(pool)
+                    .await
+                    .expect("read state count should work");
+                let members_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM server_members WHERE server_id = ?")
+                    .bind(server_id)
+                    .fetch_one(pool)
+                    .await
+                    .expect("members count should work");
+
+                assert_eq!(servers_after, 0);
+                assert_eq!(channels_after, 0);
+                assert_eq!(messages_after, 0);
+                assert_eq!(key_versions_after, 0);
+                assert_eq!(bundles_after, 0);
+                assert_eq!(read_state_after, 0);
+                assert_eq!(members_after, 0);
+            }
+            DatabasePool::Postgres(pool) => {
+                let servers_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM servers WHERE id = $1")
+                    .bind(server_id)
+                    .fetch_one(pool)
+                    .await
+                    .expect("servers count should work");
+                let channels_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM channels WHERE server_id = $1")
+                    .bind(server_id)
+                    .fetch_one(pool)
+                    .await
+                    .expect("channels count should work");
+                let messages_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM messages WHERE channel_id = $1")
+                    .bind(channel_id)
+                    .fetch_one(pool)
+                    .await
+                    .expect("messages count should work");
+                let key_versions_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM channel_key_versions WHERE channel_id = $1")
+                    .bind(channel_id)
+                    .fetch_one(pool)
+                    .await
+                    .expect("key versions count should work");
+                let bundles_after: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM channel_key_device_bundles WHERE key_version_id = $1",
+                )
+                .bind(key_version_id)
+                .fetch_one(pool)
+                .await
+                .expect("bundles count should work");
+                let read_state_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM channel_read_state WHERE channel_id = $1")
+                    .bind(channel_id)
+                    .fetch_one(pool)
+                    .await
+                    .expect("read state count should work");
+                let members_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM server_members WHERE server_id = $1")
+                    .bind(server_id)
+                    .fetch_one(pool)
+                    .await
+                    .expect("members count should work");
+
+                assert_eq!(servers_after, 0);
+                assert_eq!(channels_after, 0);
+                assert_eq!(messages_after, 0);
+                assert_eq!(key_versions_after, 0);
+                assert_eq!(bundles_after, 0);
+                assert_eq!(read_state_after, 0);
+                assert_eq!(members_after, 0);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn remove_server_member_forbidden_for_plain_member() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("owner_remove", "hash", "user")
+            .await
+            .expect("owner user should be created");
+        let member_id = state
+            .db
+            .create_user_with_role("member_remove", "hash", "user")
+            .await
+            .expect("member user should be created");
+        let target_id = state
+            .db
+            .create_user_with_role("target_remove", "hash", "user")
+            .await
+            .expect("target user should be created");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "remove-server", None, owner_id)
+            .await
+            .expect("server should be created");
+
+        state
+            .db
+            .add_server_member(server_id, member_id, "member")
+            .await
+            .expect("member should be added");
+        state
+            .db
+            .add_server_member(server_id, target_id, "member")
+            .await
+            .expect("target should be added");
+
+        let result = remove_server_member(
+            State(state),
+            axum::Extension(claims_for(member_id, "member_remove")),
+            Path((server_id, target_id)),
+        )
+        .await;
+
+        let err = result.expect_err("plain member should not remove members");
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn remove_server_member_succeeds_for_admin() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("owner_remove_ok", "hash", "user")
+            .await
+            .expect("owner user should be created");
+        let admin_id = state
+            .db
+            .create_user_with_role("admin_remove_ok", "hash", "user")
+            .await
+            .expect("admin user should be created");
+        let target_id = state
+            .db
+            .create_user_with_role("target_remove_ok", "hash", "user")
+            .await
+            .expect("target user should be created");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "remove-server-ok", None, owner_id)
+            .await
+            .expect("server should be created");
+
+        state
+            .db
+            .add_server_member(server_id, admin_id, "admin")
+            .await
+            .expect("admin should be added");
+        state
+            .db
+            .add_server_member(server_id, target_id, "member")
+            .await
+            .expect("target should be added");
+
+        let result = remove_server_member(
+            State(state.clone()),
+            axum::Extension(claims_for(admin_id, "admin_remove_ok")),
+            Path((server_id, target_id)),
+        )
+        .await
+        .expect("admin should remove member");
+
+        assert_eq!(result.0.user_id, target_id);
+        assert!(result.0.removed);
+
+        let still_member = state
+            .db
+            .is_server_member(server_id, target_id)
+            .await
+            .expect("db query should work");
+        assert!(still_member.is_none(), "target should be removed from server");
+    }
+
+    #[tokio::test]
+    async fn remove_server_member_rejects_owner_target() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("owner_remove_owner", "hash", "user")
+            .await
+            .expect("owner user should be created");
+        let admin_id = state
+            .db
+            .create_user_with_role("admin_remove_owner", "hash", "user")
+            .await
+            .expect("admin user should be created");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "remove-owner-guard", None, owner_id)
+            .await
+            .expect("server should be created");
+
+        state
+            .db
+            .add_server_member(server_id, admin_id, "admin")
+            .await
+            .expect("admin should be added");
+
+        let result = remove_server_member(
+            State(state),
+            axum::Extension(claims_for(admin_id, "admin_remove_owner")),
+            Path((server_id, owner_id)),
+        )
+        .await;
+
+        let err = result.expect_err("owner should not be removable");
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 }

@@ -11,6 +11,7 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use crate::{
+    db::{CHANNEL_PERMISSION_READ, CHANNEL_PERMISSION_WRITE},
     middleware::{AppState, AuthClaims},
     error::AppError,
     models::{EncryptionType, Message},
@@ -87,12 +88,13 @@ pub async fn get_message(
     match msg {
         Some(message) => {
             if message.channel_id != Uuid::nil() {
-                let can_access = state
+                let permission_level = state
                     .db
-                    .user_can_access_channel(message.channel_id, claims.user_id)
+                    .get_channel_permission_level(message.channel_id, claims.user_id)
                     .await
-                    .map_err(|_| AppError::InternalError)?;
-                if !can_access {
+                    .map_err(|_| AppError::InternalError)?
+                    .unwrap_or(0);
+                if permission_level < CHANNEL_PERMISSION_READ {
                     return Err(AppError::Forbidden);
                 }
             }
@@ -114,12 +116,13 @@ pub async fn list_messages(
         channel_id, claims.user_id, query.limit, query.after, query.before, query.since
     );
 
-    let can_access = state
+    let permission_level = state
         .db
-        .user_can_access_channel(channel_id, claims.user_id)
+        .get_channel_permission_level(channel_id, claims.user_id)
         .await
-        .map_err(|_| AppError::InternalError)?;
-    if !can_access {
+        .map_err(|_| AppError::InternalError)?
+        .unwrap_or(0);
+    if permission_level < CHANNEL_PERMISSION_READ {
         return Err(AppError::Forbidden);
     }
 
@@ -190,12 +193,13 @@ pub async fn check_new_messages(
         channel_id, claims.user_id, query.last_seen
     );
 
-    let can_access = state
+    let permission_level = state
         .db
-        .user_can_access_channel(channel_id, claims.user_id)
+        .get_channel_permission_level(channel_id, claims.user_id)
         .await
-        .map_err(|_| AppError::InternalError)?;
-    if !can_access {
+        .map_err(|_| AppError::InternalError)?
+        .unwrap_or(0);
+    if permission_level < CHANNEL_PERMISSION_READ {
         return Err(AppError::Forbidden);
     }
 
@@ -247,12 +251,13 @@ pub async fn send_message(
         })?
         .ok_or(AppError::ChannelNotFound)?;
 
-    let can_access = state
+    let permission_level = state
         .db
-        .user_can_access_channel(channel_id, claims.user_id)
+        .get_channel_permission_level(channel_id, claims.user_id)
         .await
-        .map_err(|_| AppError::InternalError)?;
-    if !can_access {
+        .map_err(|_| AppError::InternalError)?
+        .unwrap_or(0);
+    if permission_level < CHANNEL_PERMISSION_WRITE {
         return Err(AppError::Forbidden);
     }
 

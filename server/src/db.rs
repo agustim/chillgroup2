@@ -186,6 +186,7 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
             id TEXT PRIMARY KEY,
             channel_id TEXT NOT NULL,
             user_id TEXT NOT NULL,
+            permission_level INTEGER NOT NULL DEFAULT 2,
             joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (channel_id) REFERENCES channels(id),
             FOREIGN KEY (user_id) REFERENCES users(id),
@@ -336,6 +337,7 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
 
     migrate_sqlite_users_add_role_and_plan(pool).await?;
     migrate_sqlite_channels_for_dm(pool).await?;
+    migrate_sqlite_channel_members_permissions(pool).await?;
     migrate_sqlite_messages_add_key_version(pool).await?;
 
     for idx in [
@@ -499,6 +501,33 @@ async fn migrate_sqlite_channels_for_dm(pool: &sqlx::SqlitePool) -> Result<(), S
     Ok(())
 }
 
+async fn migrate_sqlite_channel_members_permissions(pool: &sqlx::SqlitePool) -> Result<(), String> {
+    let table_info = sqlx::query("PRAGMA table_info(channel_members)")
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("Error llegint schema de channel_members a SQLite: {}", e))?;
+
+    if table_info.is_empty() {
+        return Ok(());
+    }
+
+    let has_permission_level = table_info.into_iter().any(|row| {
+        let name: String = row.get(1);
+        name == "permission_level"
+    });
+
+    if has_permission_level {
+        return Ok(());
+    }
+
+    sqlx::query("ALTER TABLE channel_members ADD COLUMN permission_level INTEGER NOT NULL DEFAULT 2")
+        .execute(pool)
+        .await
+        .map_err(|e| format!("Error afegint permission_level a channel_members SQLite: {}", e))?;
+
+    Ok(())
+}
+
 async fn migrate_sqlite_messages_add_key_version(pool: &sqlx::SqlitePool) -> Result<(), String> {
     let table_info = sqlx::query("PRAGMA table_info(messages)")
         .fetch_all(pool)
@@ -548,6 +577,14 @@ pub enum ChannelKeyBundleWriteResult {
     Unchanged,
     Conflict,
 }
+
+pub const CHANNEL_PERMISSION_READ: i32 = 1;
+pub const CHANNEL_PERMISSION_WRITE: i32 = 2;
+pub const CHANNEL_PERMISSION_MANAGE: i32 = 3;
+
+pub const SERVER_PERMISSION_VIEW: i32 = 1;
+pub const SERVER_PERMISSION_MANAGE_PROFILE: i32 = 2;
+pub const SERVER_PERMISSION_MANAGE_MEMBERS: i32 = 3;
 
 impl DatabasePool {
     /// Executar una query sense resultat.
@@ -1715,6 +1752,134 @@ impl DatabasePool {
         Ok(())
     }
 
+    pub async fn update_server_metadata(&self, server_id: Uuid, name: Option<&str>, icon_url: Option<Option<&str>>) -> Result<(), sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                match (name, icon_url) {
+                    (Some(n), Some(icon)) => {
+                        sqlx::query("UPDATE servers SET name = $1, icon_url = $2 WHERE id = $3")
+                            .bind(n)
+                            .bind(icon)
+                            .bind(server_id)
+                            .execute(pool)
+                            .await?;
+                    }
+                    (Some(n), None) => {
+                        sqlx::query("UPDATE servers SET name = $1 WHERE id = $2")
+                            .bind(n)
+                            .bind(server_id)
+                            .execute(pool)
+                            .await?;
+                    }
+                    (None, Some(icon)) => {
+                        sqlx::query("UPDATE servers SET icon_url = $1 WHERE id = $2")
+                            .bind(icon)
+                            .bind(server_id)
+                            .execute(pool)
+                            .await?;
+                    }
+                    (None, None) => {}
+                }
+            }
+            DatabasePool::Sqlite(pool) => {
+                match (name, icon_url) {
+                    (Some(n), Some(icon)) => {
+                        sqlx::query("UPDATE servers SET name = ?, icon_url = ? WHERE id = ?")
+                            .bind(n)
+                            .bind(icon)
+                            .bind(server_id)
+                            .execute(pool)
+                            .await?;
+                    }
+                    (Some(n), None) => {
+                        sqlx::query("UPDATE servers SET name = ? WHERE id = ?")
+                            .bind(n)
+                            .bind(server_id)
+                            .execute(pool)
+                            .await?;
+                    }
+                    (None, Some(icon)) => {
+                        sqlx::query("UPDATE servers SET icon_url = ? WHERE id = ?")
+                            .bind(icon)
+                            .bind(server_id)
+                            .execute(pool)
+                            .await?;
+                    }
+                    (None, None) => {}
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn delete_server(&self, server_id: Uuid) -> Result<bool, sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let result = sqlx::query("DELETE FROM servers WHERE id = $1")
+                    .bind(server_id)
+                    .execute(pool)
+                    .await?;
+                Ok(result.rows_affected() > 0)
+            }
+            DatabasePool::Sqlite(pool) => {
+                // SQLite schema històric no garanteix cascades homogènies per totes les FK.
+                // Eliminem dependències explícitament en una transacció.
+                let mut tx = pool.begin().await?;
+
+                sqlx::query(
+                    "DELETE FROM channel_read_state WHERE channel_id IN (SELECT id FROM channels WHERE server_id = ?)",
+                )
+                .bind(server_id)
+                .execute(&mut *tx)
+                .await?;
+
+                sqlx::query("DELETE FROM messages WHERE channel_id IN (SELECT id FROM channels WHERE server_id = ?)")
+                    .bind(server_id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                sqlx::query("DELETE FROM channel_members WHERE channel_id IN (SELECT id FROM channels WHERE server_id = ?)")
+                    .bind(server_id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                sqlx::query(
+                    "DELETE FROM channel_key_device_bundles \
+                     WHERE key_version_id IN (\
+                        SELECT id FROM channel_key_versions WHERE channel_id IN (SELECT id FROM channels WHERE server_id = ?)\
+                     )",
+                )
+                .bind(server_id)
+                .execute(&mut *tx)
+                .await?;
+
+                sqlx::query("DELETE FROM channel_key_versions WHERE channel_id IN (SELECT id FROM channels WHERE server_id = ?)")
+                    .bind(server_id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                sqlx::query("DELETE FROM channels WHERE server_id = ?")
+                    .bind(server_id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                sqlx::query("DELETE FROM server_members WHERE server_id = ?")
+                    .bind(server_id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                let result = sqlx::query("DELETE FROM servers WHERE id = ?")
+                    .bind(server_id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                tx.commit().await?;
+                Ok(result.rows_affected() > 0)
+            }
+        }
+    }
+
     pub async fn get_server_full_info(&self, server_id: Uuid, user_id: Uuid) -> Result<Option<ServerFullInfo>, sqlx::Error> {
         match self {
             DatabasePool::Postgres(pool) => {
@@ -1832,6 +1997,16 @@ impl DatabasePool {
         Ok(role)
     }
 
+    pub async fn get_server_permission_level(&self, server_id: Uuid, user_id: Uuid) -> Result<Option<i32>, sqlx::Error> {
+        let role = self.is_server_member(server_id, user_id).await?;
+        Ok(role.map(|r| match r.as_str() {
+            "owner" => SERVER_PERMISSION_MANAGE_MEMBERS,
+            "admin" => SERVER_PERMISSION_MANAGE_MEMBERS,
+            "member" => SERVER_PERMISSION_VIEW,
+            _ => 0,
+        }))
+    }
+
     pub async fn add_server_member(&self, server_id: Uuid, user_id: Uuid, role: &str) -> Result<(), sqlx::Error> {
         match self {
             DatabasePool::Postgres(pool) => {
@@ -1876,6 +2051,27 @@ impl DatabasePool {
             }
         }
         Ok(())
+    }
+
+    pub async fn remove_server_member(&self, server_id: Uuid, user_id: Uuid) -> Result<bool, sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let result = sqlx::query("DELETE FROM server_members WHERE server_id = $1 AND user_id = $2")
+                    .bind(server_id)
+                    .bind(user_id)
+                    .execute(pool)
+                    .await?;
+                Ok(result.rows_affected() > 0)
+            }
+            DatabasePool::Sqlite(pool) => {
+                let result = sqlx::query("DELETE FROM server_members WHERE server_id = ? AND user_id = ?")
+                    .bind(server_id)
+                    .bind(user_id)
+                    .execute(pool)
+                    .await?;
+                Ok(result.rows_affected() > 0)
+            }
+        }
     }
 
         pub async fn list_channels_for_server(&self, server_id: Uuid, user_id: Uuid) -> Result<Vec<Channel>, sqlx::Error> {
@@ -1992,26 +2188,39 @@ impl DatabasePool {
     }
 
     pub async fn add_channel_member(&self, channel_id: Uuid, user_id: Uuid) -> Result<(), sqlx::Error> {
+        self.add_channel_member_with_permission(channel_id, user_id, CHANNEL_PERMISSION_WRITE)
+            .await
+    }
+
+    pub async fn add_channel_member_with_permission(
+        &self,
+        channel_id: Uuid,
+        user_id: Uuid,
+        permission_level: i32,
+    ) -> Result<(), sqlx::Error> {
         let id = Uuid::new_v4();
         let now = chrono::Utc::now().to_rfc3339();
+        let permission_level = permission_level.clamp(CHANNEL_PERMISSION_READ, CHANNEL_PERMISSION_MANAGE);
         match self {
             DatabasePool::Postgres(pool) => {
                 sqlx::query(
-                    "INSERT INTO channel_members (id, channel_id, user_id, joined_at) VALUES ($1, $2, $3, NOW()) ON CONFLICT (channel_id, user_id) DO NOTHING"
+                    "INSERT INTO channel_members (id, channel_id, user_id, permission_level, joined_at) VALUES ($1, $2, $3, $4, NOW()) ON CONFLICT (channel_id, user_id) DO NOTHING"
                 )
                 .bind(id)
                 .bind(channel_id)
                 .bind(user_id)
+                .bind(permission_level)
                 .execute(pool)
                 .await?;
             }
             DatabasePool::Sqlite(pool) => {
                 sqlx::query(
-                    "INSERT OR IGNORE INTO channel_members (id, channel_id, user_id, joined_at) VALUES (?, ?, ?, ?)"
+                    "INSERT OR IGNORE INTO channel_members (id, channel_id, user_id, permission_level, joined_at) VALUES (?, ?, ?, ?, ?)"
                 )
                 .bind(id)
                 .bind(channel_id)
                 .bind(user_id)
+                .bind(permission_level)
                 .bind(&now)
                 .execute(pool)
                 .await?;
@@ -2042,47 +2251,63 @@ impl DatabasePool {
     }
 
     pub async fn user_can_access_channel(&self, channel_id: Uuid, user_id: Uuid) -> Result<bool, sqlx::Error> {
+        Ok(self
+            .get_channel_permission_level(channel_id, user_id)
+            .await?
+            .unwrap_or(0)
+            >= CHANNEL_PERMISSION_READ)
+    }
+
+    pub async fn get_channel_permission_level(
+        &self,
+        channel_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<Option<i32>, sqlx::Error> {
         match self {
             DatabasePool::Postgres(pool) => {
                 let row = sqlx::query(
-                    "SELECT EXISTS(\
-                        SELECT 1 \
-                        FROM channels c \
-                        LEFT JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = $2 \
-                        LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = $2 \
-                        WHERE c.id = $1 AND (\
-                            (COALESCE(c.scope, 'server') = 'dm' AND cm.user_id IS NOT NULL) \
-                            OR \
-                            (COALESCE(c.scope, 'server') != 'dm' AND sm.user_id IS NOT NULL AND (c.is_private = 0 OR cm.user_id IS NOT NULL))\
-                        )\
-                    )"
+                    "SELECT \
+                        CASE \
+                            WHEN COALESCE(c.scope, 'server') = 'dm' THEN CASE WHEN cm.user_id IS NOT NULL THEN 3 ELSE 0 END \
+                            WHEN c.is_private THEN COALESCE(cm.permission_level, 0) \
+                            WHEN sm.user_id IS NULL THEN 0 \
+                            WHEN sm.role IN ('owner', 'admin') THEN 3 \
+                            ELSE 2 \
+                        END AS permission_level \
+                     FROM channels c \
+                     LEFT JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = $2 \
+                     LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = $2 \
+                     WHERE c.id = $1"
                 )
                 .bind(channel_id)
                 .bind(user_id)
-                .fetch_one(pool)
+                .fetch_optional(pool)
                 .await?;
-                Ok(row.get::<bool, _>(0))
+
+                Ok(row.map(|r| r.get::<i32, _>(0)))
             }
             DatabasePool::Sqlite(pool) => {
                 let row = sqlx::query(
-                    "SELECT EXISTS(\
-                        SELECT 1 \
-                        FROM channels c \
-                        LEFT JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = ? \
-                        LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = ? \
-                        WHERE c.id = ? AND (\
-                            (COALESCE(c.scope, 'server') = 'dm' AND cm.user_id IS NOT NULL) \
-                            OR \
-                            (COALESCE(c.scope, 'server') != 'dm' AND sm.user_id IS NOT NULL AND (c.is_private = 0 OR cm.user_id IS NOT NULL))\
-                        )\
-                    )"
+                    "SELECT \
+                        CASE \
+                            WHEN COALESCE(c.scope, 'server') = 'dm' THEN CASE WHEN cm.user_id IS NOT NULL THEN 3 ELSE 0 END \
+                            WHEN c.is_private = 1 THEN COALESCE(cm.permission_level, 0) \
+                            WHEN sm.user_id IS NULL THEN 0 \
+                            WHEN sm.role IN ('owner', 'admin') THEN 3 \
+                            ELSE 2 \
+                        END AS permission_level \
+                     FROM channels c \
+                     LEFT JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = ? \
+                     LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = ? \
+                     WHERE c.id = ?"
                 )
                 .bind(user_id)
                 .bind(user_id)
                 .bind(channel_id)
-                .fetch_one(pool)
+                .fetch_optional(pool)
                 .await?;
-                Ok(row.get::<bool, _>(0))
+
+                Ok(row.map(|r| r.get::<i32, _>(0)))
             }
         }
     }
@@ -2170,8 +2395,12 @@ impl DatabasePool {
             }
         }
 
-        self.add_channel_member(channel_id, creator_user_id).await?;
-        self.add_channel_member(channel_id, target_user_id).await?;
+        self
+            .add_channel_member_with_permission(channel_id, creator_user_id, CHANNEL_PERMISSION_MANAGE)
+            .await?;
+        self
+            .add_channel_member_with_permission(channel_id, target_user_id, CHANNEL_PERMISSION_MANAGE)
+            .await?;
 
         Ok(())
     }

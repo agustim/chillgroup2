@@ -384,6 +384,35 @@ CREATE INDEX idx_invitations_active ON invitations(is_active) WHERE is_active = 
 CREATE INDEX idx_invitations_created_by ON invitations(created_by_user_id);
 ```
 
+### Migració 18 — Channel Member Permissions
+
+```sql
+-- migrations/20260118000000_add_channel_member_permissions.sql
+
+ALTER TABLE channel_members
+        ADD COLUMN IF NOT EXISTS permission_level INTEGER NOT NULL DEFAULT 2;
+
+UPDATE channel_members
+SET permission_level = 2
+WHERE permission_level IS NULL;
+
+-- 1 = read, 2 = write, 3 = manage
+ALTER TABLE channel_members
+        ADD CONSTRAINT chk_channel_members_permission_level
+        CHECK (permission_level BETWEEN 1 AND 3);
+```
+
+Permisos explícits utilitzats per backend:
+
+- Canal:
+    - `1`: read
+    - `2`: write
+    - `3`: manage
+- Servidor:
+    - `1`: view
+    - `2`: manage_profile
+    - `3`: manage_members
+
 ## Models de Dades (Rust Types)
 
 ```rust
@@ -484,6 +513,14 @@ pub struct ServerMember {
     pub server_id: Uuid,
     pub user_id: Uuid,
     pub role: String,  // "owner", "admin", "member"
+    pub joined_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ChannelMember {
+    pub channel_id: Uuid,
+    pub user_id: Uuid,
+    pub permission_level: i32, // 1=read, 2=write, 3=manage
     pub joined_at: DateTime<Utc>,
 }
 

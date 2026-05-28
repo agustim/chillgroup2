@@ -1068,6 +1068,20 @@ Eliminar un servidor (només l'owner).
 
 ## Membres del Servidor
 
+### Model de Permisos Explícits (Servidor)
+
+El backend resol permisos de servidor amb nivells explícits:
+
+- `1` — `view`: veure servidor i membres
+- `2` — `manage_profile`: editar metadades del servidor (nom/icona)
+- `3` — `manage_members`: convidar membres i gestionar rols
+
+Mapeig actual de rols:
+
+- `owner` -> nivell `3`
+- `admin` -> nivell `3`
+- `member` -> nivell `1`
+
 ### GET `/api/servers/:serverId/members`
 
 Llistar membres d'un servidor.
@@ -1087,6 +1101,34 @@ Llistar membres d'un servidor.
       "joinedAt": "2026-05-01T08:00:00Z"
     }
   ]
+}
+```
+
+---
+
+### PUT `/api/servers/:serverId`
+
+Actualitzar metadades del servidor (`name`, `iconUrl`).
+
+**Headers:** `Authorization: Bearer <JWT>`
+**Path Params:** `{ "serverId": "string" }`
+**Request Body:**
+```json
+{
+  "name": "ChillGroup Core",
+  "iconUrl": "https://cdn.example.com/icons/core.png"
+}
+```
+
+**Response 200 OK:**
+```json
+{
+  "success": true,
+  "data": {
+    "serverId": "550e8400-e29b-41d4-a716-446655440010",
+    "name": "ChillGroup Core",
+    "iconUrl": "https://cdn.example.com/icons/core.png"
+  }
 }
 ```
 
@@ -1161,9 +1203,27 @@ Eliminar un membre del servidor.
 }
 ```
 
+**Autorització:** mínim nivell `3` (`manage_members`).
+
+**Restricció:** no es pot eliminar el membre amb rol `owner`.
+
 ---
 
 ## Canals
+
+### Model de Permisos Explícits (Canal)
+
+El backend resol permisos de canal amb nivells explícits:
+
+- `1` — `read`: llegir canal i recuperar claus
+- `2` — `write`: enviar missatges, convidar en canals asimètrics, pujar bundles asimètrics
+- `3` — `manage`: editar/eliminar canal, convidar en canals no asimètrics, rotar clau simètrica
+
+Regles especials:
+
+- En canals públics, `member` rep nivell `2`; `owner/admin` rep nivell `3`.
+- En canals privats, mana `channel_members.permission_level`.
+- En DM (`scope=dm`), els dos membres tenen nivell `3`.
 
 ### GET `/api/servers/:serverId/channels`
 
@@ -1322,6 +1382,11 @@ Convidar un usuari a un canal. Encripta la clau de canal per als dispositius del
 }
 ```
 
+**Autorització:**
+
+- Canal `asymmetric`: mínim nivell `2` (`write`)
+- Altres canals: mínim nivell `3` (`manage`)
+
 **Response 201 Created:**
 ```json
 {
@@ -1348,6 +1413,8 @@ Actualitzar configuració del canal.
   "messageTTL": 3600
 }
 ```
+
+**Autorització:** mínim nivell `3` (`manage`).
 
 **Response 200 OK:**
 ```json
@@ -1380,6 +1447,34 @@ Eliminar un canal.
   }
 }
 ```
+
+**Autorització:** mínim nivell `3` (`manage`).
+
+---
+
+### POST `/api/channels/:channelId/keys/rotate`
+
+Rotar versió de clau de canal (`keyVersion = N+1`).
+
+**Headers:** `Authorization: Bearer <JWT>`
+**Path Params:** `{ "channelId": "string" }`
+
+**Response 200 OK:**
+```json
+{
+  "success": true,
+  "data": {
+    "channelId": "550e8400-e29b-41d4-a716-446655440020",
+    "keyVersionId": "550e8400-e29b-41d4-a716-446655440030",
+    "keyVersion": 2
+  }
+}
+```
+
+**Autorització:**
+
+- Canal `symmetric`: mínim nivell `3` (`manage`)
+- Canal `asymmetric`: mínim nivell `2` (`write`)
 
 ---
 

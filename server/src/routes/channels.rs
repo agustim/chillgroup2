@@ -17,7 +17,12 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use crate::{
-    db::ChannelKeyBundleWriteResult,
+    db::{
+        ChannelKeyBundleWriteResult,
+        CHANNEL_PERMISSION_MANAGE,
+        CHANNEL_PERMISSION_READ,
+        CHANNEL_PERMISSION_WRITE,
+    },
     middleware::{AppState, AuthClaims},
     error::AppError,
     models::{Channel, ChannelType, EncryptionType},
@@ -30,6 +35,26 @@ const AES_GCM_NONCE_SIZE: usize = 12;
 pub struct GetChannelKeysQuery {
     #[serde(default)]
     pub version: Option<i32>,
+}
+
+async fn ensure_channel_permission(
+    state: &AppState,
+    channel_id: Uuid,
+    user_id: Uuid,
+    min_level: i32,
+) -> Result<i32, AppError> {
+    let level = state
+        .db
+        .get_channel_permission_level(channel_id, user_id)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .unwrap_or(0);
+
+    if level < min_level {
+        return Err(AppError::Forbidden);
+    }
+
+    Ok(level)
 }
 
 fn encrypt_with_aes_gcm(key: &[u8; 32], plaintext: &[u8]) -> Result<(Vec<u8>, [u8; AES_GCM_NONCE_SIZE]), AppError> {
@@ -164,13 +189,7 @@ pub async fn mark_channel_read(
     let channel = state.db.get_channel(channel_id).await.map_err(AppError::DatabaseError)?;
     let _channel = channel.ok_or(AppError::ChannelNotFound)?;
 
-    let can_access = state.db
-        .user_can_access_channel(channel_id, claims.user_id)
-        .await
-        .map_err(AppError::DatabaseError)?;
-    if !can_access {
-        return Err(AppError::Forbidden);
-    }
+    ensure_channel_permission(&state, channel_id, claims.user_id, CHANNEL_PERMISSION_READ).await?;
 
     state
         .db
@@ -192,7 +211,8 @@ pub async fn create_channel(
     // Verificar que l'usuari és membre del servidor
     let role = state.db.is_server_member(server_id, claims.user_id).await
         .map_err(|e| AppError::DatabaseError(e))?;
-    if role.is_none() {
+    let role = role.ok_or(AppError::Forbidden)?;
+    if role != "owner" && role != "admin" {
         return Err(AppError::Forbidden);
     }
 
@@ -252,7 +272,7 @@ pub async fn create_channel(
     if req.is_private {
         state
             .db
-            .add_channel_member(channel_id, claims.user_id)
+            .add_channel_member_with_permission(channel_id, claims.user_id, CHANNEL_PERMISSION_MANAGE)
             .await
             .map_err(AppError::DatabaseError)?;
     }
@@ -315,13 +335,7 @@ pub async fn get_channel_keys(
     // Verificar que el canal existeix i l'usuari és membre
     let channel = state.db.get_channel(channel_id).await.map_err(AppError::DatabaseError)?;
     let channel = channel.ok_or(AppError::ChannelNotFound)?;
-    let can_access = state.db
-        .user_can_access_channel(channel_id, claims.user_id)
-        .await
-        .map_err(AppError::DatabaseError)?;
-    if !can_access {
-        return Err(AppError::Forbidden);
-    }
+    ensure_channel_permission(&state, channel_id, claims.user_id, CHANNEL_PERMISSION_READ).await?;
 
     if channel.encryption_type == EncryptionType::Symmetric {
         let (device_public_key, _) = state
@@ -398,19 +412,19 @@ pub struct ChannelKeyBundle {
     pub signed_by_device_id: Option<Uuid>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct RotateChannelKeyResponse {
+    pub channel_id: Uuid,
+    pub key_version_id: Uuid,
+    pub key_version: i32,
+}
+
 pub async fn get_all_channel_key_bundles(
     State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
     Path(channel_id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let can_access = state
-        .db
-        .user_can_access_channel(channel_id, claims.user_id)
-        .await
-        .map_err(AppError::DatabaseError)?;
-    if !can_access {
-        return Err(AppError::Forbidden);
-    }
+    ensure_channel_permission(&state, channel_id, claims.user_id, CHANNEL_PERMISSION_READ).await?;
 
     let bundles = state
         .db
@@ -446,11 +460,19 @@ pub async fn upload_channel_keys(
 
     let channel = state.db.get_channel(channel_id).await.map_err(AppError::DatabaseError)?;
     let channel = channel.ok_or(AppError::ChannelNotFound)?;
-    let can_access = state.db
-        .user_can_access_channel(channel_id, claims.user_id)
-        .await
-        .map_err(AppError::DatabaseError)?;
-    if !can_access {
+    let permission_level = ensure_channel_permission(
+        &state,
+        channel_id,
+        claims.user_id,
+        CHANNEL_PERMISSION_READ,
+    )
+    .await?;
+
+    if channel.encryption_type == EncryptionType::Symmetric && permission_level < CHANNEL_PERMISSION_MANAGE {
+        return Err(AppError::Forbidden);
+    }
+
+    if channel.encryption_type == EncryptionType::Asymmetric && permission_level < CHANNEL_PERMISSION_WRITE {
         return Err(AppError::Forbidden);
     }
 
@@ -513,6 +535,61 @@ pub async fn upload_channel_keys(
     Ok(StatusCode::NO_CONTENT)
 }
 
+pub async fn rotate_channel_key(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path(channel_id): Path<Uuid>,
+) -> Result<Json<RotateChannelKeyResponse>, AppError> {
+    let channel = state
+        .db
+        .get_channel(channel_id)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .ok_or(AppError::ChannelNotFound)?;
+
+    let required_permission = if channel.encryption_type == EncryptionType::Asymmetric {
+        CHANNEL_PERMISSION_WRITE
+    } else {
+        CHANNEL_PERMISSION_MANAGE
+    };
+    ensure_channel_permission(&state, channel_id, claims.user_id, required_permission).await?;
+
+    let next_version = state
+        .db
+        .get_latest_channel_key_version(channel_id)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .map(|(_, version, _, _)| version + 1)
+        .unwrap_or(1);
+
+    let key_version_id = if channel.encryption_type == EncryptionType::Symmetric {
+        let mut channel_key = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut channel_key);
+
+        let (encrypted_key_bytes, nonce) = encrypt_with_aes_gcm(&state.config.server_master_key, &channel_key)?;
+        let encrypted_key_b64 = STANDARD.encode(encrypted_key_bytes);
+        let nonce_b64 = STANDARD.encode(nonce);
+
+        state
+            .db
+            .create_channel_key_version(channel_id, next_version, &encrypted_key_b64, &nonce_b64, claims.user_id)
+            .await
+            .map_err(AppError::DatabaseError)?
+    } else {
+        state
+            .db
+            .create_channel_key_version(channel_id, next_version, "", "", claims.user_id)
+            .await
+            .map_err(AppError::DatabaseError)?
+    };
+
+    Ok(Json(RotateChannelKeyResponse {
+        channel_id,
+        key_version_id,
+        key_version: next_version,
+    }))
+}
+
 pub async fn get_channel_member_devices(
     State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
@@ -522,13 +599,7 @@ pub async fn get_channel_member_devices(
 
     let channel = state.db.get_channel(channel_id).await.map_err(AppError::DatabaseError)?;
     let _channel = channel.ok_or(AppError::ChannelNotFound)?;
-    let can_access = state.db
-        .user_can_access_channel(channel_id, claims.user_id)
-        .await
-        .map_err(AppError::DatabaseError)?;
-    if !can_access {
-        return Err(AppError::Forbidden);
-    }
+    ensure_channel_permission(&state, channel_id, claims.user_id, CHANNEL_PERMISSION_WRITE).await?;
 
     let devices = state.db
         .get_member_devices_for_channel(channel_id)
@@ -547,41 +618,43 @@ pub async fn get_channel_member_devices(
 }
 
 pub async fn invite_to_channel(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
     Path(channel_id): Path<Uuid>,
     Json(req): Json<InviteRequest>,
 ) -> Result<(StatusCode, Json<InviteResponse>), AppError> {
     info!("Endpoint invite_to_channel cridat: channel_id={}, username={}, user_id={}", channel_id, req.username, claims.user_id);
-    let channel = _state.db.get_channel(channel_id).await.map_err(AppError::DatabaseError)?;
+    let channel = state.db.get_channel(channel_id).await.map_err(AppError::DatabaseError)?;
     let channel = channel.ok_or(AppError::ChannelNotFound)?;
 
-    let current_role = _state
-        .db
-        .is_server_member(channel.server_id, claims.user_id)
-        .await
-        .map_err(AppError::DatabaseError)?
-        .ok_or(AppError::NotServerMember)?;
+    let required_permission = if channel.encryption_type == EncryptionType::Asymmetric {
+        CHANNEL_PERMISSION_WRITE
+    } else {
+        CHANNEL_PERMISSION_MANAGE
+    };
 
-    if current_role != "owner" && current_role != "admin" && current_role != "member" {
+    if ensure_channel_permission(&state, channel_id, claims.user_id, required_permission)
+        .await
+        .is_err()
+    {
         return Err(AppError::Forbidden);
     }
 
-    let invited_user = _state
+    let invited_user = state
         .db
         .find_user_by_username(&req.username)
         .await
         .map_err(|_| AppError::InternalError)?
         .ok_or(AppError::UserNotFound)?;
 
-    if _state
+    if state
         .db
         .is_server_member(channel.server_id, invited_user.0)
         .await
         .map_err(AppError::DatabaseError)?
         .is_none()
     {
-        _state
+        state
             .db
             .add_server_member(channel.server_id, invited_user.0, "member")
             .await
@@ -589,14 +662,14 @@ pub async fn invite_to_channel(
     }
 
     if channel.is_private {
-        _state
+        state
             .db
-            .add_channel_member(channel_id, invited_user.0)
+            .add_channel_member_with_permission(channel_id, invited_user.0, CHANNEL_PERMISSION_WRITE)
             .await
             .map_err(AppError::DatabaseError)?;
     }
 
-    let invited_devices = _state
+    let invited_devices = state
         .db
         .list_devices_for_user(invited_user.0)
         .await
@@ -628,12 +701,7 @@ pub async fn update_channel(
     let channel = state.db.get_channel(channel_id).await.map_err(|e| AppError::DatabaseError(e))?;
     let channel = channel.ok_or(AppError::ChannelNotFound)?;
 
-    // Verificar que l'usuari és membre del servidor
-    let role = state.db.is_server_member(channel.server_id, claims.user_id).await
-        .map_err(|e| AppError::DatabaseError(e))?;
-    if role.is_none() {
-        return Err(AppError::Forbidden);
-    }
+    ensure_channel_permission(&state, channel_id, claims.user_id, CHANNEL_PERMISSION_MANAGE).await?;
 
     // Build partial update
     let name = req.name.as_deref();
@@ -687,16 +755,11 @@ pub async fn delete_channel(
 ) -> Result<StatusCode, AppError> {
     info!("Endpoint delete_channel cridat: channel_id={}, user_id={}", channel_id, claims.user_id);
 
-    // Get the channel to verify server membership
-    let channel = state.db.get_channel(channel_id).await.map_err(|e| AppError::DatabaseError(e))?;
-    let channel = channel.ok_or(AppError::ChannelNotFound)?;
+    // Validate channel exists before permission checks.
+    let _channel = state.db.get_channel(channel_id).await.map_err(|e| AppError::DatabaseError(e))?;
+    let _channel = _channel.ok_or(AppError::ChannelNotFound)?;
 
-    // Verificar que l'usuari és membre del servidor
-    let role = state.db.is_server_member(channel.server_id, claims.user_id).await
-        .map_err(|e| AppError::DatabaseError(e))?;
-    if role.is_none() {
-        return Err(AppError::Forbidden);
-    }
+    ensure_channel_permission(&state, channel_id, claims.user_id, CHANNEL_PERMISSION_MANAGE).await?;
 
     // Delete the channel from DB
     state.db.delete_channel(channel_id).await.map_err(|e| AppError::DatabaseError(e))?;
@@ -710,6 +773,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/servers/{server_id}/channels", get(list_channels).post(create_channel))
         .route("/api/channels/{channel_id}/read", post(mark_channel_read))
         .route("/api/channels/{channel_id}/keys", get(get_channel_keys).post(upload_channel_keys))
+        .route("/api/channels/{channel_id}/keys/rotate", post(rotate_channel_key))
         .route("/api/channels/{channel_id}/member-devices", get(get_channel_member_devices))
             .route("/api/channels/{channel_id}/keys/all", get(get_all_channel_key_bundles))
         .route("/api/channels/{channel_id}/invite", post(invite_to_channel))

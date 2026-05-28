@@ -508,6 +508,30 @@ CREATE INDEX idx_channel_keys_device ON channel_keys(device_id);
 CREATE INDEX idx_server_members_user ON server_members(user_id);
 ```
 
+### Model de Permisos Explícits
+
+Permisos de servidor (resolts per backend):
+
+- `1` -> `view` (accedir a informació i llistats)
+- `2` -> `manage_profile` (editar nom/icona)
+- `3` -> `manage_members` (convidar i gestionar rols)
+
+Mapeig actual per rol:
+
+- `owner` -> `3`
+- `admin` -> `3`
+- `member` -> `1`
+
+Permisos de canal (resolts per backend):
+
+- `1` -> `read`
+- `2` -> `write`
+- `3` -> `manage`
+
+En canals privats, la font de veritat és `channel_members.permission_level`.
+En canals públics, `member` té `write` i `owner/admin` tenen `manage`.
+En canals `scope=dm`, ambdós membres tenen `manage`.
+
 ### SQLite Compatibility
 
 Amb SQLx, les migracions són SQL pur. Per a SQLite:
