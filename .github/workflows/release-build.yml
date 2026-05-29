@@ -123,9 +123,6 @@ jobs:
           cp "$BIN_PATH" "$ARTIFACT_DIR/chillgroup-server"
           chmod +x "$ARTIFACT_DIR/chillgroup-server"
 
-          # Include precompiled frontend in all artifacts.
-          cp -r frontend/dist "$ARTIFACT_DIR/frontend-dist"
-
           if [ "${{ matrix.mode }}" = "external" ]; then
             # Keep runtime layout for external mode.
             cp -r frontend/dist "$ARTIFACT_DIR/static"
