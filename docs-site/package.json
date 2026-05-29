@@ -1,0 +1,16 @@
+{
+  "name": "chillgroup-docs-site",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@11.0.0",
+  "scripts": {
+    "sync:definitions": "node scripts/sync-definitions.mjs",
+    "docs:dev": "pnpm run sync:definitions && vitepress dev docs",
+    "docs:build": "pnpm run sync:definitions && vitepress build docs",
+    "docs:preview": "vitepress preview docs"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.3"
+  }
+}
