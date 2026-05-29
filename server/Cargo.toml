@@ -3,8 +3,14 @@ name = "chillgroup-server"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+embedded-assets = ["dep:include_dir", "dep:mime_guess"]
+
 [dependencies]
 shared = { path = "../shared" }
+include_dir = { version = "0.7", optional = true }
+mime_guess = { version = "2", optional = true }
 
 # Workspace dependencies
 axum = { workspace = true }

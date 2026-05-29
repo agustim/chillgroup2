@@ -16,9 +16,17 @@ use axum::{
     Router,
     middleware::{from_fn, from_fn_with_state},
 };
+#[cfg(feature = "embedded-assets")]
+use axum::{
+    body::Body,
+    http::{Uri, header},
+    response::{IntoResponse, Response},
+    routing::any,
+};
 use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
 use socketioxide::{SocketIo, extract::{Data, SocketRef}};
 use tower_http::cors::CorsLayer;
+#[cfg(not(feature = "embedded-assets"))]
 use tower_http::services::{ServeDir, ServeFile};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 use tracing::info;
@@ -30,6 +38,39 @@ use config::Config;
 use crate::db::DatabasePool;
 use crate::crypto::hash;
 use middleware::{AppState, auth::UserPresenceState};
+
+#[cfg(feature = "embedded-assets")]
+static EMBEDDED_FRONTEND: include_dir::Dir<'_> = include_dir::include_dir!("$CARGO_MANIFEST_DIR/../frontend/dist");
+
+#[cfg(feature = "embedded-assets")]
+fn embedded_asset_response(path: &str) -> Response {
+    let normalized = path.trim_start_matches('/');
+    let requested_path = if normalized.is_empty() { "index.html" } else { normalized };
+    let (resolved_path, file) = match EMBEDDED_FRONTEND.get_file(requested_path) {
+        Some(file) => (requested_path, Some(file)),
+        None if requested_path.contains('.') => (requested_path, None),
+        None => ("index.html", EMBEDDED_FRONTEND.get_file("index.html")),
+    };
+
+    let Some(file) = file else {
+        return axum::http::StatusCode::NOT_FOUND.into_response();
+    };
+
+    let content_type = mime_guess::from_path(resolved_path)
+        .first_or_octet_stream()
+        .essence_str()
+        .to_string();
+
+    (
+        [(header::CONTENT_TYPE, content_type)],
+        Body::from(file.contents()),
+    ).into_response()
+}
+
+#[cfg(feature = "embedded-assets")]
+async fn serve_embedded_asset(uri: Uri) -> Response {
+    embedded_asset_response(uri.path())
+}
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -178,10 +219,131 @@ async fn unregister_user_socket(
     }
 }
 
+struct CliOptions {
+    config_location: Option<String>,
+    generate_env_example_path: Option<String>,
+    force_overwrite: bool,
+}
+
+fn parse_cli_args() -> Result<CliOptions, String> {
+    let mut args = std::env::args().skip(1);
+    let mut config_location: Option<String> = None;
+    let mut generate_env_example_path: Option<String> = None;
+    let mut force_overwrite = false;
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "-c" | "--config" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "Falta el valor per a -c/--config".to_string())?;
+                config_location = Some(value);
+            }
+            "--generate-env-example" => {
+                if let Some(next_arg) = args.next() {
+                    if next_arg.starts_with('-') {
+                        return Err(
+                            "--generate-env-example accepta opcionalment una ruta de sortida"
+                                .to_string(),
+                        );
+                    }
+                    generate_env_example_path = Some(next_arg);
+                } else {
+                    generate_env_example_path = Some(".env.example".to_string());
+                }
+            }
+            "-f" | "--force" => {
+                force_overwrite = true;
+            }
+            "-h" | "--help" => {
+                println!(
+                    "Ús: chillgroup-server [-c <ruta_dir_o_fitxer_env>] [--generate-env-example [fitxer]] [-f|--force]\n\n\
+Per defecte es carrega .env del directori actual.\n\
+Exemples:\n\
+  chillgroup-server\n\
+  chillgroup-server -c /etc/chillgroup\n\
+  chillgroup-server --config /etc/chillgroup/.env\n\
+  chillgroup-server --generate-env-example\n\
+  chillgroup-server --generate-env-example /etc/chillgroup/.env\n\
+  chillgroup-server --generate-env-example .env.example --force"
+                );
+                std::process::exit(0);
+            }
+            other => {
+                return Err(format!("Argument desconegut: {}", other));
+            }
+        }
+    }
+
+    Ok(CliOptions {
+        config_location,
+        generate_env_example_path,
+        force_overwrite,
+    })
+}
+
+fn env_example_template() -> &'static str {
+    "# Servidor\n\
+SERVER_HOST=0.0.0.0\n\
+SERVER_PORT=8080\n\
+BACKEND_DEBUG=info\n\
+\n\
+# Base de dades (PostgreSQL o SQLite)\n\
+DATABASE_URL=sqlite://chillgroup.db\n\
+# o DATABASE_URL=postgres://user:pass@localhost:5432/chillgroup\n\
+\n\
+# Registre\n\
+OPEN_REGISTER=true\n\
+# Si OPEN_REGISTER=false, defineix ADMIN_USER i ADMIN_PASSWORD\n\
+# ADMIN_USER=admin\n\
+# ADMIN_PASSWORD=canvia-aixo\n\
+\n\
+# Cleanup TTL (minuts)\n\
+TTL_CLEANUP_INTERVAL_MINUTES=5\n\
+\n\
+# LiveKit\n\
+LIVEKIT_HOST=http://localhost:7880\n\
+LIVEKIT_API_KEY=devkey\n\
+LIVEKIT_API_SECRET=secret\n\
+\n\
+# JWT\n\
+JWT_SECRET=el-teu-secret-aqui-canvia-aixo\n\
+JWT_EXPIRATION_DAYS=7\n\
+\n\
+# Clau mestra del servidor (32 bytes en hex = 64 caràcters)\n\
+SERVER_MASTER_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n\
+\n\
+# Ruta opcional per assets estàtics en mode external\n\
+# STATIC_DIR=./static\n"
+}
+
+fn generate_env_example(path: &str, force_overwrite: bool) -> Result<(), String> {
+    if std::path::Path::new(path).exists() && !force_overwrite {
+        return Err(format!(
+            "El fitxer {} ja existeix. Usa --force per sobreescriure'l",
+            path
+        ));
+    }
+
+    std::fs::write(path, env_example_template())
+        .map_err(|e| format!("No s'ha pogut escriure l'exemple .env a {}: {}", path, e))
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let cli = parse_cli_args()
+        .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))?;
+
+    if let Some(path) = cli.generate_env_example_path.as_deref() {
+        generate_env_example(path, cli.force_overwrite)
+            .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))?;
+        println!("✅ Exemple .env generat a: {}", path);
+        return Ok(());
+    }
+
     // Carregar configuració abans d'inicialitzar tracing per poder aplicar BACKEND_DEBUG.
-    let (config, env_path) = Config::from_env().map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))?;
+    let (config, env_path) = Config::from_env(cli.config_location.as_deref())
+        .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))?;
 
     // Inicialitzar tracing amb nivells de log
     let subscriber = FmtSubscriber::builder()
@@ -702,19 +864,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Combinar rutes públiques i protegides
     let mut app = public_app.merge(protected_app).layer(CorsLayer::permissive());
 
-    // Servir fitxers estàtics del frontend si STATIC_DIR existeix
-    let static_dir = state.config.static_dir
-        .clone()
-        .unwrap_or_else(|| "./static".to_string());
-    let static_path = std::path::Path::new(&static_dir);
-    if static_path.exists() {
-        info!("📦 Servint frontend estàtic des de: {}", static_dir);
-        let index = static_path.join("index.html");
-        let serve_dir = ServeDir::new(static_path)
-            .not_found_service(ServeFile::new(index));
-        app = app.fallback_service(serve_dir);
-    } else {
-        info!("ℹ️  Directori estàtic no trobat ({}), mode API only", static_dir);
+    #[cfg(feature = "embedded-assets")]
+    {
+        info!("📦 Servint frontend incrustat dins del binari");
+        app = app.fallback(any(serve_embedded_asset));
+    }
+
+    #[cfg(not(feature = "embedded-assets"))]
+    {
+        let static_dir = state.config.static_dir
+            .clone()
+            .unwrap_or_else(|| "./static".to_string());
+        let static_path = std::path::Path::new(&static_dir);
+        if static_path.exists() {
+            info!("📦 Servint frontend estàtic des de: {}", static_dir);
+            let index = static_path.join("index.html");
+            let serve_dir = ServeDir::new(static_path)
+                .not_found_service(ServeFile::new(index));
+            app = app.fallback_service(serve_dir);
+        } else {
+            info!("ℹ️  Directori estàtic no trobat ({}), mode API only", static_dir);
+        }
     }
 
     let app = app.layer(socket_layer);

@@ -78,18 +78,28 @@ fn decode_hex_key_32(value: &str) -> Result<[u8; 32], String> {
 impl Config {
     /// Carregar configuració des de variables d'entorn i .env.
     /// Retorna el Config i la ruta del fitxer .env carregat.
-    pub fn from_env() -> Result<(Self, PathBuf), String> {
-        // El .env sempre és a l'arrel del projecte (pare de server/)
-        let server_dir = env!("CARGO_MANIFEST_DIR");
-        let project_root = std::path::Path::new(server_dir)
-            .parent()
-            .ok_or("No s'ha pogut obtenir el directori pare")?;
-        
-        let env_path = project_root.join(".env");
+    pub fn from_env(config_location: Option<&str>) -> Result<(Self, PathBuf), String> {
+        let env_path = match config_location {
+            Some(location) => {
+                let path = PathBuf::from(location);
+                if path.is_dir() {
+                    path.join(".env")
+                } else {
+                    path
+                }
+            }
+            None => env::current_dir()
+                .map_err(|e| format!("No s'ha pogut obtenir el directori actual: {}", e))?
+                .join(".env"),
+        };
+
         if env_path.exists() {
             dotenvy::from_path(&env_path).map_err(|e| format!("Error carregant .env: {}", e))?;
         } else {
-            return Err("No s'ha trobat el fitxer .env a l'arrel del projecte".into());
+            return Err(format!(
+                "No s'ha trobat el fitxer .env a: {}",
+                env_path.display()
+            ));
         }
 
         fn get_var(key: &str) -> Result<String, String> {

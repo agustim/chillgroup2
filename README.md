@@ -76,6 +76,28 @@ cd server
 cargo run
 ```
 
+Per defecte el servidor carrega `.env` del directori actual.
+També pots indicar ruta de directori o fitxer:
+
+```bash
+cargo run -- -c /etc/chillgroup
+# o
+cargo run -- --config /etc/chillgroup/.env
+```
+
+Per generar només un `.env` d'exemple (sense arrencar el servidor):
+
+```bash
+cargo run -- --generate-env-example
+# o amb ruta explícita
+cargo run -- --generate-env-example /etc/chillgroup/.env
+# si el fitxer ja existeix
+cargo run -- --generate-env-example /etc/chillgroup/.env --force
+```
+
+Nota: si el fitxer de sortida ja existeix, la comanda falla per defecte.
+Per sobreescriure, cal `-f` o `--force`.
+
 El servidor escoltarà a `http://localhost:8080`.
 
 ### 4. Arrancar el frontend
@@ -87,6 +109,8 @@ pnpm dev
 ```
 
 El frontend estarà a `http://localhost:5173`.
+
+Nota sobre variables d'entorn del frontend: amb Vite es resolen en temps de compilació (build-time), no en temps d'execució del binari.
 
 ## 📊 Base de dades
 
