@@ -1068,6 +1068,53 @@ curl -X POST http://localhost:8080/api/user/me/check-limits \
   -d '{"action":"create_text_channel","serverId":"550e8400-e29b-41d4-a716-446655440010"}'
 ```
 
+### Gestió de Plans (Admin)
+
+Proposta adoptada per al menú d'administració: **"Gestió de plans"**.
+
+Objectiu operatiu:
+- Permetre a admins crear/editar/esborrar plans personalitzats sense tocar BD manualment.
+- Mantenir els plans base (`free`, `pro`, `enterprise`) protegits.
+- Evitar esborrat de plans en ús (cal reassignar usuaris primer).
+
+Com provar el flux complet en local:
+
+```bash
+# 1) Llistar plans com admin
+curl http://localhost:8080/api/admin/plans \
+    -H "Authorization: Bearer $ADMIN_JWT"
+
+# 2) Crear plan custom
+curl -X POST http://localhost:8080/api/admin/plans \
+    -H "Authorization: Bearer $ADMIN_JWT" \
+    -H "Content-Type: application/json" \
+    -d '{
+        "name": "team_plus",
+        "displayName": "Team Plus",
+        "description": "Plan per equips",
+        "maxServers": 8,
+        "maxChannelsTextPerServer": 30,
+        "maxChannelsVoicePerServer": 15,
+        "maxMembersPerServer": 800,
+        "apiCallsPerMinute": 1200,
+        "messagesPerDay": -1
+    }'
+
+# 3) Modificar plan custom
+curl -X PUT http://localhost:8080/api/admin/plans/:planId \
+    -H "Authorization: Bearer $ADMIN_JWT" \
+    -H "Content-Type: application/json" \
+    -d '{"displayName":"Team Plus Updated","maxServers":10}'
+
+# 4) Assignar-lo a un usuari
+curl -X PUT http://localhost:8080/api/admin/users/:userId/plan/:planId \
+    -H "Authorization: Bearer $ADMIN_JWT"
+
+# 5) Intent d'esborrat mentre està en ús (ha de fallar amb 409)
+curl -X DELETE http://localhost:8080/api/admin/plans/:planId \
+    -H "Authorization: Bearer $ADMIN_JWT"
+```
+
 ### Frontend — Mostrar Plans i Límits
 
 El frontend ha de:

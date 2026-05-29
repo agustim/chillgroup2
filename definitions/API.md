@@ -631,29 +631,29 @@ Canviar el plan (tier) d'un usuari (admin only). S'usa per upgrade/downgrade o a
 **Headers:** `Authorization: Bearer <JWT>` (usuari admin requerida)
 **Path Params:** 
 - `userId` (string): ID del usuari
-- `planId` (string): ID del plan ("free", "pro", "enterprise" o UUID)
+- `planId` (string): UUID del plan
 
-**Response 200 OK:**
-```json
-{
-  "success": true,
-  "data": {
-    "userId": "550e8400-e29b-41d4-a716-446655440003",
-    "username": "marcus",
-    "planId": "550e8400-e29b-41d4-a716-446655441002",
-    "planName": "pro",
-    "updatedAt": "2026-05-13T12:00:00Z"
-  }
-}
-```
+**Response 204 No Content:**
+Plan assignat correctament.
 
-**Response 404 Not Found (usuari o plan no existeix):**
+**Response 404 Not Found (usuari no existeix):**
 ```json
 {
   "success": false,
   "error": {
     "code": 404,
-    "message": "Usuari o plan no trobat"
+    "message": "Usuari no trobat"
+  }
+}
+```
+
+**Response 400 Bad Request (plan no existeix):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": 400,
+    "message": "Petició incorrecta"
   }
 }
 ```
@@ -673,9 +673,138 @@ Canviar el plan (tier) d'un usuari (admin only). S'usa per upgrade/downgrade o a
 
 ## Plans i Límits
 
+### Gestió de Plans (Admin)
+
+Els endpoints de gestió de plans són exclusius d'administrador i permeten operar sobre plans personalitzats (crear, modificar, eliminar).
+
+**Regles de negoci:**
+- Els plans del sistema (`free`, `pro`, `enterprise`) són protegits i no es poden modificar ni eliminar.
+- No es pot eliminar un plan que tingui usuaris assignats.
+- Els camps de límit admeten `-1` com a "sense límit".
+
+### GET `/api/admin/plans`
+
+Llistar tots els plans amb marca de sistema.
+
+**Headers:** `Authorization: Bearer <JWT>` (usuari admin requerida)
+
+**Response 200 OK:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655441001",
+      "name": "free",
+      "displayName": "Free",
+      "description": "Plan gratuït",
+      "maxServers": 1,
+      "maxChannelsTextPerServer": 3,
+      "maxChannelsVoicePerServer": 2,
+      "maxMembersPerServer": 20,
+      "apiCallsPerMinute": 60,
+      "messagesPerDay": 10000,
+      "isSystem": true
+    }
+  ]
+}
+```
+
+### POST `/api/admin/plans`
+
+Crear un plan personalitzat.
+
+**Headers:** `Authorization: Bearer <JWT>` (usuari admin requerida)
+**Request Body:**
+```json
+{
+  "name": "team_plus",
+  "displayName": "Team Plus",
+  "description": "Plan per equips",
+  "maxServers": 8,
+  "maxChannelsTextPerServer": 30,
+  "maxChannelsVoicePerServer": 15,
+  "maxMembersPerServer": 800,
+  "apiCallsPerMinute": 1200,
+  "messagesPerDay": -1
+}
+```
+
+**Response 201 Created:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "550e8400-e29b-41d4-a716-446655449999",
+    "name": "team_plus",
+    "displayName": "Team Plus",
+    "description": "Plan per equips",
+    "maxServers": 8,
+    "maxChannelsTextPerServer": 30,
+    "maxChannelsVoicePerServer": 15,
+    "maxMembersPerServer": 800,
+    "apiCallsPerMinute": 1200,
+    "messagesPerDay": -1,
+    "isSystem": false
+  }
+}
+```
+
+### PUT `/api/admin/plans/:planId`
+
+Modificar un plan personalitzat (actualització parcial).
+
+**Headers:** `Authorization: Bearer <JWT>` (usuari admin requerida)
+**Path Params:** `{ "planId": "string" }`
+
+**Request Body (exemple):**
+```json
+{
+  "displayName": "Team Plus Updated",
+  "maxServers": 10
+}
+```
+
+**Response 204 No Content:**
+Plan actualitzat correctament.
+
+**Response 403 Forbidden (plan del sistema):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": 403,
+    "message": "Aquest plan del sistema no es pot modificar"
+  }
+}
+```
+
+### DELETE `/api/admin/plans/:planId`
+
+Eliminar un plan personalitzat.
+
+**Headers:** `Authorization: Bearer <JWT>` (usuari admin requerida)
+**Path Params:** `{ "planId": "string" }`
+
+**Response 204 No Content:**
+Plan eliminat correctament.
+
+**Response 409 Conflict (plan en ús):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": 409,
+    "message": "No es pot eliminar un plan que està assignat a usuaris"
+  }
+}
+```
+
 ### GET `/api/plans`
 
-Llistar tots els plans de SaaS disponibles (públic, no necessita autenticació).
+Llistar tots els plans disponibles per al client autenticat.
+
+**Headers:** `Authorization: Bearer <JWT>`
 
 **Response 200 OK:**
 ```json

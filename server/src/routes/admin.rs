@@ -16,6 +16,8 @@ use crate::{
 };
 use shared::constants::MIN_PASSWORD_LENGTH;
 
+const SYSTEM_PLAN_NAMES: [&str; 3] = ["free", "pro", "enterprise"];
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdminUserItem {
@@ -78,6 +80,50 @@ pub struct AdminTierUsage {
     pub api_calls_this_minute: i64,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminPlanItem {
+    pub id: Uuid,
+    pub name: String,
+    pub display_name: String,
+    pub description: Option<String>,
+    pub max_servers: i32,
+    pub max_channels_text_per_server: i32,
+    pub max_channels_voice_per_server: i32,
+    pub max_members_per_server: i32,
+    pub api_calls_per_minute: i32,
+    pub messages_per_day: i32,
+    pub is_system: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateAdminPlanRequest {
+    pub name: String,
+    pub display_name: String,
+    pub description: Option<String>,
+    pub max_servers: i32,
+    pub max_channels_text_per_server: i32,
+    pub max_channels_voice_per_server: i32,
+    pub max_members_per_server: i32,
+    pub api_calls_per_minute: i32,
+    pub messages_per_day: i32,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAdminPlanRequest {
+    pub name: Option<String>,
+    pub display_name: Option<String>,
+    pub description: Option<Option<String>>,
+    pub max_servers: Option<i32>,
+    pub max_channels_text_per_server: Option<i32>,
+    pub max_channels_voice_per_server: Option<i32>,
+    pub max_members_per_server: Option<i32>,
+    pub api_calls_per_minute: Option<i32>,
+    pub messages_per_day: Option<i32>,
+}
+
 fn parse_role(role: Option<String>) -> Result<&'static str, AppError> {
     match role
         .unwrap_or_else(|| "user".to_string())
@@ -89,6 +135,309 @@ fn parse_role(role: Option<String>) -> Result<&'static str, AppError> {
         "admin" => Ok("admin"),
         _ => Err(AppError::BadRequest),
     }
+}
+
+fn is_system_plan_name(name: &str) -> bool {
+    SYSTEM_PLAN_NAMES.contains(&name)
+}
+
+fn normalize_plan_name(name: &str) -> Result<String, AppError> {
+    let normalized = name.trim().to_ascii_lowercase();
+    let valid = normalized
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-');
+    if normalized.len() < 2 || normalized.len() > 32 || !valid {
+        return Err(AppError::BadRequest);
+    }
+
+    Ok(normalized)
+}
+
+fn validate_limit_value(value: i32) -> Result<(), AppError> {
+    if value < -1 {
+        return Err(AppError::BadRequest);
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn to_admin_plan_item(
+    id: Uuid,
+    name: String,
+    display_name: String,
+    description: Option<String>,
+    max_servers: i32,
+    max_channels_text_per_server: i32,
+    max_channels_voice_per_server: i32,
+    max_members_per_server: i32,
+    api_calls_per_minute: i32,
+    messages_per_day: i32,
+) -> AdminPlanItem {
+    let is_system = is_system_plan_name(&name);
+    AdminPlanItem {
+        id,
+        name,
+        display_name,
+        description,
+        max_servers,
+        max_channels_text_per_server,
+        max_channels_voice_per_server,
+        max_members_per_server,
+        api_calls_per_minute,
+        messages_per_day,
+        is_system,
+    }
+}
+
+pub async fn list_admin_plans(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    if !claims.is_admin {
+        return Err(AppError::Forbidden);
+    }
+
+    let plans = state
+        .db
+        .list_plans_admin()
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+
+    let data = plans
+        .into_iter()
+        .map(
+            |(
+                id,
+                name,
+                display_name,
+                description,
+                max_servers,
+                max_channels_text_per_server,
+                max_channels_voice_per_server,
+                max_members_per_server,
+                api_calls_per_minute,
+                messages_per_day,
+            )| {
+                to_admin_plan_item(
+                    id,
+                    name,
+                    display_name,
+                    description,
+                    max_servers,
+                    max_channels_text_per_server,
+                    max_channels_voice_per_server,
+                    max_members_per_server,
+                    api_calls_per_minute,
+                    messages_per_day,
+                )
+            },
+        )
+        .collect::<Vec<_>>();
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "data": data,
+    })))
+}
+
+pub async fn create_admin_plan(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Json(req): Json<CreateAdminPlanRequest>,
+) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
+    if !claims.is_admin {
+        return Err(AppError::Forbidden);
+    }
+
+    let name = normalize_plan_name(&req.name)?;
+    let display_name = req.display_name.trim();
+    if display_name.is_empty() {
+        return Err(AppError::BadRequest);
+    }
+    validate_limit_value(req.max_servers)?;
+    validate_limit_value(req.max_channels_text_per_server)?;
+    validate_limit_value(req.max_channels_voice_per_server)?;
+    validate_limit_value(req.max_members_per_server)?;
+    validate_limit_value(req.api_calls_per_minute)?;
+    validate_limit_value(req.messages_per_day)?;
+
+    if state
+        .db
+        .get_plan_id_by_name(&name)
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?
+        .is_some()
+    {
+        return Err(AppError::PlanNameExists);
+    }
+
+    let plan_id = Uuid::new_v4();
+    state
+        .db
+        .create_plan_admin(
+            plan_id,
+            &name,
+            display_name,
+            req.description.as_deref(),
+            req.max_servers,
+            req.max_channels_text_per_server,
+            req.max_channels_voice_per_server,
+            req.max_members_per_server,
+            req.api_calls_per_minute,
+            req.messages_per_day,
+        )
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({
+            "success": true,
+            "data": {
+                "id": plan_id,
+                "name": name,
+                "displayName": display_name,
+                "description": req.description,
+                "maxServers": req.max_servers,
+                "maxChannelsTextPerServer": req.max_channels_text_per_server,
+                "maxChannelsVoicePerServer": req.max_channels_voice_per_server,
+                "maxMembersPerServer": req.max_members_per_server,
+                "apiCallsPerMinute": req.api_calls_per_minute,
+                "messagesPerDay": req.messages_per_day,
+                "isSystem": false
+            }
+        })),
+    ))
+}
+
+pub async fn update_admin_plan(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path(plan_id): Path<Uuid>,
+    Json(req): Json<UpdateAdminPlanRequest>,
+) -> Result<StatusCode, AppError> {
+    if !claims.is_admin {
+        return Err(AppError::Forbidden);
+    }
+
+    let existing = state
+        .db
+        .get_plan_by_id_admin(plan_id)
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?
+        .ok_or(AppError::PlanNotFound)?;
+
+    if is_system_plan_name(&existing.1) {
+        return Err(AppError::PlanProtected);
+    }
+
+    let name = match req.name {
+        Some(name) => normalize_plan_name(&name)?,
+        None => existing.1,
+    };
+
+    if let Some(other_plan_id) = state
+        .db
+        .get_plan_id_by_name(&name)
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?
+    {
+        if other_plan_id != plan_id {
+            return Err(AppError::PlanNameExists);
+        }
+    }
+
+    let display_name = req
+        .display_name
+        .unwrap_or(existing.2)
+        .trim()
+        .to_string();
+    if display_name.is_empty() {
+        return Err(AppError::BadRequest);
+    }
+
+    let description = req.description.unwrap_or(existing.3);
+    let max_servers = req.max_servers.unwrap_or(existing.4);
+    let max_channels_text_per_server = req
+        .max_channels_text_per_server
+        .unwrap_or(existing.5);
+    let max_channels_voice_per_server = req
+        .max_channels_voice_per_server
+        .unwrap_or(existing.6);
+    let max_members_per_server = req.max_members_per_server.unwrap_or(existing.7);
+    let api_calls_per_minute = req.api_calls_per_minute.unwrap_or(existing.8);
+    let messages_per_day = req.messages_per_day.unwrap_or(existing.9);
+
+    validate_limit_value(max_servers)?;
+    validate_limit_value(max_channels_text_per_server)?;
+    validate_limit_value(max_channels_voice_per_server)?;
+    validate_limit_value(max_members_per_server)?;
+    validate_limit_value(api_calls_per_minute)?;
+    validate_limit_value(messages_per_day)?;
+
+    let updated = state
+        .db
+        .update_plan_by_id(
+            plan_id,
+            &name,
+            &display_name,
+            description.as_deref(),
+            max_servers,
+            max_channels_text_per_server,
+            max_channels_voice_per_server,
+            max_members_per_server,
+            api_calls_per_minute,
+            messages_per_day,
+        )
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+
+    if !updated {
+        return Err(AppError::PlanNotFound);
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn delete_admin_plan(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path(plan_id): Path<Uuid>,
+) -> Result<StatusCode, AppError> {
+    if !claims.is_admin {
+        return Err(AppError::Forbidden);
+    }
+
+    let existing = state
+        .db
+        .get_plan_by_id_admin(plan_id)
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?
+        .ok_or(AppError::PlanNotFound)?;
+
+    if is_system_plan_name(&existing.1) {
+        return Err(AppError::PlanProtected);
+    }
+
+    let users_count = state
+        .db
+        .count_users_with_plan(plan_id)
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+    if users_count > 0 {
+        return Err(AppError::PlanInUse);
+    }
+
+    let deleted = state
+        .db
+        .delete_plan_by_id(plan_id)
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+    if !deleted {
+        return Err(AppError::PlanNotFound);
+    }
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn list_users(
@@ -537,6 +886,11 @@ pub fn router(state: AppState) -> Router {
             "/api/admin/servers/{server_id}",
             put(update_server).delete(delete_server),
         )
+        .route("/api/admin/plans", get(list_admin_plans).post(create_admin_plan))
+        .route(
+            "/api/admin/plans/{plan_id}",
+            put(update_admin_plan).delete(delete_admin_plan),
+        )
         .with_state(state)
 }
 
@@ -719,5 +1073,176 @@ mod tests {
             .await
             .expect("user lookup should work");
         assert!(still_exists.is_none());
+    }
+
+    #[tokio::test]
+    async fn admin_can_create_update_and_delete_custom_plan() {
+        let state = make_state().await;
+        let admin_id = state
+            .db
+            .create_user_with_role("admin_plan_mgr", "hash", "admin")
+            .await
+            .expect("admin creation should work");
+
+        let (status, body) = create_admin_plan(
+            State(state.clone()),
+            axum::Extension(claims_for(admin_id, "admin_plan_mgr", true)),
+            Json(CreateAdminPlanRequest {
+                name: "team_plus".to_string(),
+                display_name: "Team Plus".to_string(),
+                description: Some("Plan per equips".to_string()),
+                max_servers: 8,
+                max_channels_text_per_server: 30,
+                max_channels_voice_per_server: 15,
+                max_members_per_server: 800,
+                api_calls_per_minute: 1200,
+                messages_per_day: -1,
+            }),
+        )
+        .await
+        .expect("plan creation should work");
+
+        assert_eq!(status, StatusCode::CREATED);
+        let plan_id = Uuid::parse_str(
+            body.0["data"]["id"]
+                .as_str()
+                .expect("created plan id should be string"),
+        )
+        .expect("created plan id should be valid uuid");
+
+        let update_status = update_admin_plan(
+            State(state.clone()),
+            axum::Extension(claims_for(admin_id, "admin_plan_mgr", true)),
+            Path(plan_id),
+            Json(UpdateAdminPlanRequest {
+                display_name: Some("Team Plus Updated".to_string()),
+                max_servers: Some(10),
+                ..Default::default()
+            }),
+        )
+        .await
+        .expect("plan update should work");
+        assert_eq!(update_status, StatusCode::NO_CONTENT);
+
+        let updated_plan = state
+            .db
+            .get_plan_by_id_admin(plan_id)
+            .await
+            .expect("plan lookup should work")
+            .expect("plan should exist");
+        assert_eq!(updated_plan.2, "Team Plus Updated");
+        assert_eq!(updated_plan.4, 10);
+
+        let delete_status = delete_admin_plan(
+            State(state.clone()),
+            axum::Extension(claims_for(admin_id, "admin_plan_mgr", true)),
+            Path(plan_id),
+        )
+        .await
+        .expect("plan delete should work");
+        assert_eq!(delete_status, StatusCode::NO_CONTENT);
+
+        let deleted_plan = state
+            .db
+            .get_plan_by_id_admin(plan_id)
+            .await
+            .expect("plan lookup should work after delete");
+        assert!(deleted_plan.is_none());
+    }
+
+    #[tokio::test]
+    async fn admin_cannot_delete_plan_if_in_use() {
+        let state = make_state().await;
+        let admin_id = state
+            .db
+            .create_user_with_role("admin_plan_guard", "hash", "admin")
+            .await
+            .expect("admin creation should work");
+        let target_user_id = state
+            .db
+            .create_user_with_role("plan_target_user", "hash", "user")
+            .await
+            .expect("user creation should work");
+
+        let created = create_admin_plan(
+            State(state.clone()),
+            axum::Extension(claims_for(admin_id, "admin_plan_guard", true)),
+            Json(CreateAdminPlanRequest {
+                name: "starter_plus".to_string(),
+                display_name: "Starter Plus".to_string(),
+                description: None,
+                max_servers: 2,
+                max_channels_text_per_server: 6,
+                max_channels_voice_per_server: 4,
+                max_members_per_server: 40,
+                api_calls_per_minute: 120,
+                messages_per_day: 20000,
+            }),
+        )
+        .await
+        .expect("plan creation should work");
+
+        let plan_id = Uuid::parse_str(
+            created
+                .1
+                .0["data"]["id"]
+                .as_str()
+                .expect("created plan id should be string"),
+        )
+        .expect("created plan id should be valid uuid");
+
+        state
+            .db
+            .set_user_plan_by_id(target_user_id, plan_id)
+            .await
+            .expect("assigning plan should work");
+
+        let result = delete_admin_plan(
+            State(state),
+            axum::Extension(claims_for(admin_id, "admin_plan_guard", true)),
+            Path(plan_id),
+        )
+        .await;
+
+        assert!(matches!(result, Err(AppError::PlanInUse)));
+    }
+
+    #[tokio::test]
+    async fn admin_cannot_modify_system_plan() {
+        let state = make_state().await;
+        let admin_id = state
+            .db
+            .create_user_with_role("admin_plan_lock", "hash", "admin")
+            .await
+            .expect("admin creation should work");
+
+        let free_plan_id = state
+            .db
+            .get_plan_id_by_name("free")
+            .await
+            .expect("free plan lookup should work")
+            .expect("free plan should exist");
+
+        let update_result = update_admin_plan(
+            State(state.clone()),
+            axum::Extension(claims_for(admin_id, "admin_plan_lock", true)),
+            Path(free_plan_id),
+            Json(UpdateAdminPlanRequest {
+                display_name: Some("Free Updated".to_string()),
+                ..Default::default()
+            }),
+        )
+        .await;
+
+        assert!(matches!(update_result, Err(AppError::PlanProtected)));
+
+        let delete_result = delete_admin_plan(
+            State(state),
+            axum::Extension(claims_for(admin_id, "admin_plan_lock", true)),
+            Path(free_plan_id),
+        )
+        .await;
+
+        assert!(matches!(delete_result, Err(AppError::PlanProtected)));
     }
 }

@@ -172,6 +172,32 @@ export interface AdminServerItem {
   createdAt: string
 }
 
+export interface AdminPlanItem {
+  id: string
+  name: string
+  displayName: string
+  description: string | null
+  maxServers: number
+  maxChannelsTextPerServer: number
+  maxChannelsVoicePerServer: number
+  maxMembersPerServer: number
+  apiCallsPerMinute: number
+  messagesPerDay: number
+  isSystem: boolean
+}
+
+export interface AdminPlanInput {
+  name: string
+  displayName: string
+  description?: string | null
+  maxServers: number
+  maxChannelsTextPerServer: number
+  maxChannelsVoicePerServer: number
+  maxMembersPerServer: number
+  apiCallsPerMinute: number
+  messagesPerDay: number
+}
+
 export interface InvitationCreateInfo {
   invitationId: string
   code: string
@@ -1062,6 +1088,22 @@ function mapAdminServerItem(raw: any): AdminServerItem {
   }
 }
 
+function mapAdminPlanItem(raw: any): AdminPlanItem {
+  return {
+    id: raw.id,
+    name: raw.name,
+    displayName: raw.displayName ?? raw.display_name,
+    description: raw.description ?? null,
+    maxServers: raw.maxServers ?? raw.max_servers,
+    maxChannelsTextPerServer: raw.maxChannelsTextPerServer ?? raw.max_channels_text_per_server,
+    maxChannelsVoicePerServer: raw.maxChannelsVoicePerServer ?? raw.max_channels_voice_per_server,
+    maxMembersPerServer: raw.maxMembersPerServer ?? raw.max_members_per_server,
+    apiCallsPerMinute: raw.apiCallsPerMinute ?? raw.api_calls_per_minute,
+    messagesPerDay: raw.messagesPerDay ?? raw.messages_per_day,
+    isSystem: Boolean(raw.isSystem ?? raw.is_system),
+  }
+}
+
 export async function adminUsersList(): Promise<ApiResult<AdminUserItem[]>> {
   const result = await apiRequest<any>('GET', '/api/admin/users')
   if (!result.success) return result
@@ -1149,6 +1191,52 @@ export async function adminServersUpdate(serverId: string, name?: string, iconUr
 
 export async function adminServersDelete(serverId: string): Promise<ApiResult<void>> {
   const result = await apiRequest<void>('DELETE', `/api/admin/servers/${serverId}`)
+  if (!result.success) return result
+  return { success: true, data: undefined }
+}
+
+export async function adminPlansList(): Promise<ApiResult<AdminPlanItem[]>> {
+  const result = await apiRequest<any>('GET', '/api/admin/plans')
+  if (!result.success) return result
+  const data = Array.isArray(result.data) ? result.data : (result.data?.data ?? [])
+  return { success: true, data: data.map(mapAdminPlanItem) }
+}
+
+export async function adminPlansCreate(input: AdminPlanInput): Promise<ApiResult<AdminPlanItem>> {
+  const result = await apiRequest<any>('POST', '/api/admin/plans', {
+    name: input.name,
+    displayName: input.displayName,
+    description: input.description ?? null,
+    maxServers: input.maxServers,
+    maxChannelsTextPerServer: input.maxChannelsTextPerServer,
+    maxChannelsVoicePerServer: input.maxChannelsVoicePerServer,
+    maxMembersPerServer: input.maxMembersPerServer,
+    apiCallsPerMinute: input.apiCallsPerMinute,
+    messagesPerDay: input.messagesPerDay,
+  })
+  if (!result.success) return result
+  return { success: true, data: mapAdminPlanItem(result.data) }
+}
+
+export async function adminPlansUpdate(planId: string, input: Partial<AdminPlanInput>): Promise<ApiResult<void>> {
+  const payload: Record<string, unknown> = {}
+  if (input.name !== undefined) payload.name = input.name
+  if (input.displayName !== undefined) payload.displayName = input.displayName
+  if (input.description !== undefined) payload.description = input.description
+  if (input.maxServers !== undefined) payload.maxServers = input.maxServers
+  if (input.maxChannelsTextPerServer !== undefined) payload.maxChannelsTextPerServer = input.maxChannelsTextPerServer
+  if (input.maxChannelsVoicePerServer !== undefined) payload.maxChannelsVoicePerServer = input.maxChannelsVoicePerServer
+  if (input.maxMembersPerServer !== undefined) payload.maxMembersPerServer = input.maxMembersPerServer
+  if (input.apiCallsPerMinute !== undefined) payload.apiCallsPerMinute = input.apiCallsPerMinute
+  if (input.messagesPerDay !== undefined) payload.messagesPerDay = input.messagesPerDay
+
+  const result = await apiRequest<void>('PUT', `/api/admin/plans/${planId}`, payload)
+  if (!result.success) return result
+  return { success: true, data: undefined }
+}
+
+export async function adminPlansDelete(planId: string): Promise<ApiResult<void>> {
+  const result = await apiRequest<void>('DELETE', `/api/admin/plans/${planId}`)
   if (!result.success) return result
   return { success: true, data: undefined }
 }

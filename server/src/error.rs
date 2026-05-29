@@ -68,6 +68,15 @@ pub enum AppError {
     MemberExists,
     #[error("Membre no trobat")]
     MemberNotFound,
+    // Plans (2600-2699)
+    #[error("Plan no trobat")]
+    PlanNotFound,
+    #[error("Ja existeix un plan amb aquest nom")]
+    PlanNameExists,
+    #[error("Aquest plan del sistema no es pot modificar")]
+    PlanProtected,
+    #[error("No es pot eliminar un plan que està assignat a usuaris")]
+    PlanInUse,
     // Canals (3000-3099)
     #[error("Canal no trobat")]
     ChannelNotFound,
@@ -195,6 +204,18 @@ impl IntoResponse for AppError {
             ),
             AppError::MemberNotFound => (
                 StatusCode::NOT_FOUND, 2007, "Membre no trobat".to_string(), None,
+            ),
+            AppError::PlanNotFound => (
+                StatusCode::NOT_FOUND, 2601, "Plan no trobat".to_string(), None,
+            ),
+            AppError::PlanNameExists => (
+                StatusCode::CONFLICT, 2602, "Ja existeix un plan amb aquest nom".to_string(), None,
+            ),
+            AppError::PlanProtected => (
+                StatusCode::FORBIDDEN, 2603, "Aquest plan del sistema no es pot modificar".to_string(), None,
+            ),
+            AppError::PlanInUse => (
+                StatusCode::CONFLICT, 2604, "No es pot eliminar un plan que està assignat a usuaris".to_string(), None,
             ),
             AppError::ChannelNotFound => (
                 StatusCode::NOT_FOUND, 3001, "Canal no trobat".to_string(), None,

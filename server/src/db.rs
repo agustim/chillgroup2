@@ -953,6 +953,216 @@ impl DatabasePool {
         }
     }
 
+    pub async fn get_plan_by_id_admin(
+        &self,
+        plan_id: Uuid,
+    ) -> Result<Option<(Uuid, String, String, Option<String>, i32, i32, i32, i32, i32, i32)>, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(
+                    "SELECT id, name, display_name, description, max_servers, max_channels_text_per_server, max_channels_voice_per_server, max_members_per_server, api_calls_per_minute, messages_per_day FROM plans WHERE id = $1",
+                )
+                .bind(plan_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| format!("Error obtenint plan per id (Postgres): {}", e))?;
+
+                Ok(row.map(|r| {
+                    (
+                        r.get(0),
+                        r.get(1),
+                        r.get(2),
+                        r.get(3),
+                        r.get(4),
+                        r.get(5),
+                        r.get(6),
+                        r.get(7),
+                        r.get(8),
+                        r.get(9),
+                    )
+                }))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query(
+                    "SELECT id, name, display_name, description, max_servers, max_channels_text_per_server, max_channels_voice_per_server, max_members_per_server, api_calls_per_minute, messages_per_day FROM plans WHERE id = ?",
+                )
+                .bind(plan_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| format!("Error obtenint plan per id (SQLite): {}", e))?;
+
+                Ok(row.map(|r| {
+                    (
+                        r.get(0),
+                        r.get(1),
+                        r.get(2),
+                        r.get(3),
+                        r.get(4),
+                        r.get(5),
+                        r.get(6),
+                        r.get(7),
+                        r.get(8),
+                        r.get(9),
+                    )
+                }))
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_plan_admin(
+        &self,
+        plan_id: Uuid,
+        name: &str,
+        display_name: &str,
+        description: Option<&str>,
+        max_servers: i32,
+        max_channels_text_per_server: i32,
+        max_channels_voice_per_server: i32,
+        max_members_per_server: i32,
+        api_calls_per_minute: i32,
+        messages_per_day: i32,
+    ) -> Result<(), String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "INSERT INTO plans (id, name, display_name, description, max_servers, max_channels_text_per_server, max_channels_voice_per_server, max_members_per_server, api_calls_per_minute, messages_per_day) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                )
+                .bind(plan_id)
+                .bind(name)
+                .bind(display_name)
+                .bind(description)
+                .bind(max_servers)
+                .bind(max_channels_text_per_server)
+                .bind(max_channels_voice_per_server)
+                .bind(max_members_per_server)
+                .bind(api_calls_per_minute)
+                .bind(messages_per_day)
+                .execute(pool)
+                .await
+                .map_err(|e| format!("Error creant plan (Postgres): {}", e))?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "INSERT INTO plans (id, name, display_name, description, max_servers, max_channels_text_per_server, max_channels_voice_per_server, max_members_per_server, api_calls_per_minute, messages_per_day) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                )
+                .bind(plan_id)
+                .bind(name)
+                .bind(display_name)
+                .bind(description)
+                .bind(max_servers)
+                .bind(max_channels_text_per_server)
+                .bind(max_channels_voice_per_server)
+                .bind(max_members_per_server)
+                .bind(api_calls_per_minute)
+                .bind(messages_per_day)
+                .execute(pool)
+                .await
+                .map_err(|e| format!("Error creant plan (SQLite): {}", e))?;
+            }
+        }
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn update_plan_by_id(
+        &self,
+        plan_id: Uuid,
+        name: &str,
+        display_name: &str,
+        description: Option<&str>,
+        max_servers: i32,
+        max_channels_text_per_server: i32,
+        max_channels_voice_per_server: i32,
+        max_members_per_server: i32,
+        api_calls_per_minute: i32,
+        messages_per_day: i32,
+    ) -> Result<bool, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let result = sqlx::query(
+                    "UPDATE plans SET name = $1, display_name = $2, description = $3, max_servers = $4, max_channels_text_per_server = $5, max_channels_voice_per_server = $6, max_members_per_server = $7, api_calls_per_minute = $8, messages_per_day = $9 WHERE id = $10",
+                )
+                .bind(name)
+                .bind(display_name)
+                .bind(description)
+                .bind(max_servers)
+                .bind(max_channels_text_per_server)
+                .bind(max_channels_voice_per_server)
+                .bind(max_members_per_server)
+                .bind(api_calls_per_minute)
+                .bind(messages_per_day)
+                .bind(plan_id)
+                .execute(pool)
+                .await
+                .map_err(|e| format!("Error actualitzant plan (Postgres): {}", e))?;
+                Ok(result.rows_affected() > 0)
+            }
+            DatabasePool::Sqlite(pool) => {
+                let result = sqlx::query(
+                    "UPDATE plans SET name = ?, display_name = ?, description = ?, max_servers = ?, max_channels_text_per_server = ?, max_channels_voice_per_server = ?, max_members_per_server = ?, api_calls_per_minute = ?, messages_per_day = ? WHERE id = ?",
+                )
+                .bind(name)
+                .bind(display_name)
+                .bind(description)
+                .bind(max_servers)
+                .bind(max_channels_text_per_server)
+                .bind(max_channels_voice_per_server)
+                .bind(max_members_per_server)
+                .bind(api_calls_per_minute)
+                .bind(messages_per_day)
+                .bind(plan_id)
+                .execute(pool)
+                .await
+                .map_err(|e| format!("Error actualitzant plan (SQLite): {}", e))?;
+                Ok(result.rows_affected() > 0)
+            }
+        }
+    }
+
+    pub async fn delete_plan_by_id(&self, plan_id: Uuid) -> Result<bool, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let result = sqlx::query("DELETE FROM plans WHERE id = $1")
+                    .bind(plan_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error eliminant plan (Postgres): {}", e))?;
+                Ok(result.rows_affected() > 0)
+            }
+            DatabasePool::Sqlite(pool) => {
+                let result = sqlx::query("DELETE FROM plans WHERE id = ?")
+                    .bind(plan_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error eliminant plan (SQLite): {}", e))?;
+                Ok(result.rows_affected() > 0)
+            }
+        }
+    }
+
+    pub async fn count_users_with_plan(&self, plan_id: Uuid) -> Result<i64, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query("SELECT COUNT(*) FROM users WHERE plan_id = $1")
+                    .bind(plan_id)
+                    .fetch_one(pool)
+                    .await
+                    .map_err(|e| format!("Error comptant usuaris per plan (Postgres): {}", e))?;
+                Ok(row.get(0))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query("SELECT COUNT(*) FROM users WHERE plan_id = ?")
+                    .bind(plan_id)
+                    .fetch_one(pool)
+                    .await
+                    .map_err(|e| format!("Error comptant usuaris per plan (SQLite): {}", e))?;
+                Ok(row.get(0))
+            }
+        }
+    }
+
     pub async fn list_all_users_admin(&self) -> Result<Vec<(Uuid, String, String, Option<Uuid>)>, String> {
         match self {
             DatabasePool::Postgres(pool) => {

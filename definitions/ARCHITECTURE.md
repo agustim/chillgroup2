@@ -680,7 +680,13 @@ POST /api/servers (nom: "My Server")
 - `get_all_plans()` — Obtenir tots els plans
 - `get_plan_by_id(uuid)` — Plan específic
 - `get_plan_by_name(name: &str)` — Plan per name ('free', 'pro', etc)
-- `update_plan(id, new_limits)` — Admin only: modifcar límits
+- `create_plan(input)` — Admin only: crear plans personalitzats
+- `update_plan(id, input)` — Admin only: modificar plans personalitzats
+- `delete_plan(id)` — Admin only: eliminar plans personalitzats
+
+Regles de protecció:
+- Plans del sistema (`free`, `pro`, `enterprise`) no es poden modificar ni eliminar.
+- Un plan no es pot eliminar si té usuaris assignats.
 
 #### `LimitService`
 - `get_user_limits(user_id)` — Obtenir plan + usage stats
@@ -713,9 +719,16 @@ PUT /api/admin/users/:userId/plan/:planId
 
 ### Endpoints de Plans per a Usuaris
 
-- `GET /api/plans` — Llistar plans públics (sense JWT)
+- `GET /api/plans` — Llistar plans (usuari autenticat)
 - `GET /api/user/me/plan` — Plan actual + limits + usage
 - `POST /api/user/me/check-limits` — Check generic sense crear res
+
+### Endpoints d'Administració de Plans
+
+- `GET /api/admin/plans` — Llistar tots els plans amb marca `isSystem`
+- `POST /api/admin/plans` — Crear un plan custom
+- `PUT /api/admin/plans/:planId` — Actualitzar un plan custom
+- `DELETE /api/admin/plans/:planId` — Eliminar un plan custom (si no està en ús)
 
 ### Futur: Webhook Charges & Billing
 
