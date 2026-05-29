@@ -293,6 +293,77 @@ socket.on('friend-presence-updated', (friend) => {
 
 ### Canals
 
+#### `server-channels-updated` — Invalidation de llista de canals
+
+**Emes quan:** Hi ha canvis estructurals de canals al servidor (actualment, creacio de canal).
+
+**Target:** Tots els clients de la room `server:{serverId}`.
+
+**Payload:**
+```json
+{
+  "serverId": "550e8400-e29b-41d4-a716-446655440010",
+  "reason": "channel-created",
+  "channelId": "550e8400-e29b-41d4-a716-446655440021"
+}
+```
+
+**Client reacciona:**
+- Si `payload.serverId === selectedServer`, executa refetch de canals per REST (`fetchChannels`).
+- Al frontend s'aplica debounce de 250ms per compactar bursts d'events.
+
+---
+
+#### `user-servers-updated` — Invalidation de llista de servidors d'un usuari
+
+**Emes quan:** L'usuari passa a tenir visibilitat d'un nou servidor.
+
+Casos implementats:
+- Invitacio de membre via endpoint de servidor.
+- Registre amb invitacio associada a servidor.
+
+**Target:** Nomes la room `user:{userId}` de l'usuari afectat.
+
+**Payload (exemples):**
+```json
+{
+  "serverId": "550e8400-e29b-41d4-a716-446655440010",
+  "reason": "server-invited"
+}
+```
+
+```json
+{
+  "serverId": "550e8400-e29b-41d4-a716-446655440010",
+  "reason": "server-joined-via-invitation"
+}
+```
+
+**Client reacciona:**
+- Executa refetch de servidors per REST (`fetchServers`).
+- Al frontend s'aplica debounce de 250ms per evitar recarregues repetides.
+
+---
+
+#### `server-members-updated` — Invalidation de membres del servidor
+
+**Emes quan:** Canvia la composicio de membres del servidor (alta de membre).
+
+**Target:** Tots els clients de la room `server:{serverId}`.
+
+**Payload:**
+```json
+{
+  "serverId": "550e8400-e29b-41d4-a716-446655440010",
+  "reason": "member-added",
+  "userId": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+**Nota:** Aquest event ja s'emet al backend i queda preparat per connectar refresh de membres al frontend quan convingui.
+
+---
+
 #### `channel-created` — Nou canal creat
 
 **Emès quan:** Un usuari crea un canal. Només es remet si el canal és E2EE (els clients han de verificar que tenen accés).

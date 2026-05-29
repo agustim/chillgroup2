@@ -28,6 +28,8 @@ Detall tècnic:
 - Vite no exposa automàticament variables sense prefix `VITE_` al codi client.
 - Per aquest motiu, `frontend/vite.config.ts` carrega el `.env` de l'arrel i injecta constants de compilació (`__LIVEKIT_HOST__`, `__OPEN_REGISTER__`, `__FRONTEND_DEBUG__`).
 - No s'ha de mantenir un `frontend/.env` duplicat per aquestes claus, per evitar desincronització.
+- Les variables del frontend es resolen en build-time (durant `vite build`), no en runtime del binari.
+- Canviar variables de frontend després de compilar requereix reconstruir el frontend (o el binari si es distribueix en mode embedded).
 
 ## Estructura de Directoris
 

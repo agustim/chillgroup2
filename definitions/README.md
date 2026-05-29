@@ -80,6 +80,12 @@ DEVELOPMENT ─── FRONTEND
 - **SOCKET** → Protocol de temps real
 - **ERRORS** → Gestió d'errors
 
+## Notes d'Operació Recents
+
+Les actualitzacions recents de build i configuració (modes `external/embedded`, targets de compilació, flags de configuració del backend, i generació de `.env` d'exemple) estan documentades a `DEVELOPMENT.md`.
+
+Les regles de variables d'entorn del frontend (build-time vs runtime) estan documentades a `FRONTEND.md`.
+
 ## Accions Ràpides
 
 ```bash

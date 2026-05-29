@@ -54,6 +54,53 @@ chillgroup/
 └── docker-compose.yml      # PostgreSQL + LiveKit + Server
 ```
 
+## Actualitzacions Operatives (Maig 2026)
+
+### Build de Producció Unificat
+
+El projecte disposa de `build.sh` a l'arrel amb suport de mode i target:
+
+- `./build.sh --mode external`
+- `./build.sh --mode embedded`
+- `./build.sh --mode embedded --target x86_64-unknown-linux-gnu`
+- `./build.sh --mode embedded --target aarch64-unknown-linux-gnu`
+
+Detall de modes:
+
+- `external`: compila frontend i copia `frontend/dist` a `target/<target>/release/static`.
+- `embedded`: compila frontend i l'incrusta dins del binari Rust via feature `embedded-assets`.
+
+### Frontend dins del binari
+
+Quan es compila amb `--features embedded-assets`, el servidor respon els assets del frontend des de memòria (fallback SPA a `index.html`).
+
+Quan no s'activa la feature, el servidor busca un directori estàtic (`STATIC_DIR` o `./static`).
+
+### Configuració de `.env` al Backend
+
+El backend ja no busca `.env` només a l'arrel del repo: per defecte el carrega del directori actual de procés.
+
+També admet ruta explícita:
+
+- `-c /ruta/directori` (resol `.env` dins del directori)
+- `--config /ruta/fitxer.env`
+
+### Generador de `.env` d'exemple
+
+El binari pot generar un fitxer d'exemple i sortir, sense arrancar servidor:
+
+- `--generate-env-example`
+- `--generate-env-example /ruta/sortida.env`
+
+Protecció de sobreescriptura:
+
+- Si el fitxer existeix, falla per defecte.
+- Per sobreescriure, usar `-f` o `--force`.
+
+Ajuda integrada:
+
+- `-h` o `--help`
+
 ## Passos de Desenvolupament
 
 ### FASE 1: Infraestructura Base (Setmanes 1-2)
