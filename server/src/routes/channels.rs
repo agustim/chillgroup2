@@ -42,8 +42,13 @@ async fn ensure_channel_permission(
     state: &AppState,
     channel_id: Uuid,
     user_id: Uuid,
+    is_admin: bool,
     min_level: i32,
 ) -> Result<i32, AppError> {
+    if is_admin {
+        return Ok(CHANNEL_PERMISSION_MANAGE);
+    }
+
     let level = state
         .db
         .get_channel_permission_level(channel_id, user_id)
@@ -171,10 +176,12 @@ pub async fn list_channels(
     info!("Endpoint list_channels cridat: server_id={}, user_id={}", server_id, claims.user_id);
 
     // Verificar que l'usuari és membre del servidor
-    let role = state.db.is_server_member(server_id, claims.user_id).await
-        .map_err(|e| AppError::DatabaseError(e))?;
-    if role.is_none() {
-        return Err(AppError::Forbidden);
+    if !claims.is_admin {
+        let role = state.db.is_server_member(server_id, claims.user_id).await
+            .map_err(|e| AppError::DatabaseError(e))?;
+        if role.is_none() {
+            return Err(AppError::Forbidden);
+        }
     }
 
     let channels = state.db.list_channels_for_server(server_id, claims.user_id).await.map_err(|e| AppError::DatabaseError(e))?;
@@ -190,7 +197,7 @@ pub async fn mark_channel_read(
     let channel = state.db.get_channel(channel_id).await.map_err(AppError::DatabaseError)?;
     let _channel = channel.ok_or(AppError::ChannelNotFound)?;
 
-    ensure_channel_permission(&state, channel_id, claims.user_id, CHANNEL_PERMISSION_READ).await?;
+    ensure_channel_permission(&state, channel_id, claims.user_id, claims.is_admin, CHANNEL_PERMISSION_READ).await?;
 
     state
         .db
@@ -210,11 +217,13 @@ pub async fn create_channel(
     info!("Endpoint create_channel cridat: server_id={}, name={}, user_id={}", server_id, req.name, claims.user_id);
 
     // Verificar que l'usuari és membre del servidor
-    let role = state.db.is_server_member(server_id, claims.user_id).await
-        .map_err(|e| AppError::DatabaseError(e))?;
-    let role = role.ok_or(AppError::Forbidden)?;
-    if role != "owner" && role != "admin" {
-        return Err(AppError::Forbidden);
+    if !claims.is_admin {
+        let role = state.db.is_server_member(server_id, claims.user_id).await
+            .map_err(|e| AppError::DatabaseError(e))?;
+        let role = role.ok_or(AppError::Forbidden)?;
+        if role != "owner" && role != "admin" {
+            return Err(AppError::Forbidden);
+        }
     }
 
     let (max_text_channels, max_voice_channels) = state
@@ -337,7 +346,7 @@ pub async fn get_channel_keys(
     // Verificar que el canal existeix i l'usuari és membre
     let channel = state.db.get_channel(channel_id).await.map_err(AppError::DatabaseError)?;
     let channel = channel.ok_or(AppError::ChannelNotFound)?;
-    ensure_channel_permission(&state, channel_id, claims.user_id, CHANNEL_PERMISSION_READ).await?;
+    ensure_channel_permission(&state, channel_id, claims.user_id, claims.is_admin, CHANNEL_PERMISSION_READ).await?;
 
     if channel.encryption_type == EncryptionType::Symmetric {
         let (device_public_key, _) = state
@@ -440,7 +449,7 @@ pub async fn get_all_channel_key_bundles(
     axum::Extension(claims): axum::Extension<AuthClaims>,
     Path(channel_id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    ensure_channel_permission(&state, channel_id, claims.user_id, CHANNEL_PERMISSION_READ).await?;
+    ensure_channel_permission(&state, channel_id, claims.user_id, claims.is_admin, CHANNEL_PERMISSION_READ).await?;
 
     let bundles = state
         .db
@@ -480,6 +489,7 @@ pub async fn upload_channel_keys(
         &state,
         channel_id,
         claims.user_id,
+        claims.is_admin,
         CHANNEL_PERMISSION_READ,
     )
     .await?;
@@ -568,7 +578,7 @@ pub async fn rotate_channel_key(
     } else {
         CHANNEL_PERMISSION_MANAGE
     };
-    ensure_channel_permission(&state, channel_id, claims.user_id, required_permission).await?;
+    ensure_channel_permission(&state, channel_id, claims.user_id, claims.is_admin, required_permission).await?;
 
     let next_version = state
         .db
@@ -615,7 +625,7 @@ pub async fn get_channel_member_devices(
 
     let channel = state.db.get_channel(channel_id).await.map_err(AppError::DatabaseError)?;
     let _channel = channel.ok_or(AppError::ChannelNotFound)?;
-    ensure_channel_permission(&state, channel_id, claims.user_id, CHANNEL_PERMISSION_WRITE).await?;
+    ensure_channel_permission(&state, channel_id, claims.user_id, claims.is_admin, CHANNEL_PERMISSION_WRITE).await?;
 
     let devices = state.db
         .get_member_devices_for_channel(channel_id)
@@ -649,15 +659,19 @@ pub async fn get_channel_permissions(
         return Err(AppError::Forbidden);
     }
 
-    let server_permission = state
-        .db
-        .get_server_permission_level(channel.server_id, claims.user_id)
-        .await
-        .map_err(AppError::DatabaseError)?
-        .unwrap_or(0);
+    let server_permission = if claims.is_admin {
+        SERVER_PERMISSION_MANAGE_MEMBERS
+    } else {
+        state
+            .db
+            .get_server_permission_level(channel.server_id, claims.user_id)
+            .await
+            .map_err(AppError::DatabaseError)?
+            .unwrap_or(0)
+    };
 
     if server_permission < SERVER_PERMISSION_MANAGE_MEMBERS {
-        ensure_channel_permission(&state, channel_id, claims.user_id, CHANNEL_PERMISSION_MANAGE).await?;
+        ensure_channel_permission(&state, channel_id, claims.user_id, claims.is_admin, CHANNEL_PERMISSION_MANAGE).await?;
     }
 
     let rows = state
@@ -702,7 +716,7 @@ pub async fn update_channel_explicit_permission(
         return Err(AppError::Forbidden);
     }
 
-    ensure_channel_permission(&state, channel_id, claims.user_id, CHANNEL_PERMISSION_MANAGE).await?;
+    ensure_channel_permission(&state, channel_id, claims.user_id, claims.is_admin, CHANNEL_PERMISSION_MANAGE).await?;
 
     let is_server_member = state
         .db
@@ -744,7 +758,7 @@ pub async fn get_channel_explicit_permissions(
         .map_err(AppError::DatabaseError)?
         .ok_or(AppError::ChannelNotFound)?;
 
-    ensure_channel_permission(&state, channel_id, claims.user_id, CHANNEL_PERMISSION_MANAGE).await?;
+    ensure_channel_permission(&state, channel_id, claims.user_id, claims.is_admin, CHANNEL_PERMISSION_MANAGE).await?;
 
     let rows = state
         .db
@@ -787,7 +801,7 @@ pub async fn invite_to_channel(
         CHANNEL_PERMISSION_MANAGE
     };
 
-    if ensure_channel_permission(&state, channel_id, claims.user_id, required_permission)
+    if ensure_channel_permission(&state, channel_id, claims.user_id, claims.is_admin, required_permission)
         .await
         .is_err()
     {
@@ -855,7 +869,7 @@ pub async fn update_channel(
     let channel = state.db.get_channel(channel_id).await.map_err(|e| AppError::DatabaseError(e))?;
     let channel = channel.ok_or(AppError::ChannelNotFound)?;
 
-    ensure_channel_permission(&state, channel_id, claims.user_id, CHANNEL_PERMISSION_MANAGE).await?;
+    ensure_channel_permission(&state, channel_id, claims.user_id, claims.is_admin, CHANNEL_PERMISSION_MANAGE).await?;
 
     // Build partial update
     let name = req.name.as_deref();
@@ -913,7 +927,7 @@ pub async fn delete_channel(
     let _channel = state.db.get_channel(channel_id).await.map_err(|e| AppError::DatabaseError(e))?;
     let _channel = _channel.ok_or(AppError::ChannelNotFound)?;
 
-    ensure_channel_permission(&state, channel_id, claims.user_id, CHANNEL_PERMISSION_MANAGE).await?;
+    ensure_channel_permission(&state, channel_id, claims.user_id, claims.is_admin, CHANNEL_PERMISSION_MANAGE).await?;
 
     // Delete the channel from DB
     state.db.delete_channel(channel_id).await.map_err(|e| AppError::DatabaseError(e))?;

@@ -110,6 +110,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const [showChannelKeysModal, setShowChannelKeysModal] = useState(false)
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false)
   const [showFriendsModal, setShowFriendsModal] = useState(false)
+  const [pendingServerConfigOpenId, setPendingServerConfigOpenId] = useState<string | null>(null)
   const [serverConfigInviteUsername, setServerConfigInviteUsername] = useState('')
   const [pendingMemberRemovalId, setPendingMemberRemovalId] = useState<string | null>(null)
   const [channelConfigName, setChannelConfigName] = useState('')
@@ -452,12 +453,17 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     if (selectedServer) {
       setSelectedChannel(null)
       setOpenTextChannelIds([])
-      setPanel('none')
+      if (pendingServerConfigOpenId === selectedServer) {
+        setPanel('serverConfig')
+        setPendingServerConfigOpenId(null)
+      } else {
+        setPanel('none')
+      }
       setPendingMemberRemovalId(null)
       fetchServerDetails(selectedServer)
       fetchChannels(selectedServer)
     }
-  }, [selectedServer])
+  }, [selectedServer, pendingServerConfigOpenId])
 
   useEffect(() => {
     const socket = getSocket()
@@ -1020,7 +1026,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const handleUpdateServerMemberRole = async (userId: string, role: 'admin' | 'member') => {
     if (!selectedServer) return
     const result = await serverUpdateMemberRole(selectedServer, userId, role)
-    if (!result.success) {
+    if ('error' in result) {
       setFeedback(result.error.message)
       return
     }
@@ -1112,6 +1118,17 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     }
     setSelectedChannel(null)
     setPanel('adminUsers')
+  }
+
+  const handleOpenAdminServerConfig = (serverId: string) => {
+    setSelectedChannel(null)
+    if (selectedServer === serverId) {
+      setPanel('serverConfig')
+      return
+    }
+
+    setPendingServerConfigOpenId(serverId)
+    setSelectedServer(serverId)
   }
 
   const refreshFriends = async () => {
@@ -1495,7 +1512,12 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
             availableServers={servers.map((server) => ({
               serverId: server.serverId,
               name: server.name,
+              ownerId: server.ownerId,
+              myRole: server.myRole,
+              memberCount: server.memberCount,
             }))}
+            onOpenServerConfig={handleOpenAdminServerConfig}
+            onServerListRefresh={fetchServers}
           />
         ) : panel === 'permissions' ? (
           <div className="panel admin-users-panel">

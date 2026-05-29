@@ -1874,6 +1874,61 @@ body {
   padding: 6px 8px;
 }
 
+.admin-server-row-main {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-server-row-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 220px;
+}
+
+.admin-server-row-meta {
+  color: var(--text-muted);
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.admin-server-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.admin-server-edit-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px 12px;
+  margin-top: 4px;
+}
+
+.admin-server-delete-confirm {
+  width: 100%;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--bg-active);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.admin-server-delete-actions {
+  display: flex;
+  gap: 6px;
+}
+
 /* ── Voice Channel Participants (sidebar) ───────── */
 
 .voice-channel-wrapper {

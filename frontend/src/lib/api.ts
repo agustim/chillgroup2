@@ -163,6 +163,15 @@ export interface AdminUserItem {
   planId: string | null
 }
 
+export interface AdminServerItem {
+  serverId: string
+  name: string
+  iconUrl: string | null
+  ownerId: string
+  memberCount: number
+  createdAt: string
+}
+
 export interface InvitationCreateInfo {
   invitationId: string
   code: string
@@ -528,6 +537,16 @@ export async function serversCreate(name: string, iconUrl?: string | null): Prom
 
 export async function serversGet(serverId: string): Promise<ApiResult<ServerFullInfo>> {
   const result = await apiRequest<any>('GET', `/api/servers/${serverId}`)
+  if (!result.success) return result
+  return { success: true, data: mapServerFullInfo(result.data) }
+}
+
+export async function serversUpdate(serverId: string, name?: string, iconUrl?: string | null): Promise<ApiResult<ServerFullInfo>> {
+  const payload: Record<string, unknown> = {}
+  if (name !== undefined) payload.name = name
+  if (iconUrl !== undefined) payload.icon_url = iconUrl
+
+  const result = await apiRequest<any>('PUT', `/api/servers/${serverId}`, payload)
   if (!result.success) return result
   return { success: true, data: mapServerFullInfo(result.data) }
 }
@@ -1032,6 +1051,17 @@ function mapAdminUserItem(raw: any): AdminUserItem {
   }
 }
 
+function mapAdminServerItem(raw: any): AdminServerItem {
+  return {
+    serverId: raw.serverId ?? raw.server_id,
+    name: raw.name,
+    iconUrl: raw.iconUrl ?? raw.icon_url ?? null,
+    ownerId: raw.ownerId ?? raw.owner_id,
+    memberCount: raw.memberCount ?? raw.member_count ?? 0,
+    createdAt: raw.createdAt ?? raw.created_at ?? '',
+  }
+}
+
 export async function adminUsersList(): Promise<ApiResult<AdminUserItem[]>> {
   const result = await apiRequest<any>('GET', '/api/admin/users')
   if (!result.success) return result
@@ -1077,6 +1107,48 @@ export async function adminUsersUpdatePlan(userId: string, planId: string): Prom
 
 export async function adminUsersDelete(userId: string): Promise<ApiResult<void>> {
   const result = await apiRequest<void>('DELETE', `/api/admin/users/${userId}`)
+  if (!result.success) return result
+  return { success: true, data: undefined }
+}
+
+export async function adminServersList(): Promise<ApiResult<AdminServerItem[]>> {
+  const result = await apiRequest<any>('GET', '/api/admin/servers')
+  if (!result.success) return result
+  const data = Array.isArray(result.data) ? result.data : (result.data?.data ?? [])
+  return { success: true, data: data.map(mapAdminServerItem) }
+}
+
+export async function adminServersCreate(name: string, iconUrl?: string | null): Promise<ApiResult<AdminServerItem>> {
+  const result = await apiRequest<any>('POST', '/api/admin/servers', {
+    name,
+    icon_url: iconUrl ?? null,
+  })
+  if (!result.success) return result
+
+  const serverLike = {
+    serverId: result.data?.serverId ?? result.data?.server_id,
+    name: result.data?.name ?? name,
+    iconUrl: result.data?.iconUrl ?? result.data?.icon_url ?? iconUrl ?? null,
+    ownerId: result.data?.ownerId ?? result.data?.owner_id ?? '',
+    memberCount: result.data?.memberCount ?? result.data?.member_count ?? 0,
+    createdAt: result.data?.createdAt ?? result.data?.created_at ?? '',
+  }
+
+  return { success: true, data: mapAdminServerItem(serverLike) }
+}
+
+export async function adminServersUpdate(serverId: string, name?: string, iconUrl?: string | null): Promise<ApiResult<void>> {
+  const payload: Record<string, unknown> = {}
+  if (name !== undefined) payload.name = name
+  if (iconUrl !== undefined) payload.icon_url = iconUrl
+
+  const result = await apiRequest<void>('PUT', `/api/admin/servers/${serverId}`, payload)
+  if (!result.success) return result
+  return { success: true, data: undefined }
+}
+
+export async function adminServersDelete(serverId: string): Promise<ApiResult<void>> {
+  const result = await apiRequest<void>('DELETE', `/api/admin/servers/${serverId}`)
   if (!result.success) return result
   return { success: true, data: undefined }
 }

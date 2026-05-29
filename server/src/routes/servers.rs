@@ -66,8 +66,13 @@ async fn ensure_server_permission(
     state: &AppState,
     server_id: Uuid,
     user_id: Uuid,
+    is_admin: bool,
     min_level: i32,
 ) -> Result<i32, AppError> {
+    if is_admin {
+        return Ok(SERVER_PERMISSION_MANAGE_MEMBERS);
+    }
+
     let level = state
         .db
         .get_server_permission_level(server_id, user_id)
@@ -146,7 +151,7 @@ pub async fn get_server(
 ) -> Result<Json<ServerFullInfo>, AppError> {
     info!("Endpoint get_server cridat: server_id={}, user_id={}", server_id, claims.user_id);
 
-    ensure_server_permission(&state, server_id, claims.user_id, SERVER_PERMISSION_VIEW).await?;
+    ensure_server_permission(&state, server_id, claims.user_id, claims.is_admin, SERVER_PERMISSION_VIEW).await?;
 
     let server_info = state
         .db
@@ -163,7 +168,7 @@ pub async fn update_server(
     Path(server_id): Path<Uuid>,
     Json(req): Json<UpdateServerRequest>,
 ) -> Result<Json<ServerFullInfo>, AppError> {
-    ensure_server_permission(&state, server_id, claims.user_id, SERVER_PERMISSION_MANAGE_PROFILE).await?;
+    ensure_server_permission(&state, server_id, claims.user_id, claims.is_admin, SERVER_PERMISSION_MANAGE_PROFILE).await?;
 
     state
         .db
@@ -192,14 +197,16 @@ pub async fn delete_server(
 ) -> Result<Json<DeleteServerResponse>, AppError> {
     info!("Endpoint delete_server cridat: server_id={}, user_id={}", server_id, claims.user_id);
 
-    let my_role = state
-        .db
-        .is_server_member(server_id, claims.user_id)
-        .await
-        .map_err(AppError::DatabaseError)?;
+    if !claims.is_admin {
+        let my_role = state
+            .db
+            .is_server_member(server_id, claims.user_id)
+            .await
+            .map_err(AppError::DatabaseError)?;
 
-    if my_role.as_deref() != Some("owner") {
-        return Err(AppError::Forbidden);
+        if my_role.as_deref() != Some("owner") {
+            return Err(AppError::Forbidden);
+        }
     }
 
     let deleted = state
@@ -225,7 +232,7 @@ pub async fn list_server_members(
 ) -> Result<Json<Vec<ServerMember>>, AppError> {
     info!("Endpoint list_server_members cridat: server_id={}, user_id={}", server_id, claims.user_id);
 
-    ensure_server_permission(&state, server_id, claims.user_id, SERVER_PERMISSION_VIEW).await?;
+    ensure_server_permission(&state, server_id, claims.user_id, claims.is_admin, SERVER_PERMISSION_VIEW).await?;
 
     let server_info = state
         .db
@@ -245,7 +252,7 @@ pub async fn invite_server_member(
 ) -> Result<(StatusCode, Json<InviteMemberResponse>), AppError> {
     info!("Endpoint invite_server_member cridat: server_id={}, username={}, user_id={}", server_id, req.username, claims.user_id);
 
-    ensure_server_permission(&state, server_id, claims.user_id, SERVER_PERMISSION_MANAGE_MEMBERS).await?;
+    ensure_server_permission(&state, server_id, claims.user_id, claims.is_admin, SERVER_PERMISSION_MANAGE_MEMBERS).await?;
 
     let user = state
         .db
@@ -285,7 +292,7 @@ pub async fn update_member_role(
 ) -> Result<Json<ServerMember>, AppError> {
     info!("Endpoint update_member_role cridat: server_id={}, user_id={}, target_user_id={}", server_id, claims.user_id, user_id);
 
-    ensure_server_permission(&state, server_id, claims.user_id, SERVER_PERMISSION_MANAGE_MEMBERS).await?;
+    ensure_server_permission(&state, server_id, claims.user_id, claims.is_admin, SERVER_PERMISSION_MANAGE_MEMBERS).await?;
 
     if req.role == ServerRole::Owner {
         return Err(AppError::Forbidden);
@@ -322,7 +329,7 @@ pub async fn remove_server_member(
     axum::Extension(claims): axum::Extension<AuthClaims>,
     Path((server_id, user_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<RemoveMemberResponse>, AppError> {
-    ensure_server_permission(&state, server_id, claims.user_id, SERVER_PERMISSION_MANAGE_MEMBERS).await?;
+    ensure_server_permission(&state, server_id, claims.user_id, claims.is_admin, SERVER_PERMISSION_MANAGE_MEMBERS).await?;
 
     let target_role = state
         .db
@@ -414,6 +421,18 @@ mod tests {
             username: username.to_string(),
             device_id: Uuid::new_v4(),
             is_admin: false,
+            exp: 0,
+            iat: 0,
+            jti: Uuid::new_v4().to_string(),
+        }
+    }
+
+    fn claims_for_admin(user_id: Uuid, username: &str) -> AuthClaims {
+        AuthClaims {
+            user_id,
+            username: username.to_string(),
+            device_id: Uuid::new_v4(),
+            is_admin: true,
             exp: 0,
             iat: 0,
             jti: Uuid::new_v4().to_string(),
@@ -575,6 +594,54 @@ mod tests {
 
         assert_eq!(result.0.name, "server-after");
         assert_eq!(result.0.icon_url.as_deref(), Some("https://example.com/icon.png"));
+    }
+
+    #[tokio::test]
+    async fn global_admin_can_manage_server_without_membership() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("owner_non_member_admin", "hash", "user")
+            .await
+            .expect("owner user should be created");
+        let global_admin_id = state
+            .db
+            .create_user_with_role("global_admin_non_member", "hash", "admin")
+            .await
+            .expect("global admin user should be created");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "server-non-member-before", None, owner_id)
+            .await
+            .expect("server should be created");
+
+        let fetched = get_server(
+            State(state.clone()),
+            axum::Extension(claims_for_admin(global_admin_id, "global_admin_non_member")),
+            Path(server_id),
+        )
+        .await
+        .expect("global admin should read server without membership");
+
+        assert_eq!(fetched.0.server_id, server_id);
+        assert_eq!(fetched.0.name, "server-non-member-before");
+
+        let updated = update_server(
+            State(state.clone()),
+            axum::Extension(claims_for_admin(global_admin_id, "global_admin_non_member")),
+            Path(server_id),
+            Json(UpdateServerRequest {
+                name: Some("server-non-member-after".to_string()),
+                icon_url: Some(Some("https://example.com/admin-non-member.png".to_string())),
+            }),
+        )
+        .await
+        .expect("global admin should update server without membership");
+
+        assert_eq!(updated.0.name, "server-non-member-after");
+        assert_eq!(updated.0.icon_url.as_deref(), Some("https://example.com/admin-non-member.png"));
     }
 
     #[tokio::test]
@@ -1116,5 +1183,161 @@ mod tests {
         let err = result.expect_err("owner should not be removable");
         let response = err.into_response();
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn global_admin_can_delete_server_without_membership() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("owner_non_member_delete", "hash", "user")
+            .await
+            .expect("owner user should be created");
+        let global_admin_id = state
+            .db
+            .create_user_with_role("global_admin_non_member_delete", "hash", "admin")
+            .await
+            .expect("global admin should be created");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "delete-non-member-admin", None, owner_id)
+            .await
+            .expect("server should be created");
+
+        let result = delete_server(
+            State(state.clone()),
+            axum::Extension(claims_for_admin(global_admin_id, "global_admin_non_member_delete")),
+            Path(server_id),
+        )
+        .await
+        .expect("global admin should delete server without membership");
+
+        assert_eq!(result.0.server_id, server_id);
+        assert!(result.0.deleted);
+
+        let deleted_server = state
+            .db
+            .get_server_full_info(server_id, owner_id)
+            .await
+            .expect("db query should work");
+        assert!(deleted_server.is_none(), "server should be removed");
+    }
+
+    #[tokio::test]
+    async fn global_admin_can_list_server_members_without_membership() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("owner_non_member_list_members", "hash", "user")
+            .await
+            .expect("owner user should be created");
+        let member_id = state
+            .db
+            .create_user_with_role("member_non_member_list_members", "hash", "user")
+            .await
+            .expect("member user should be created");
+        let global_admin_id = state
+            .db
+            .create_user_with_role("global_admin_non_member_list_members", "hash", "admin")
+            .await
+            .expect("global admin should be created");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "members-visible-for-global-admin", None, owner_id)
+            .await
+            .expect("server should be created");
+        state
+            .db
+            .add_server_member(server_id, member_id, "member")
+            .await
+            .expect("member should be added");
+
+        let result = list_server_members(
+            State(state),
+            axum::Extension(claims_for_admin(global_admin_id, "global_admin_non_member_list_members")),
+            Path(server_id),
+        )
+        .await
+        .expect("global admin should list members without membership");
+
+        assert_eq!(result.0.len(), 2);
+        assert!(result.0.iter().any(|m| m.user_id == owner_id));
+        assert!(result.0.iter().any(|m| m.user_id == member_id));
+    }
+
+    #[tokio::test]
+    async fn global_admin_can_manage_members_without_membership() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("owner_non_member_manage_members", "hash", "user")
+            .await
+            .expect("owner user should be created");
+        let invited_id = state
+            .db
+            .create_user_with_role("invited_non_member_manage_members", "hash", "user")
+            .await
+            .expect("invited user should be created");
+        let global_admin_id = state
+            .db
+            .create_user_with_role("global_admin_non_member_manage_members", "hash", "admin")
+            .await
+            .expect("global admin should be created");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "member-management-by-global-admin", None, owner_id)
+            .await
+            .expect("server should be created");
+
+        let invite_result = invite_server_member(
+            State(state.clone()),
+            axum::Extension(claims_for_admin(global_admin_id, "global_admin_non_member_manage_members")),
+            Path(server_id),
+            Json(InviteMemberRequest {
+                username: "invited_non_member_manage_members".to_string(),
+            }),
+        )
+        .await
+        .expect("global admin should invite member without membership");
+
+        assert_eq!(invite_result.0, StatusCode::CREATED);
+
+        let promoted = update_member_role(
+            State(state.clone()),
+            axum::Extension(claims_for_admin(global_admin_id, "global_admin_non_member_manage_members")),
+            Path((server_id, invited_id)),
+            Json(UpdateMemberRoleRequest {
+                role: ServerRole::Admin,
+            }),
+        )
+        .await
+        .expect("global admin should update member role without membership");
+
+        assert_eq!(promoted.0.user_id, invited_id);
+        assert_eq!(promoted.0.role, ServerRole::Admin);
+
+        let removed = remove_server_member(
+            State(state.clone()),
+            axum::Extension(claims_for_admin(global_admin_id, "global_admin_non_member_manage_members")),
+            Path((server_id, invited_id)),
+        )
+        .await
+        .expect("global admin should remove member without membership");
+
+        assert_eq!(removed.0.user_id, invited_id);
+        assert!(removed.0.removed);
+
+        let still_member = state
+            .db
+            .is_server_member(server_id, invited_id)
+            .await
+            .expect("membership query should work");
+        assert!(still_member.is_none(), "invited user should be removed");
     }
 }

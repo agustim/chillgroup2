@@ -1,6 +1,10 @@
 import React, { useEffect, useState } from 'react'
 
 import {
+  adminServersCreate,
+  adminServersDelete,
+  adminServersList,
+  adminServersUpdate,
   adminUserLimitsGet,
   adminUsersCreate,
   adminUsersDelete,
@@ -9,6 +13,7 @@ import {
   adminUsersUpdateRole,
   invitationsCreate,
   invitationsList,
+  type AdminServerItem,
   type AdminUserLimitsInfo,
   type AdminUserItem,
   type AdminUserRole,
@@ -27,6 +32,8 @@ interface AdminUsersPanelProps {
   onFeedback: (message: string) => void
   selectedServerId?: string | null
   availableServers?: AdminServerOption[]
+  onOpenServerConfig?: (serverId: string) => void
+  onServerListRefresh?: () => Promise<void>
 }
 
 const PLAN_OPTIONS = [
@@ -35,9 +42,17 @@ const PLAN_OPTIONS = [
   { id: '550e8400-e29b-41d4-a716-446655441003', label: 'Enterprise' },
 ]
 
-type ActiveTab = 'users' | 'invitations'
+type ActiveTab = 'users' | 'invitations' | 'servers'
 
-export function AdminUsersPanel({ isOpen, onClose, onFeedback, selectedServerId, availableServers = [] }: AdminUsersPanelProps) {
+export function AdminUsersPanel({
+  isOpen,
+  onClose,
+  onFeedback,
+  selectedServerId,
+  availableServers = [],
+  onOpenServerConfig,
+  onServerListRefresh,
+}: AdminUsersPanelProps) {
   const [activeTab, setActiveTab] = useState<ActiveTab>('users')
   const [error, setError] = useState('')
 
@@ -61,6 +76,19 @@ export function AdminUsersPanel({ isOpen, onClose, onFeedback, selectedServerId,
   const [lastCreatedCode, setLastCreatedCode] = useState<string | null>(null)
   const [isCreatingInvite, setIsCreatingInvite] = useState(false)
 
+  // Servers state
+  const [adminServers, setAdminServers] = useState<AdminServerItem[]>([])
+  const [loadingServers, setLoadingServers] = useState(false)
+  const [newServerName, setNewServerName] = useState('')
+  const [newServerIconUrl, setNewServerIconUrl] = useState('')
+  const [creatingServer, setCreatingServer] = useState(false)
+  const [editingServerId, setEditingServerId] = useState<string | null>(null)
+  const [editingServerName, setEditingServerName] = useState('')
+  const [editingServerIconUrl, setEditingServerIconUrl] = useState('')
+  const [savingServerId, setSavingServerId] = useState<string | null>(null)
+  const [pendingDeleteServerId, setPendingDeleteServerId] = useState<string | null>(null)
+  const [deletingServerId, setDeletingServerId] = useState<string | null>(null)
+
   const loadUsers = async () => {
     setLoadingUsers(true)
     const result = await adminUsersList()
@@ -77,6 +105,17 @@ export function AdminUsersPanel({ isOpen, onClose, onFeedback, selectedServerId,
     setInvitations(result.data)
   }
 
+  const loadAdminServers = async () => {
+    setLoadingServers(true)
+    const result = await adminServersList()
+    setLoadingServers(false)
+    if (!result.success) {
+      setError(result.error.message)
+      return
+    }
+    setAdminServers(result.data)
+  }
+
   useEffect(() => {
     if (!isOpen) return
     setError('')
@@ -87,8 +126,15 @@ export function AdminUsersPanel({ isOpen, onClose, onFeedback, selectedServerId,
     setInviteMaxUses(1)
     setInviteServerId(selectedServerId ?? '')
     setLastCreatedCode(null)
+    setNewServerName('')
+    setNewServerIconUrl('')
+    setEditingServerId(null)
+    setEditingServerName('')
+    setEditingServerIconUrl('')
+    setPendingDeleteServerId(null)
     void loadUsers()
     void loadInvitations()
+    void loadAdminServers()
   }, [isOpen, selectedServerId])
 
   const handleCreateUser = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -174,6 +220,93 @@ export function AdminUsersPanel({ isOpen, onClose, onFeedback, selectedServerId,
     }
   }
 
+  const handleCreateServer = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const name = newServerName.trim()
+    if (!name) {
+      setError('El nom del servidor és obligatori')
+      return
+    }
+
+    setCreatingServer(true)
+    setError('')
+    const iconUrl = newServerIconUrl.trim() || null
+    const result = await adminServersCreate(name, iconUrl)
+    setCreatingServer(false)
+
+    if (!result.success) {
+      setError(result.error.message)
+      return
+    }
+
+    onFeedback(`Servidor ${result.data.name} creat`)
+    setNewServerName('')
+    setNewServerIconUrl('')
+    await loadAdminServers()
+    if (onServerListRefresh) {
+      await onServerListRefresh()
+    }
+  }
+
+  const handleStartEditServer = (server: AdminServerOption) => {
+    setEditingServerId(server.serverId)
+    setEditingServerName(server.name)
+    setEditingServerIconUrl('')
+    setPendingDeleteServerId(null)
+  }
+
+  const handleSaveServer = async (serverId: string) => {
+    const name = editingServerName.trim()
+    if (!name) {
+      setError('El nom del servidor és obligatori')
+      return
+    }
+
+    setSavingServerId(serverId)
+    setError('')
+    const iconUrl = editingServerIconUrl.trim() || null
+    const result = await adminServersUpdate(serverId, name, iconUrl)
+    setSavingServerId(null)
+
+    if (!result.success) {
+      setError(result.error.message)
+      return
+    }
+
+    onFeedback('Servidor actualitzat')
+    setEditingServerId(null)
+    setEditingServerName('')
+    setEditingServerIconUrl('')
+    await loadAdminServers()
+    if (onServerListRefresh) {
+      await onServerListRefresh()
+    }
+  }
+
+  const handleDeleteServer = async (serverId: string) => {
+    setDeletingServerId(serverId)
+    setError('')
+    const result = await adminServersDelete(serverId)
+    setDeletingServerId(null)
+
+    if (!result.success) {
+      setError(result.error.message)
+      return
+    }
+
+    onFeedback('Servidor eliminat')
+    setPendingDeleteServerId(null)
+    await loadAdminServers()
+    if (onServerListRefresh) {
+      await onServerListRefresh()
+    }
+  }
+
+  const handleOpenConfig = (serverId: string) => {
+    onOpenServerConfig?.(serverId)
+    onClose()
+  }
+
   if (!isOpen) return null
 
   return (
@@ -194,6 +327,13 @@ export function AdminUsersPanel({ isOpen, onClose, onFeedback, selectedServerId,
             onClick={() => setActiveTab('invitations')}
           >
             Invitacions
+          </button>
+          <button
+            type="button"
+            className={`admin-panel-tab${activeTab === 'servers' ? ' active' : ''}`}
+            onClick={() => setActiveTab('servers')}
+          >
+            Servidors
           </button>
         </div>
         <Button type="button" variant="ghost" size="sm" onClick={onClose}>✕</Button>
@@ -349,7 +489,7 @@ export function AdminUsersPanel({ isOpen, onClose, onFeedback, selectedServerId,
                   onChange={(e) => setInviteServerId(e.target.value)}
                 >
                   <option value="">Cap (nomes registre)</option>
-                  {availableServers.map((server) => (
+                  {adminServers.map((server) => (
                     <option key={server.serverId} value={server.serverId}>{server.name}</option>
                   ))}
                 </select>
@@ -388,7 +528,7 @@ export function AdminUsersPanel({ isOpen, onClose, onFeedback, selectedServerId,
                       <span>Server ID: <strong>{inv.serverId ?? 'Cap'}</strong></span>
                       {inv.serverId && (
                         <span>
-                          Server: <strong>{availableServers.find((server) => server.serverId === inv.serverId)?.name ?? 'Desconegut'}</strong>
+                          Server: <strong>{adminServers.find((server) => server.serverId === inv.serverId)?.name ?? 'Desconegut'}</strong>
                         </span>
                       )}
                       <span>Fets: <strong>{inv.usesCount}</strong></span>
@@ -400,6 +540,139 @@ export function AdminUsersPanel({ isOpen, onClose, onFeedback, selectedServerId,
                     </div>
                   </li>
                 ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      )}
+
+      {activeTab === 'servers' && (
+        <div className="admin-users-grid">
+          <section className="device-keys-section">
+            <h4>Alta de servidor</h4>
+            <form className="modal-inline-stack" onSubmit={handleCreateServer}>
+              <div className="form-group">
+                <label htmlFor="admin-server-create-name">Nom</label>
+                <input
+                  id="admin-server-create-name"
+                  type="text"
+                  value={newServerName}
+                  onChange={(e) => setNewServerName(e.target.value)}
+                  placeholder="Nou servidor"
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="admin-server-create-icon">Icon URL (opcional)</label>
+                <input
+                  id="admin-server-create-icon"
+                  type="text"
+                  value={newServerIconUrl}
+                  onChange={(e) => setNewServerIconUrl(e.target.value)}
+                  placeholder="https://..."
+                />
+              </div>
+              <div className="modal-actions-row">
+                <Button type="submit" disabled={creatingServer}>
+                  {creatingServer ? 'Creant...' : 'Crear servidor'}
+                </Button>
+              </div>
+            </form>
+          </section>
+
+          <section className="device-keys-section">
+            <h4>Servidors {loadingServers ? '...' : `(${adminServers.length})`}</h4>
+            {!loadingServers && adminServers.length === 0 && <p>No hi ha servidors disponibles.</p>}
+            {adminServers.length > 0 && (
+              <ul className="admin-compact-list">
+                {adminServers.map((server) => {
+                  const isEditing = editingServerId === server.serverId
+                  const isSaving = savingServerId === server.serverId
+                  const isDeleting = deletingServerId === server.serverId
+
+                  return (
+                    <li key={server.serverId} className="admin-compact-list-item admin-compact-list-item--col">
+                      <div className="admin-server-row-main">
+                        <div className="admin-server-row-title">
+                          <span className="admin-compact-name">{server.name}</span>
+                          <span className="admin-server-row-meta">{server.serverId}</span>
+                        </div>
+
+                        <div className="admin-server-row-actions">
+                          <Button type="button" variant="secondary" size="sm" onClick={() => handleOpenConfig(server.serverId)}>
+                            Configuració
+                          </Button>
+                          {isEditing ? (
+                            <>
+                              <Button type="button" variant="primary" size="sm" disabled={isSaving} onClick={() => { void handleSaveServer(server.serverId) }}>
+                                {isSaving ? 'Desant...' : 'Desar'}
+                              </Button>
+                              <Button type="button" variant="ghost" size="sm" onClick={() => setEditingServerId(null)}>
+                                Cancel·lar
+                              </Button>
+                            </>
+                          ) : (
+                            <Button type="button" variant="ghost" size="sm" onClick={() => handleStartEditServer(server)}>
+                              Modificar
+                            </Button>
+                          )}
+                          <Button
+                            type="button"
+                            variant="danger"
+                            size="sm"
+                            disabled={isDeleting}
+                            onClick={() => setPendingDeleteServerId(server.serverId)}
+                          >
+                            {isDeleting ? 'Esborrant...' : 'Esborrar'}
+                          </Button>
+                        </div>
+                      </div>
+
+                      {isEditing && (
+                        <div className="admin-server-edit-grid">
+                          <div className="form-group">
+                            <label htmlFor={`admin-server-name-${server.serverId}`}>Nom del servidor</label>
+                            <input
+                              id={`admin-server-name-${server.serverId}`}
+                              type="text"
+                              value={editingServerName}
+                              onChange={(e) => setEditingServerName(e.target.value)}
+                            />
+                          </div>
+                          <div className="form-group">
+                            <label htmlFor={`admin-server-icon-${server.serverId}`}>Icon URL (opcional)</label>
+                            <input
+                              id={`admin-server-icon-${server.serverId}`}
+                              type="text"
+                              value={editingServerIconUrl}
+                              onChange={(e) => setEditingServerIconUrl(e.target.value)}
+                              placeholder="Deixa buit per eliminar"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {pendingDeleteServerId === server.serverId && (
+                        <div className="admin-server-delete-confirm">
+                          <span>Segur que vols eliminar aquest servidor?</span>
+                          <div className="admin-server-delete-actions">
+                            <Button
+                              type="button"
+                              variant="danger"
+                              size="sm"
+                              disabled={isDeleting}
+                              onClick={() => { void handleDeleteServer(server.serverId) }}
+                            >
+                              Confirmar
+                            </Button>
+                            <Button type="button" variant="ghost" size="sm" onClick={() => setPendingDeleteServerId(null)}>
+                              Cancel·lar
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </li>
+                  )
+                })}
               </ul>
             )}
           </section>

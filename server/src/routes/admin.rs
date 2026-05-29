@@ -25,12 +25,35 @@ pub struct AdminUserItem {
     pub plan_id: Option<Uuid>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminServerItem {
+    pub server_id: Uuid,
+    pub name: String,
+    pub icon_url: Option<String>,
+    pub owner_id: Uuid,
+    pub member_count: u32,
+    pub created_at: String,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateAdminUserRequest {
     pub username: String,
     pub password: String,
     pub role: Option<String>,
     pub plan_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateAdminServerRequest {
+    pub name: String,
+    pub icon_url: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct UpdateAdminServerRequest {
+    pub name: Option<String>,
+    pub icon_url: Option<Option<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -96,6 +119,142 @@ pub async fn list_users(
         "success": true,
         "data": data,
     })))
+}
+
+pub async fn list_servers(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    if !claims.is_admin {
+        return Err(AppError::Forbidden);
+    }
+
+    let servers = state
+        .db
+        .list_all_servers_admin()
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+
+    let data: Vec<AdminServerItem> = servers
+        .into_iter()
+        .map(|(server_id, name, icon_url, owner_id, member_count, created_at)| AdminServerItem {
+            server_id,
+            name,
+            icon_url,
+            owner_id,
+            member_count,
+            created_at,
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "data": data,
+    })))
+}
+
+pub async fn create_server(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Json(req): Json<CreateAdminServerRequest>,
+) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
+    if !claims.is_admin {
+        return Err(AppError::Forbidden);
+    }
+
+    let name = req.name.trim();
+    if name.is_empty() {
+        return Err(AppError::BadRequest);
+    }
+
+    if state
+        .db
+        .server_name_exists(name)
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?
+    {
+        return Err(AppError::ServerNameExists);
+    }
+
+    let server_id = Uuid::new_v4();
+    state
+        .db
+        .create_server_with_owner(server_id, name, req.icon_url.as_ref(), claims.user_id)
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({
+            "success": true,
+            "data": {
+                "serverId": server_id,
+                "name": name,
+            }
+        })),
+    ))
+}
+
+pub async fn update_server(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path(server_id): Path<Uuid>,
+    Json(req): Json<UpdateAdminServerRequest>,
+) -> Result<StatusCode, AppError> {
+    if !claims.is_admin {
+        return Err(AppError::Forbidden);
+    }
+
+    if let Some(name) = &req.name {
+        if name.trim().is_empty() {
+            return Err(AppError::BadRequest);
+        }
+    }
+
+    state
+        .db
+        .update_server_metadata(
+            server_id,
+            req.name.as_deref(),
+            req.icon_url.as_ref().map(|icon| icon.as_deref()),
+        )
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+
+    let exists = state
+        .db
+        .get_server_full_info(server_id, claims.user_id)
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?
+        .is_some();
+
+    if !exists {
+        return Err(AppError::ServerNotFound);
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn delete_server(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path(server_id): Path<Uuid>,
+) -> Result<StatusCode, AppError> {
+    if !claims.is_admin {
+        return Err(AppError::Forbidden);
+    }
+
+    let deleted = state
+        .db
+        .delete_server(server_id)
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+
+    if !deleted {
+        return Err(AppError::ServerNotFound);
+    }
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn update_user_plan(
@@ -372,6 +531,11 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/admin/users/{user_id}/plan/{plan_id}",
             put(update_user_plan),
+        )
+        .route("/api/admin/servers", get(list_servers).post(create_server))
+        .route(
+            "/api/admin/servers/{server_id}",
+            put(update_server).delete(delete_server),
         )
         .with_state(state)
 }

@@ -1731,6 +1731,46 @@ impl DatabasePool {
         Ok(servers)
     }
 
+    pub async fn list_all_servers_admin(&self) -> Result<Vec<(Uuid, String, Option<String>, Uuid, u32, String)>, sqlx::Error> {
+        let query = "SELECT s.id, s.name, s.icon_url, s.owner_id, COUNT(sm.user_id) as member_count, s.created_at
+            FROM servers s
+            LEFT JOIN server_members sm ON sm.server_id = s.id
+            GROUP BY s.id, s.name, s.icon_url, s.owner_id, s.created_at
+            ORDER BY s.created_at DESC";
+
+        let mut servers = Vec::new();
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let rows = sqlx::query(query).fetch_all(pool).await?;
+                for row in rows {
+                    servers.push((
+                        row.get(0),
+                        row.get(1),
+                        row.get(2),
+                        row.get(3),
+                        row.get::<i64, _>(4) as u32,
+                        row.get::<String, _>(5),
+                    ));
+                }
+            }
+            DatabasePool::Sqlite(pool) => {
+                let rows = sqlx::query(query).fetch_all(pool).await?;
+                for row in rows {
+                    servers.push((
+                        row.get(0),
+                        row.get(1),
+                        row.get(2),
+                        row.get(3),
+                        row.get::<i64, _>(4) as u32,
+                        row.get::<String, _>(5),
+                    ));
+                }
+            }
+        }
+
+        Ok(servers)
+    }
+
     pub async fn server_name_exists(&self, name: &str) -> Result<bool, sqlx::Error> {
         match self {
             DatabasePool::Postgres(pool) => {
