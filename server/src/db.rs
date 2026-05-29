@@ -10,16 +10,22 @@ use tracing::{info, error};
 
 /// Connexió a la base de dades amb comprovació de connectivitat.
 pub async fn connect_db(config: &Config) -> Result<DatabasePool, String> {
-    info!("🔌 Connexió a la base de dades: {}", config.database_url);
+    let database_url = if config.is_sqlite() {
+        config.sqlite_database_url()
+    } else {
+        config.database_url.clone()
+    };
 
-    let db = if config.database_url.starts_with("postgres") || config.database_url.starts_with("postgresql") {
+    info!("🔌 Connexió a la base de dades: {}", database_url);
+
+    let db = if database_url.starts_with("postgres") || database_url.starts_with("postgresql") {
         info!("📦 Utilitzant PostgreSQL");
         connect_postgres(config).await?
-    } else if config.database_url.starts_with("sqlite") {
+    } else if database_url.starts_with("sqlite") {
         info!("📦 Utilitzant SQLite");
-        connect_sqlite(config).await?
+        connect_sqlite(&database_url).await?
     } else {
-        let msg = format!("URL de base de dades no suportada: {}", config.database_url);
+        let msg = format!("URL de base de dades no suportada: {}", database_url);
         error!("❌ {}", msg);
         return Err(msg);
     };
@@ -51,15 +57,20 @@ async fn connect_postgres(config: &Config) -> Result<DatabasePool, String> {
 }
 
 /// Connexió a SQLite amb comprovació i creació automàtica de taules.
-async fn connect_sqlite(config: &Config) -> Result<DatabasePool, String> {
+async fn connect_sqlite(database_url: &str) -> Result<DatabasePool, String> {
     // Extraure path del fitxer SQLite
-    let db_path = config.database_url.strip_prefix("sqlite://").unwrap_or("chillgroup.db");
+    let db_path = database_url
+        .strip_prefix("sqlite://")
+        .unwrap_or("chillgroup.db")
+        .split('?')
+        .next()
+        .unwrap_or("chillgroup.db");
 
     info!("💾 SQLite utilitzarà el fitxer: {}", db_path);
 
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(10)
-        .connect_lazy(&config.database_url)
+        .connect_lazy(database_url)
         .map_err(|e| format!("Error connectant SQLite: {}", e))?;
 
     // Comprovar connectivitat

@@ -75,6 +75,15 @@ fn decode_hex_key_32(value: &str) -> Result<[u8; 32], String> {
     Ok(out)
 }
 
+fn normalize_sqlite_url(value: &str) -> String {
+    if !value.starts_with("sqlite") || value.starts_with("sqlite::memory:") || value.contains("mode=") {
+        return value.to_string();
+    }
+
+    let separator = if value.contains('?') { '&' } else { '?' };
+    format!("{}{}mode=rwc", value, separator)
+}
+
 impl Config {
     /// Carregar configuració des de variables d'entorn i .env.
     /// Retorna el Config i la ruta del fitxer .env carregat.
@@ -162,5 +171,36 @@ impl Config {
     /// Comprovar si és SQLite.
     pub fn is_sqlite(&self) -> bool {
         self.database_url.starts_with("sqlite")
+    }
+
+    /// Retorna la URL de SQLite amb mode de creació si falta.
+    pub fn sqlite_database_url(&self) -> String {
+        normalize_sqlite_url(&self.database_url)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_sqlite_url;
+
+    #[test]
+    fn afegeix_mode_rwc_a_fitxer_sqlite() {
+        assert_eq!(
+            normalize_sqlite_url("sqlite://chillgroup.db"),
+            "sqlite://chillgroup.db?mode=rwc"
+        );
+    }
+
+    #[test]
+    fn preserva_mode_rwc_existents_i_memoria() {
+        assert_eq!(
+            normalize_sqlite_url("sqlite://chillgroup.db?cache=shared"),
+            "sqlite://chillgroup.db?cache=shared&mode=rwc"
+        );
+        assert_eq!(
+            normalize_sqlite_url("sqlite://chillgroup.db?mode=rwc"),
+            "sqlite://chillgroup.db?mode=rwc"
+        );
+        assert_eq!(normalize_sqlite_url("sqlite::memory:"), "sqlite::memory:");
     }
 }

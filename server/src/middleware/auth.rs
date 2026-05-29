@@ -172,6 +172,7 @@ mod tests {
             jwt_expiration_days: 7,
             backend_debug: LogLevel::Info,
             server_master_key: [7u8; 32],
+            static_dir: None,
         }
     }
 

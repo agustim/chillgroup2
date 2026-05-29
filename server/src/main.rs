@@ -289,7 +289,7 @@ SERVER_PORT=8080\n\
 BACKEND_DEBUG=info\n\
 \n\
 # Base de dades (PostgreSQL o SQLite)\n\
-DATABASE_URL=sqlite://chillgroup.db\n\
+DATABASE_URL=sqlite://chillgroup.db?mode=rwc\n\
 # o DATABASE_URL=postgres://user:pass@localhost:5432/chillgroup\n\
 \n\
 # Registre\n\

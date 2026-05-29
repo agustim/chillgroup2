@@ -56,8 +56,10 @@ SERVER_HOST=0.0.0.0
 SERVER_PORT=8080
 
 # Base de dades (PostgreSQL o SQLite)
-DATABASE_URL=sqlite://chillgroup.db
+DATABASE_URL=sqlite://chillgroup.db?mode=rwc
 # o DATABASE_URL=postgres://user:pass@localhost:5432/chillgroup
+
+# Si uses SQLite, el backend afegeix `?mode=rwc` automàticament si no el poses.
 
 # LiveKit (per a veu)
 LIVEKIT_HOST=http://localhost:7880
@@ -138,9 +140,10 @@ sqlx migrate run
 ### Configuració SQLite (per defecte)
 
 ```env
-DATABASE_URL=sqlite://chillgroup.db
+DATABASE_URL=sqlite://chillgroup.db?mode=rwc
 ```
 
+Si no afegeixes `?mode=rwc`, el backend el normalitza automàticament abans de connectar.
 Les taules es creen automàticament en iniciar el servidor.
 
 ## 🧪 Tests
