@@ -52,7 +52,7 @@ async function wrapKeyWithKem(
   // Importar sharedSecret com a clau AES-GCM per encapsular la clau de canal
   const aesKey = await crypto.subtle.importKey('raw', sharedSecret.slice(0, 32), 'AES-GCM', false, ['encrypt'])
   const iv = crypto.getRandomValues(new Uint8Array(12))
-  const wrapped = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, channelKey)
+  const wrapped = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, channelKey as unknown as Uint8Array<ArrayBuffer>)
 
   // Concatenar iv + wrapped → base64
   const combined = new Uint8Array(iv.length + wrapped.byteLength)
@@ -120,8 +120,8 @@ async function syncCurrentDevicePublicKeys(deviceId: string): Promise<void> {
     return
   }
 
-  const kemPublicKey = uint8ArrayToBase64(publicKeys.kemPublicKey)
-  const dsaPublicKey = uint8ArrayToBase64(publicKeys.dsaPublicKey)
+  const kemPublicKey = uint8ArrayToBase64(publicKeys!.kemPublicKey)
+  const dsaPublicKey = uint8ArrayToBase64(publicKeys!.dsaPublicKey!)
   const upload = await deviceUpdatePublicKey(kemPublicKey, dsaPublicKey)
   if (!upload.success) {
     throw new Error(upload.error.message || 'No s\'ha pogut sincronitzar la clau pública del dispositiu actual')
@@ -402,7 +402,7 @@ async function fetchAndStoreChannelKey(
     await storeChannelKey(
       channelId,
       channelKey,
-      encryptionType,
+      encryptionType as 'symmetric' | 'asymmetric',
       result.data.keyVersion ?? 1,
       result.data.keyVersionId ?? null,
     )

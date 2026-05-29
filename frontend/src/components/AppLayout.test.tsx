@@ -360,7 +360,13 @@ describe('AppLayout', () => {
     mockLogout.mockClear()
     mockGetLatestChannelKey.mockResolvedValue(null)
     mockGetChannelKey.mockResolvedValue(null)
-    mockDistributeChannelKey.mockResolvedValue(undefined)
+    mockDistributeChannelKey.mockResolvedValue({
+      discoveredDevices: [],
+      skippedSelfDevices: [],
+      skippedMissingKemDevices: [],
+      uploadedBundleDevices: [],
+      failedDevices: [],
+    })
   })
 
   afterEach(() => {

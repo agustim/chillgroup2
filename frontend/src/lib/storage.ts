@@ -603,6 +603,7 @@ export async function listChannelKeys(): Promise<
   Array<{
     channelId: string
     keyVersion: number
+    keyVersionId: string | null
     type: 'symmetric' | 'asymmetric'
     acquiredAt: number
     expiresAt: number | null
