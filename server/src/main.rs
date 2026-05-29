@@ -19,6 +19,7 @@ use axum::{
 use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
 use socketioxide::{SocketIo, extract::{Data, SocketRef}};
 use tower_http::cors::CorsLayer;
+use tower_http::services::{ServeDir, ServeFile};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 use tracing::info;
 use std::{collections::HashMap, sync::Arc};
@@ -699,7 +700,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .layer(from_fn_with_state(state.clone(), middleware::insert_state));
 
     // Combinar rutes públiques i protegides
-    let app = public_app.merge(protected_app).layer(CorsLayer::permissive());
+    let mut app = public_app.merge(protected_app).layer(CorsLayer::permissive());
+
+    // Servir fitxers estàtics del frontend si STATIC_DIR existeix
+    let static_dir = state.config.static_dir
+        .clone()
+        .unwrap_or_else(|| "./static".to_string());
+    let static_path = std::path::Path::new(&static_dir);
+    if static_path.exists() {
+        info!("📦 Servint frontend estàtic des de: {}", static_dir);
+        let index = static_path.join("index.html");
+        let serve_dir = ServeDir::new(static_path)
+            .not_found_service(ServeFile::new(index));
+        app = app.fallback_service(serve_dir);
+    } else {
+        info!("ℹ️  Directori estàtic no trobat ({}), mode API only", static_dir);
+    }
 
     let app = app.layer(socket_layer);
 

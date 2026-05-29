@@ -57,6 +57,7 @@ pub struct Config {
     pub jwt_secret: String,
     pub jwt_expiration_days: u32,
     pub server_master_key: [u8; 32],
+    pub static_dir: Option<String>,
 }
 
 fn decode_hex_key_32(value: &str) -> Result<[u8; 32], String> {
@@ -144,6 +145,7 @@ impl Config {
                 .and_then(|d| d.parse().ok())
                 .unwrap_or(7),
             server_master_key: decode_hex_key_32(&get_var("SERVER_MASTER_KEY")?)?,
+            static_dir: env::var("STATIC_DIR").ok().filter(|s| !s.trim().is_empty()),
         }, env_path))
     }
 
