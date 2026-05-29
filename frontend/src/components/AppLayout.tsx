@@ -375,6 +375,47 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     }
   }, [])
 
+  useEffect(() => {
+    const socket = getSocket()
+    let serversRefreshTimer: number | null = null
+    let channelsRefreshTimer: number | null = null
+
+    const handleUserServersUpdated = async () => {
+      if (serversRefreshTimer !== null) {
+        window.clearTimeout(serversRefreshTimer)
+      }
+      serversRefreshTimer = window.setTimeout(() => {
+        void fetchServers()
+      }, 250)
+    }
+
+    const handleServerChannelsUpdated = async (payload: { serverId?: string }) => {
+      if (!selectedServer || payload.serverId !== selectedServer) {
+        return
+      }
+      if (channelsRefreshTimer !== null) {
+        window.clearTimeout(channelsRefreshTimer)
+      }
+      channelsRefreshTimer = window.setTimeout(() => {
+        void fetchChannels(selectedServer)
+      }, 250)
+    }
+
+    socket.on('user-servers-updated', handleUserServersUpdated)
+    socket.on('server-channels-updated', handleServerChannelsUpdated)
+
+    return () => {
+      if (serversRefreshTimer !== null) {
+        window.clearTimeout(serversRefreshTimer)
+      }
+      if (channelsRefreshTimer !== null) {
+        window.clearTimeout(channelsRefreshTimer)
+      }
+      socket.off('user-servers-updated', handleUserServersUpdated)
+      socket.off('server-channels-updated', handleServerChannelsUpdated)
+    }
+  }, [selectedServer])
+
   const fetchServers = async () => {
     const result = await serversList()
     if (result.success) {

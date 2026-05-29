@@ -278,6 +278,35 @@ pub async fn invite_server_member(
         .await
         .map_err(AppError::DatabaseError)?;
 
+    let user_servers_updated_event = serde_json::json!({
+        "serverId": server_id,
+        "reason": "server-invited",
+    });
+    let invited_user_room = format!("user:{}", invited_user_id);
+    if let Err(e) = state
+        .io
+        .to(invited_user_room)
+        .emit("user-servers-updated", &user_servers_updated_event)
+        .await
+    {
+        tracing::warn!("Error enviant user-servers-updated: {:?}", e);
+    }
+
+    let server_members_updated_event = serde_json::json!({
+        "serverId": server_id,
+        "reason": "member-added",
+        "userId": invited_user_id,
+    });
+    let server_room = format!("server:{}", server_id);
+    if let Err(e) = state
+        .io
+        .to(server_room)
+        .emit("server-members-updated", &server_members_updated_event)
+        .await
+    {
+        tracing::warn!("Error enviant server-members-updated: {:?}", e);
+    }
+
     Ok((
         StatusCode::CREATED,
         Json(InviteMemberResponse { invited_user: req.username }),

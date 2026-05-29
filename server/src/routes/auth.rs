@@ -334,6 +334,35 @@ pub async fn register_with_invitation(
                 .add_server_member(server_id, user_id, "member")
                 .await
                 .map_err(|_| AppError::InternalError)?;
+
+            let user_servers_updated_event = serde_json::json!({
+                "serverId": server_id,
+                "reason": "server-joined-via-invitation",
+            });
+            let user_room = format!("user:{}", user_id);
+            if let Err(e) = state
+                .io
+                .to(user_room)
+                .emit("user-servers-updated", &user_servers_updated_event)
+                .await
+            {
+                tracing::warn!("Error enviant user-servers-updated: {:?}", e);
+            }
+
+            let server_members_updated_event = serde_json::json!({
+                "serverId": server_id,
+                "reason": "member-added",
+                "userId": user_id,
+            });
+            let server_room = format!("server:{}", server_id);
+            if let Err(e) = state
+                .io
+                .to(server_room)
+                .emit("server-members-updated", &server_members_updated_event)
+                .await
+            {
+                tracing::warn!("Error enviant server-members-updated: {:?}", e);
+            }
         }
     }
 

@@ -316,6 +316,22 @@ pub async fn create_channel(
     }
 
     info!("Canal creat i desat a DB: channel_id={}", channel_id);
+
+    let channels_updated_event = serde_json::json!({
+        "serverId": server_id,
+        "reason": "channel-created",
+        "channelId": channel_id,
+    });
+    let server_room = format!("server:{}", server_id);
+    if let Err(e) = state
+        .io
+        .to(server_room)
+        .emit("server-channels-updated", &channels_updated_event)
+        .await
+    {
+        tracing::warn!("Error enviant server-channels-updated: {:?}", e);
+    }
+
     Ok((
         StatusCode::CREATED,
         Json(Channel {
