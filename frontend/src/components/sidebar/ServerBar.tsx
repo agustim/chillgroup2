@@ -39,6 +39,7 @@ export function ServerBar({ servers, selectedServer, onSelectServer, onCreateSer
   const menuButtonRef = useRef<HTMLButtonElement | null>(null)
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null)
   const menuContentRef = useRef<HTMLDivElement>(null)
+  const serverBarRef = useRef<HTMLDivElement>(null)
 
   // Tancar menú quan es clica fora
   useEffect(() => {
@@ -68,7 +69,7 @@ export function ServerBar({ servers, selectedServer, onSelectServer, onCreateSer
 
     // Calcular posició del botó
     const rect = (e.target as HTMLElement).getBoundingClientRect()
-    const serverBarRect = document.querySelector('.server-bar')?.getBoundingClientRect()
+    const serverBarRect = serverBarRef.current?.getBoundingClientRect()
 
     if (!serverBarRect) return
 
@@ -87,7 +88,7 @@ export function ServerBar({ servers, selectedServer, onSelectServer, onCreateSer
   }
 
   return (
-    <div className="server-bar">
+    <div className="server-bar" ref={serverBarRef}>
       {servers.map((server) => (
         <div key={server.serverId} style={{ position: 'relative' }}>
           <button

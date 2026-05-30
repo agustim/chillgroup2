@@ -1017,6 +1017,302 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn send_message_to_channel_succeeds_for_member() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user("msg_send_owner", "hash")
+            .await
+            .expect("create owner");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "msg-send-server", None, owner_id)
+            .await
+            .expect("create server");
+
+        let channel_id = Uuid::new_v4();
+        state
+            .db
+            .create_channel(channel_id, server_id, "general", "text", "none", None, false)
+            .await
+            .expect("create channel");
+
+        let result = send_message(
+            State(state),
+            Extension(make_claims(owner_id, "msg_send_owner")),
+            Path(channel_id),
+            Json(SendMessageRequest {
+                encrypted_payload: "ciphertext-hello".to_string(),
+                iv: "iv-hello".to_string(),
+                key_version: None,
+                expires_at: None,
+                is_direct: None,
+                recipient_user_id: None,
+            }),
+        )
+        .await;
+
+        assert!(result.is_ok(), "server owner should be able to send a message");
+        let (status, Json(msg)) = result.expect("should return message");
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(msg.channel_id, channel_id);
+        assert_eq!(msg.sender_user_id, owner_id);
+        assert_eq!(msg.encrypted_payload, "ciphertext-hello");
+    }
+
+    #[tokio::test]
+    async fn send_message_forbidden_for_non_member() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user("msg_forbidden_owner", "hash")
+            .await
+            .expect("create owner");
+        let outsider_id = state
+            .db
+            .create_user("msg_forbidden_outsider", "hash")
+            .await
+            .expect("create outsider");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "msg-forbidden-server", None, owner_id)
+            .await
+            .expect("create server");
+
+        let channel_id = Uuid::new_v4();
+        state
+            .db
+            .create_channel(channel_id, server_id, "general", "text", "none", None, false)
+            .await
+            .expect("create channel");
+
+        let result = send_message(
+            State(state),
+            Extension(make_claims(outsider_id, "msg_forbidden_outsider")),
+            Path(channel_id),
+            Json(SendMessageRequest {
+                encrypted_payload: "unauthorized".to_string(),
+                iv: "iv".to_string(),
+                key_version: None,
+                expires_at: None,
+                is_direct: None,
+                recipient_user_id: None,
+            }),
+        )
+        .await;
+
+        assert!(matches!(result, Err(AppError::Forbidden)), "non-member should be forbidden");
+    }
+
+    #[tokio::test]
+    async fn send_message_to_nonexistent_channel_returns_not_found() {
+        let state = make_state().await;
+        let user_id = state
+            .db
+            .create_user("msg_notfound_user", "hash")
+            .await
+            .expect("create user");
+
+        let result = send_message(
+            State(state),
+            Extension(make_claims(user_id, "msg_notfound_user")),
+            Path(Uuid::new_v4()),
+            Json(SendMessageRequest {
+                encrypted_payload: "ciphertext".to_string(),
+                iv: "iv".to_string(),
+                key_version: None,
+                expires_at: None,
+                is_direct: None,
+                recipient_user_id: None,
+            }),
+        )
+        .await;
+
+        assert!(matches!(result, Err(AppError::ChannelNotFound)), "missing channel should return ChannelNotFound");
+    }
+
+    #[tokio::test]
+    async fn edit_message_forbidden_for_non_sender() {
+        let state = make_state().await;
+        let sender_id = state
+            .db
+            .create_user("msg_edit_sender", "hash")
+            .await
+            .expect("create sender");
+        let other_id = state
+            .db
+            .create_user("msg_edit_other", "hash")
+            .await
+            .expect("create other user");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "msg-edit-server", None, sender_id)
+            .await
+            .expect("create server");
+
+        let channel_id = Uuid::new_v4();
+        state
+            .db
+            .create_channel(channel_id, server_id, "general", "text", "none", None, false)
+            .await
+            .expect("create channel");
+
+        let message_id = Uuid::new_v4();
+        let now = Utc::now();
+        state
+            .db
+            .create_message(
+                message_id,
+                channel_id,
+                sender_id,
+                "msg_edit_sender",
+                Uuid::new_v4(),
+                "original",
+                "iv",
+                None,
+                None,
+                now,
+            )
+            .await
+            .expect("create message");
+
+        let result = edit_message(
+            State(state),
+            Extension(make_claims(other_id, "msg_edit_other")),
+            Path(message_id),
+            Json(EditMessageRequest {
+                encrypted_payload: "tampered".to_string(),
+                iv: "iv2".to_string(),
+            }),
+        )
+        .await;
+
+        assert!(
+            matches!(result, Err(AppError::NotMessageSender)),
+            "non-sender should not be able to edit a message"
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_message_forbidden_for_non_sender() {
+        let state = make_state().await;
+        let sender_id = state
+            .db
+            .create_user("msg_del_sender", "hash")
+            .await
+            .expect("create sender");
+        let other_id = state
+            .db
+            .create_user("msg_del_other", "hash")
+            .await
+            .expect("create other user");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "msg-del-server", None, sender_id)
+            .await
+            .expect("create server");
+
+        let channel_id = Uuid::new_v4();
+        state
+            .db
+            .create_channel(channel_id, server_id, "general", "text", "none", None, false)
+            .await
+            .expect("create channel");
+
+        let message_id = Uuid::new_v4();
+        let now = Utc::now();
+        state
+            .db
+            .create_message(
+                message_id,
+                channel_id,
+                sender_id,
+                "msg_del_sender",
+                Uuid::new_v4(),
+                "content",
+                "iv",
+                None,
+                None,
+                now,
+            )
+            .await
+            .expect("create message");
+
+        let result = delete_message(
+            State(state),
+            Extension(make_claims(other_id, "msg_del_other")),
+            Path(message_id),
+        )
+        .await;
+
+        assert!(
+            matches!(result, Err(AppError::NotMessageSender)),
+            "non-sender should not be able to delete a message"
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_message_succeeds_for_sender() {
+        let state = make_state().await;
+        let sender_id = state
+            .db
+            .create_user("msg_del_ok_sender", "hash")
+            .await
+            .expect("create sender");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "msg-del-ok-server", None, sender_id)
+            .await
+            .expect("create server");
+
+        let channel_id = Uuid::new_v4();
+        state
+            .db
+            .create_channel(channel_id, server_id, "general", "text", "none", None, false)
+            .await
+            .expect("create channel");
+
+        let message_id = Uuid::new_v4();
+        let now = Utc::now();
+        state
+            .db
+            .create_message(
+                message_id,
+                channel_id,
+                sender_id,
+                "msg_del_ok_sender",
+                Uuid::new_v4(),
+                "content",
+                "iv",
+                None,
+                None,
+                now,
+            )
+            .await
+            .expect("create message");
+
+        let result = delete_message(
+            State(state),
+            Extension(make_claims(sender_id, "msg_del_ok_sender")),
+            Path(message_id),
+        )
+        .await;
+
+        assert!(result.is_ok(), "sender should be able to delete their own message");
+        assert_eq!(result.expect("should return status"), StatusCode::OK);
+    }
+
+    #[tokio::test]
     async fn dm_open_is_idempotent() {
         let state = make_state().await;
         let user_a = state

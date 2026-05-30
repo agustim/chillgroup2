@@ -977,6 +977,7 @@ mod tests {
         middleware::auth::UserPresenceState,
     };
     use axum::response::IntoResponse;
+    use socketioxide::extract::{Data, SocketRef};
     use std::{
         collections::{HashMap, HashSet},
         sync::Arc,
@@ -1004,6 +1005,7 @@ mod tests {
 
         let db = connect_db(&config).await.expect("sqlite test db should initialize");
         let (_layer, io) = socketioxide::SocketIo::new_layer();
+        io.ns("/", |_socket: SocketRef, Data(_auth): Data<serde_json::Value>| async move {});
 
         AppState {
             db,
@@ -1188,6 +1190,233 @@ mod tests {
         assert!(result.is_ok(), "explicit manage override should allow channel updates");
         let Json(updated_channel) = result.expect("request should succeed");
         assert_eq!(updated_channel.name, "general-updated");
+    }
+
+    #[tokio::test]
+    async fn create_channel_succeeds_for_server_owner() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("chan_owner_basic", "hash", "user")
+            .await
+            .expect("owner creation should work");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "test-server-basic", None, owner_id)
+            .await
+            .expect("server should be created");
+
+        let result = create_channel(
+            State(state),
+            axum::Extension(claims_for(owner_id, "chan_owner_basic")),
+            Path(server_id),
+            Json(CreateChannelRequest {
+                name: "general".to_string(),
+                channel_type: ChannelType::Text,
+                encryption_type: EncryptionType::None,
+                message_ttl: None,
+                is_private: false,
+            }),
+        )
+        .await;
+
+        assert!(result.is_ok(), "server owner should be able to create a channel");
+        let (status, Json(channel)) = result.expect("should return channel");
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(channel.name, "general");
+        assert_eq!(channel.server_id, server_id);
+    }
+
+    #[tokio::test]
+    async fn create_channel_forbidden_for_non_member() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("chan_owner_nm", "hash", "user")
+            .await
+            .expect("owner creation should work");
+        let outsider_id = state
+            .db
+            .create_user_with_role("chan_outsider_nm", "hash", "user")
+            .await
+            .expect("outsider creation should work");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "test-server-nm", None, owner_id)
+            .await
+            .expect("server should be created");
+
+        let result = create_channel(
+            State(state),
+            axum::Extension(claims_for(outsider_id, "chan_outsider_nm")),
+            Path(server_id),
+            Json(CreateChannelRequest {
+                name: "unauthorized-channel".to_string(),
+                channel_type: ChannelType::Text,
+                encryption_type: EncryptionType::None,
+                message_ttl: None,
+                is_private: false,
+            }),
+        )
+        .await;
+
+        let err = result.expect_err("non-member should be forbidden");
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn list_channels_forbidden_for_non_member() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("chan_list_owner", "hash", "user")
+            .await
+            .expect("owner creation should work");
+        let outsider_id = state
+            .db
+            .create_user_with_role("chan_list_outsider", "hash", "user")
+            .await
+            .expect("outsider creation should work");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "test-list-server", None, owner_id)
+            .await
+            .expect("server should be created");
+
+        let result = list_channels(
+            State(state),
+            axum::Extension(claims_for(outsider_id, "chan_list_outsider")),
+            Path(server_id),
+        )
+        .await;
+
+        let err = result.expect_err("non-member should be forbidden to list channels");
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn list_channels_returns_created_channel() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("chan_list_ok_owner", "hash", "user")
+            .await
+            .expect("owner creation should work");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "test-list-ok-server", None, owner_id)
+            .await
+            .expect("server should be created");
+
+        let channel_id = Uuid::new_v4();
+        state
+            .db
+            .create_channel(channel_id, server_id, "my-channel", "text", "none", None, false)
+            .await
+            .expect("channel should be created");
+
+        let result = list_channels(
+            State(state),
+            axum::Extension(claims_for(owner_id, "chan_list_ok_owner")),
+            Path(server_id),
+        )
+        .await;
+
+        assert!(result.is_ok(), "owner should be able to list channels");
+        let Json(channels) = result.expect("should return channels");
+        assert!(
+            channels.iter().any(|c| c.id == channel_id && c.name == "my-channel"),
+            "created channel should appear in list"
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_channel_succeeds_for_owner() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("chan_del_owner", "hash", "user")
+            .await
+            .expect("owner creation should work");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "test-del-server", None, owner_id)
+            .await
+            .expect("server should be created");
+
+        let channel_id = Uuid::new_v4();
+        state
+            .db
+            .create_channel(channel_id, server_id, "to-delete", "text", "none", None, false)
+            .await
+            .expect("channel should be created");
+
+        let result = delete_channel(
+            State(state),
+            axum::Extension(claims_for(owner_id, "chan_del_owner")),
+            Path(channel_id),
+        )
+        .await;
+
+        assert!(result.is_ok(), "owner should be able to delete a channel");
+        assert_eq!(result.expect("should return status"), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn delete_channel_forbidden_for_regular_member() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("chan_del_owner2", "hash", "user")
+            .await
+            .expect("owner creation should work");
+        let member_id = state
+            .db
+            .create_user_with_role("chan_del_member", "hash", "user")
+            .await
+            .expect("member creation should work");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "test-del-server2", None, owner_id)
+            .await
+            .expect("server should be created");
+        state
+            .db
+            .add_server_member(server_id, member_id, "member")
+            .await
+            .expect("member should join");
+
+        let channel_id = Uuid::new_v4();
+        state
+            .db
+            .create_channel(channel_id, server_id, "protected", "text", "none", None, false)
+            .await
+            .expect("channel should be created");
+
+        let result = delete_channel(
+            State(state),
+            axum::Extension(claims_for(member_id, "chan_del_member")),
+            Path(channel_id),
+        )
+        .await;
+
+        let err = result.expect_err("regular member should be forbidden to delete");
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]

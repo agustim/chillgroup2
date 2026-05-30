@@ -7,6 +7,7 @@ import { VoiceArea } from './VoiceArea'
 import { MessageInput } from './MessageInput'
 import { ChannelHeader } from './ChannelHeader'
 import { useSocketIO } from '../../hooks/useSocketIO'
+import { logger } from '../../lib/logger'
 
 interface MainContentProps {
   channel: Channel | null
@@ -97,7 +98,7 @@ export function MainContent({
 
         // En canals asimètrics cal keyVersionId per signar bundles.
         if (!keyVersionId) {
-          console.warn('[E2EE] Redistribució automàtica omesa: falta keyVersionId', {
+          logger.warn('[E2EE] Redistribució automàtica omesa: falta keyVersionId', {
             channelId: channel.channelId,
             currentDeviceId,
           })
@@ -114,7 +115,7 @@ export function MainContent({
           currentDeviceId,
         ).catch((err) => {
           const msg = err instanceof Error ? err.message : 'Error desconegut redistribuint clau'
-          console.error('[E2EE] Redistribució automàtica de clau fallida en obrir canal', {
+          logger.error('[E2EE] Redistribució automàtica de clau fallida en obrir canal', {
             channelId: channel.channelId,
             currentDeviceId,
             error: msg,
@@ -123,7 +124,7 @@ export function MainContent({
       })
       .catch((err) => {
         const msg = err instanceof Error ? err.message : 'Error desconegut obtenint clau de canal'
-        console.error('[E2EE] Error obtenint clau de canal en obrir-lo', {
+        logger.error('[E2EE] Error obtenint clau de canal en obrir-lo', {
           channelId: channel.channelId,
           currentDeviceId,
           error: msg,

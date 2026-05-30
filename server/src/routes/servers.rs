@@ -407,6 +407,7 @@ mod tests {
     };
     use chrono::Utc;
     use axum::response::IntoResponse;
+    use socketioxide::extract::{Data, SocketRef};
     use std::{
         collections::{HashMap, HashSet},
         sync::Arc,
@@ -434,6 +435,7 @@ mod tests {
 
         let db = connect_db(&config).await.expect("sqlite test db should initialize");
         let (_layer, io) = socketioxide::SocketIo::new_layer();
+        io.ns("/", |_socket: SocketRef, Data(_auth): Data<serde_json::Value>| async move {});
 
         AppState {
             db,

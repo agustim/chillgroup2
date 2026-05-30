@@ -44,6 +44,7 @@ import {
   dmChannelRotateKey,
   userLimitsGet,
 } from '../lib/api'
+import { logger } from '../lib/logger'
 
 interface AppLayoutProps {
   username: string
@@ -1117,7 +1118,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           )
         } catch (err) {
           const msg = err instanceof Error ? err.message : 'No s\'ha pogut redistribuir la clau del canal'
-          console.error('[E2EE] Ha fallat la redistribució després de convidar al canal', {
+          logger.error('[E2EE] Ha fallat la redistribució després de convidar al canal', {
             channelId: channel.channelId,
             username,
             currentDeviceId,

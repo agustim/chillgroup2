@@ -2,6 +2,7 @@ import { ml_kem1024 } from '@noble/post-quantum/ml-kem.js'
 import { ml_dsa87 } from '@noble/post-quantum/ml-dsa.js'
 import type { EncryptionType, Message } from '../types'
 import { decryptWithBytes, encryptWithBytes, generateSymmetricKey } from './crypto'
+import { logger } from './logger'
 import {
   getChannelKey,
   getChannelKeyVersion,
@@ -193,7 +194,7 @@ export async function distributeChannelKey(
       await syncCurrentDevicePublicKeys(signerDeviceId)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Error sincronitzant la clau pública local'
-      console.error('[E2EE] No s\'ha pogut sincronitzar la clau pública del dispositiu actual abans de redistribuir', {
+      logger.error('[E2EE] No s\'ha pogut sincronitzar la clau pública del dispositiu actual abans de redistribuir', {
         channelId,
         signerDeviceId,
         error: msg,
@@ -342,11 +343,11 @@ export async function distributeChannelKey(
     }
 
     if (bundles.length === 0) {
-      console.error('[E2EE] Error redistribuint clau de canal (cap bundle vàlid)', logPayload)
+      logger.error('[E2EE] Error redistribuint clau de canal (cap bundle vàlid)', logPayload)
       throw new Error(`No s'ha pogut xifrar la clau per ${failedDevices.length} dispositiu(s): ${reasonSummary}`)
     }
 
-    console.warn('[E2EE] Redistribució parcial: alguns dispositius no han rebut la clau', {
+    logger.warn('[E2EE] Redistribució parcial: alguns dispositius no han rebut la clau', {
       ...logPayload,
       uploadedBundles: bundles.length,
     })
@@ -559,7 +560,7 @@ export async function syncChannelKeys(
       keyVersionId && signature && signedByDeviceId &&
       !(await verifyBundleSignature(channelId, keyVersionId, deviceId, encryptedKey, kemCiphertext, signature, signedByDeviceId))
     ) {
-      console.warn('[E2EE] Bundle signatura invàlida, saltant versió', { channelId, keyVersion })
+      logger.warn('[E2EE] Bundle signatura invàlida, saltant versió', { channelId, keyVersion })
       continue
     }
 

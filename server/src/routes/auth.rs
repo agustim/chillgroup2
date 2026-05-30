@@ -512,6 +512,7 @@ mod tests {
         middleware::auth::UserPresenceState,
     };
     use axum_test::TestServer;
+    use socketioxide::extract::{Data, SocketRef};
     use std::{
         collections::{HashMap, HashSet},
         sync::Arc,
@@ -540,6 +541,7 @@ mod tests {
 
         let db = connect_db(&config).await.expect("sqlite test db should initialize");
         let (_layer, io) = socketioxide::SocketIo::new_layer();
+        io.ns("/", |_socket: SocketRef, Data(_auth): Data<serde_json::Value>| async move {});
 
         AppState {
             db,
@@ -549,6 +551,86 @@ mod tests {
                 online_sockets: HashMap::<Uuid, HashSet<String>>::new(),
             })),
         }
+    }
+
+    #[tokio::test]
+    async fn register_open_and_login_full_flow() {
+        let state = make_state(true).await;
+        let server = TestServer::new(router(state)).expect("router should build");
+
+        let register_response = server
+            .post("/api/auth/register")
+            .json(&serde_json::json!({
+                "username": "flow_user",
+                "password": "password123"
+            }))
+            .await;
+
+        assert_eq!(register_response.status_code(), 201);
+        let body: serde_json::Value = register_response.json();
+        assert_eq!(body["username"], "flow_user");
+        assert!(!body["token"].as_str().unwrap_or("").is_empty(), "token should be present");
+
+        let login_response = server
+            .post("/api/auth/login")
+            .json(&serde_json::json!({
+                "username": "flow_user",
+                "password": "password123"
+            }))
+            .await;
+
+        assert_eq!(login_response.status_code(), 200);
+        let login_body: serde_json::Value = login_response.json();
+        assert_eq!(login_body["username"], "flow_user");
+        assert!(!login_body["token"].as_str().unwrap_or("").is_empty(), "login token should be present");
+    }
+
+    #[tokio::test]
+    async fn login_with_wrong_password_returns_401() {
+        let state = make_state(true).await;
+        let server = TestServer::new(router(state)).expect("router should build");
+
+        server
+            .post("/api/auth/register")
+            .json(&serde_json::json!({
+                "username": "wrong_pass_user",
+                "password": "correct-password"
+            }))
+            .await;
+
+        let response = server
+            .post("/api/auth/login")
+            .json(&serde_json::json!({
+                "username": "wrong_pass_user",
+                "password": "wrong-password"
+            }))
+            .await;
+
+        assert_eq!(response.status_code(), 401);
+    }
+
+    #[tokio::test]
+    async fn register_duplicate_username_returns_conflict() {
+        let state = make_state(true).await;
+        let server = TestServer::new(router(state)).expect("router should build");
+
+        server
+            .post("/api/auth/register")
+            .json(&serde_json::json!({
+                "username": "dup_user",
+                "password": "password123"
+            }))
+            .await;
+
+        let second = server
+            .post("/api/auth/register")
+            .json(&serde_json::json!({
+                "username": "dup_user",
+                "password": "password456"
+            }))
+            .await;
+
+        assert_eq!(second.status_code(), 409, "duplicate username should return 409");
     }
 
     #[tokio::test]
