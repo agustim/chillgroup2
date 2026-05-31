@@ -1374,7 +1374,7 @@ impl DatabasePool {
     pub async fn count_channels_by_type_in_server(&self, server_id: Uuid, channel_type: &str) -> Result<i64, String> {
         match self {
             DatabasePool::Postgres(pool) => {
-                let row = sqlx::query("SELECT COUNT(*) FROM channels WHERE server_id = $1 AND type = $2")
+                let row = sqlx::query("SELECT COUNT(*) FROM channels WHERE server_id = $1 AND channel_type = $2")
                     .bind(server_id)
                     .bind(channel_type)
                     .fetch_one(pool)
@@ -1419,7 +1419,7 @@ impl DatabasePool {
         match self {
             DatabasePool::Postgres(pool) => {
                 let row = sqlx::query(
-                    "SELECT COUNT(*) FROM channels c JOIN servers s ON c.server_id = s.id WHERE s.owner_id = $1 AND c.type = $2",
+                    "SELECT COUNT(*) FROM channels c JOIN servers s ON c.server_id = s.id WHERE s.owner_id = $1 AND c.channel_type = $2",
                 )
                 .bind(user_id)
                 .bind(channel_type)
@@ -1923,7 +1923,13 @@ impl DatabasePool {
         let mut servers = Vec::new();
         match self {
             DatabasePool::Postgres(pool) => {
-                let rows = sqlx::query(query).bind(user_id).fetch_all(pool).await?;
+                let query_pg = "SELECT s.id, s.name, s.icon_url, s.owner_id, COUNT(sm2.user_id) as member_count, sm.role as my_role, s.created_at::text
+                    FROM servers s
+                    JOIN server_members sm ON sm.server_id = s.id AND sm.user_id = $1
+                    JOIN server_members sm2 ON sm2.server_id = s.id
+                    GROUP BY s.id, s.name, s.icon_url, s.owner_id, sm.role, s.created_at
+                    ORDER BY s.created_at DESC";
+                let rows = sqlx::query(query_pg).bind(user_id).fetch_all(pool).await?;
                 for row in rows {
                     let my_role = row.get::<String, _>(5);
                     servers.push(ServerInfo {
@@ -1967,7 +1973,12 @@ impl DatabasePool {
         let mut servers = Vec::new();
         match self {
             DatabasePool::Postgres(pool) => {
-                let rows = sqlx::query(query).fetch_all(pool).await?;
+                let query_pg = "SELECT s.id, s.name, s.icon_url, s.owner_id, COUNT(sm.user_id) as member_count, s.created_at::text
+                    FROM servers s
+                    LEFT JOIN server_members sm ON sm.server_id = s.id
+                    GROUP BY s.id, s.name, s.icon_url, s.owner_id, s.created_at
+                    ORDER BY s.created_at DESC";
+                let rows = sqlx::query(query_pg).fetch_all(pool).await?;
                 for row in rows {
                     servers.push((
                         row.get(0),
@@ -2026,8 +2037,7 @@ impl DatabasePool {
                     .bind(owner_id)
                     .execute(pool)
                     .await?;
-                sqlx::query("INSERT INTO server_members (id, server_id, user_id, role) VALUES ($1, $2, $3, $4)")
-                    .bind(Uuid::new_v4())
+                sqlx::query("INSERT INTO server_members (server_id, user_id, role) VALUES ($1, $2, $3)")
                     .bind(server_id)
                     .bind(owner_id)
                     .bind("owner")
@@ -2185,7 +2195,7 @@ impl DatabasePool {
     pub async fn get_server_full_info(&self, server_id: Uuid, user_id: Uuid) -> Result<Option<ServerFullInfo>, sqlx::Error> {
         match self {
             DatabasePool::Postgres(pool) => {
-                let server_row = sqlx::query("SELECT id, name, icon_url, owner_id, created_at FROM servers WHERE id = $1")
+                let server_row = sqlx::query("SELECT id, name, icon_url, owner_id, created_at::text FROM servers WHERE id = $1")
                     .bind(server_id)
                     .fetch_optional(pool)
                     .await?;
@@ -2207,7 +2217,7 @@ impl DatabasePool {
                     .unwrap_or(ServerRole::Member);
 
                 let members = {
-                    let rows = sqlx::query("SELECT u.id, u.username, sm.role, sm.joined_at FROM server_members sm JOIN users u ON u.id = sm.user_id WHERE sm.server_id = $1 ORDER BY sm.joined_at ASC")
+                    let rows = sqlx::query("SELECT u.id, u.username, sm.role, sm.joined_at::text FROM server_members sm JOIN users u ON u.id = sm.user_id WHERE sm.server_id = $1 ORDER BY sm.joined_at ASC")
                         .bind(server_id)
                         .fetch_all(pool)
                         .await?;
@@ -2312,8 +2322,7 @@ impl DatabasePool {
     pub async fn add_server_member(&self, server_id: Uuid, user_id: Uuid, role: &str) -> Result<(), sqlx::Error> {
         match self {
             DatabasePool::Postgres(pool) => {
-                sqlx::query("INSERT INTO server_members (id, server_id, user_id, role) VALUES ($1, $2, $3, $4)")
-                    .bind(Uuid::new_v4())
+                sqlx::query("INSERT INTO server_members (server_id, user_id, role) VALUES ($1, $2, $3)")
                     .bind(server_id)
                     .bind(user_id)
                     .bind(role)
@@ -2377,7 +2386,7 @@ impl DatabasePool {
     }
 
         pub async fn list_channels_for_server(&self, server_id: Uuid, user_id: Uuid) -> Result<Vec<Channel>, sqlx::Error> {
-                let query = "SELECT c.id, c.server_id, c.name, c.type AS channel_type, c.encryption_type, c.message_ttl, c.is_private, c.created_at, \
+                let query = "SELECT c.id, c.server_id, c.name, c.channel_type AS channel_type, c.encryption_type, c.message_ttl, c.is_private, c.created_at::text, \
                                          CASE \
                                              WHEN COALESCE(c.scope, 'server') = 'dm' THEN CASE WHEN cm.user_id IS NOT NULL THEN 3 ELSE 0 END \
                                              WHEN cm.user_id IS NOT NULL THEN cm.permission_level \
@@ -2388,8 +2397,8 @@ impl DatabasePool {
                                          LEFT JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = $2 \
                                          LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = $2 \
                                          WHERE c.server_id = $1 \
-                                             AND (c.is_private = 0 OR cm.user_id IS NOT NULL) \
-                                         ORDER BY c.type ASC, c.name ASC";
+                                             AND (c.is_private = false OR cm.user_id IS NOT NULL) \
+                                         ORDER BY c.channel_type ASC, c.name ASC";
         let mut channels = Vec::new();
         match self {
             DatabasePool::Postgres(pool) => {
@@ -2410,7 +2419,7 @@ impl DatabasePool {
                         "asymmetric" => EncryptionType::Asymmetric,
                         _ => EncryptionType::None,
                     };
-                    let is_private: i64 = row.get(6);
+                    let is_private: bool = row.get(6);
                     let created_at_str: String = row.get(7);
                     let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
                         .map(|dt| dt.with_timezone(&chrono::Utc))
@@ -2428,7 +2437,7 @@ impl DatabasePool {
                         channel_type,
                         encryption_type,
                         message_ttl: row.get(5),
-                        is_private: is_private != 0,
+                        is_private,
                         permission_level: Some(row.get::<i32, _>(8)),
                         unread_count: 0,
                         key_version_id,
@@ -2542,7 +2551,7 @@ impl DatabasePool {
                 .bind(channel_id)
                 .bind(user_id)
                 .bind(permission_level)
-                .bind(&now)
+                .bind(now.clone())
                 .execute(pool)
                 .await?;
             }
@@ -2777,7 +2786,7 @@ impl DatabasePool {
                 .bind(channel_id)
                 .bind(user_id)
                 .bind(permission_level)
-                .bind(now)
+                .bind(now.clone())
                 .execute(pool)
                 .await?;
             }
@@ -3092,15 +3101,14 @@ impl DatabasePool {
     pub async fn create_channel(&self, channel_id: Uuid, server_id: Uuid, name: &str, channel_type: &str, encryption_type: &str, message_ttl: Option<i32>, is_private: bool) -> Result<(), sqlx::Error> {
         match self {
             DatabasePool::Postgres(pool) => {
-                sqlx::query("INSERT INTO channels (id, server_id, name, type, encryption_type, message_ttl, is_private, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)")
+                sqlx::query("INSERT INTO channels (id, server_id, name, channel_type, encryption_type, message_ttl, is_private, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())")
                     .bind(channel_id)
                     .bind(server_id)
                     .bind(name)
                     .bind(channel_type)
                     .bind(encryption_type)
                     .bind(message_ttl)
-                    .bind(is_private as i32)
-                        .bind(chrono::Utc::now().to_rfc3339())
+                    .bind(is_private)
                         .execute(pool)
                         .await?;
             }
@@ -3125,7 +3133,7 @@ impl DatabasePool {
         let query = "SELECT id, server_id, name, type, encryption_type, message_ttl, is_private, created_at FROM channels WHERE id = $1";
         match self {
             DatabasePool::Postgres(pool) => {
-                let row = sqlx::query(query)
+                let row = sqlx::query("SELECT id, server_id, name, channel_type AS type, encryption_type, message_ttl, is_private, created_at::text FROM channels WHERE id = $1")
                     .bind(channel_id)
                     .fetch_optional(pool)
                     .await?;
@@ -3141,7 +3149,7 @@ impl DatabasePool {
                         "asymmetric" => EncryptionType::Asymmetric,
                         _ => EncryptionType::None,
                     };
-                    let is_private: i64 = row.get(6);
+                    let is_private: bool = row.get(6);
                     let created_at_str: String = row.get(7);
                     let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
                         .map(|dt| dt.with_timezone(&chrono::Utc))
@@ -3158,7 +3166,7 @@ impl DatabasePool {
                         channel_type,
                         encryption_type,
                         message_ttl: row.get(5),
-                        is_private: is_private != 0,
+                        is_private,
                         permission_level: None,
                         unread_count: 0,
                         key_version_id,
@@ -3233,48 +3241,48 @@ impl DatabasePool {
                 match (name, message_ttl) {
                     (Some(n), Some(mt)) => {
                         sqlx::query(
-                            "UPDATE channels SET name=$1, type=$2, encryption_type=$3, message_ttl=$4, is_private=$5 WHERE id=$6 AND server_id=$7",
+                            "UPDATE channels SET name=$1, channel_type=$2, encryption_type=$3, message_ttl=$4, is_private=$5 WHERE id=$6 AND server_id=$7",
                         )
                         .bind(n)
                         .bind(channel_type)
                         .bind(encryption_type)
                         .bind(mt)
-                        .bind(is_private as i32)
+                        .bind(is_private)
                         .bind(channel_id)
                         .bind(server_id)
                         .execute(pool).await?;
                     }
                     (Some(n), None) => {
                         sqlx::query(
-                            "UPDATE channels SET name=$1, type=$2, encryption_type=$3, is_private=$4 WHERE id=$5 AND server_id=$6",
+                            "UPDATE channels SET name=$1, channel_type=$2, encryption_type=$3, is_private=$4 WHERE id=$5 AND server_id=$6",
                         )
                         .bind(n)
                         .bind(channel_type)
                         .bind(encryption_type)
-                        .bind(is_private as i32)
+                        .bind(is_private)
                         .bind(channel_id)
                         .bind(server_id)
                         .execute(pool).await?;
                     }
                     (None, Some(mt)) => {
                         sqlx::query(
-                            "UPDATE channels SET type=$1, encryption_type=$2, message_ttl=$3, is_private=$4 WHERE id=$5 AND server_id=$6",
+                            "UPDATE channels SET channel_type=$1, encryption_type=$2, message_ttl=$3, is_private=$4 WHERE id=$5 AND server_id=$6",
                         )
                         .bind(channel_type)
                         .bind(encryption_type)
                         .bind(mt)
-                        .bind(is_private as i32)
+                        .bind(is_private)
                         .bind(channel_id)
                         .bind(server_id)
                         .execute(pool).await?;
                     }
                     (None, None) => {
                         sqlx::query(
-                            "UPDATE channels SET type=$1, encryption_type=$2, is_private=$3 WHERE id=$4 AND server_id=$5",
+                            "UPDATE channels SET channel_type=$1, encryption_type=$2, is_private=$3 WHERE id=$4 AND server_id=$5",
                         )
                         .bind(channel_type)
                         .bind(encryption_type)
-                        .bind(is_private as i32)
+                        .bind(is_private)
                         .bind(channel_id)
                         .bind(server_id)
                         .execute(pool).await?;
@@ -3410,7 +3418,7 @@ impl DatabasePool {
                     "INSERT INTO messages \
                      (id, channel_id, sender_user_id, sender_username, sender_device_id, \
                       encrypted_payload, iv, key_version, timestamp, expires_at, edited_at, deleted_at) \
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, NULL)",
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::timestamptz, NULL, NULL)",
                 )
                 .bind(message_id)
                 .bind(channel_id)
@@ -3451,12 +3459,13 @@ impl DatabasePool {
 
     pub async fn get_message(&self, message_id: Uuid) -> Result<Option<Message>, sqlx::Error> {
         let now = chrono::Utc::now().to_rfc3339();
-        let query = "SELECT id, channel_id, sender_user_id, sender_username, sender_device_id, \
-                     encrypted_payload, iv, key_version, timestamp, expires_at, edited_at, deleted_at \
-                     FROM messages WHERE id = $1 AND (expires_at IS NULL OR expires_at > $2)";
         match self {
             DatabasePool::Postgres(pool) => {
-                let row = sqlx::query(query)
+                let row = sqlx::query(
+                    "SELECT id, channel_id, sender_user_id, sender_username, sender_device_id, \
+                     encrypted_payload, iv, key_version, timestamp::text, expires_at::text, edited_at::text, deleted_at::text \
+                     FROM messages WHERE id = $1 AND (expires_at IS NULL OR expires_at > $2::timestamptz)",
+                )
                     .bind(message_id)
                     .bind(&now)
                     .fetch_optional(pool)
@@ -3482,6 +3491,9 @@ impl DatabasePool {
                 .transpose()
             }
             DatabasePool::Sqlite(pool) => {
+                let query = "SELECT id, channel_id, sender_user_id, sender_username, sender_device_id, \
+                     encrypted_payload, iv, key_version, timestamp, expires_at, edited_at, deleted_at \
+                     FROM messages WHERE id = $1 AND (expires_at IS NULL OR expires_at > $2)";
                 let query = query.replace("$1", "?");
                 let row = sqlx::query(&query)
                     .bind(message_id)
@@ -3528,7 +3540,7 @@ impl DatabasePool {
                 let mut conditions = vec![];
 
                 conditions.push(format!("channel_id = $1"));
-                conditions.push(format!("(expires_at IS NULL OR expires_at > $2)"));
+                conditions.push(format!("(expires_at IS NULL OR expires_at > $2::timestamptz)"));
 
                 if let Some(a) = after {
                     conditions.push("id > $3".to_string());
@@ -3541,7 +3553,7 @@ impl DatabasePool {
                 }
                 if let Some(s) = since {
                     let since_param = 3 + usize::from(after.is_some()) + usize::from(before.is_some());
-                    conditions.push(format!("timestamp > ${}", since_param));
+                    conditions.push(format!("timestamp > ${}::timestamptz", since_param));
                     let _ = s;
                 }
 
@@ -3555,13 +3567,13 @@ impl DatabasePool {
 
                 let query = format!(
                     "SELECT id, channel_id, sender_user_id, sender_username, sender_device_id, \
-                     encrypted_payload, iv, key_version, timestamp, expires_at, edited_at, deleted_at \
-                     FROM messages WHERE {} {} LIMIT $999",
+                     encrypted_payload, iv, key_version, timestamp::text, expires_at::text, edited_at::text, deleted_at::text \
+                     FROM messages WHERE {} {} LIMIT ${}",
                     conditions.join(" AND "),
-                    order
+                    order,
+                    3 + usize::from(after.is_some()) + usize::from(before.is_some()) + usize::from(since.is_some())
                 );
 
-                let query = query.replace("$1", "?").replace("$2", "?");
                 let mut q = sqlx::query(&query);
                 q = q.bind(channel_id);
                 q = q.bind(&now);
@@ -3668,10 +3680,10 @@ impl DatabasePool {
         edited_at: DateTime<Utc>,
     ) -> Result<Message, sqlx::Error> {
         let query = "UPDATE messages \
-                     SET encrypted_payload = $1, iv = $2, edited_at = $3 \
+                     SET encrypted_payload = $1, iv = $2, edited_at = $3::timestamptz \
                      WHERE id = $4 \
                      RETURNING id, channel_id, sender_user_id, sender_username, sender_device_id, \
-                               encrypted_payload, iv, key_version, timestamp, expires_at, edited_at, deleted_at";
+                               encrypted_payload, iv, key_version, timestamp::text, expires_at::text, edited_at::text, deleted_at::text";
         match self {
             DatabasePool::Postgres(pool) => {
                 let row = sqlx::query(query)
@@ -3731,9 +3743,8 @@ impl DatabasePool {
         match self {
             DatabasePool::Postgres(pool) => {
                 sqlx::query(
-                    "UPDATE messages SET deleted_at = $1 WHERE id = $2",
+                    "UPDATE messages SET deleted_at = NOW() WHERE id = $1",
                 )
-                .bind(chrono::Utc::now().to_rfc3339())
                 .bind(message_id)
                 .execute(pool)
                 .await?;
@@ -3759,7 +3770,7 @@ impl DatabasePool {
         match self {
             DatabasePool::Postgres(pool) => {
                 let rows = sqlx::query(
-                    "DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at <= $1 \
+                    "DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at <= $1::timestamptz \
                      RETURNING id, channel_id",
                 )
                 .bind(&now)
@@ -3806,8 +3817,8 @@ impl DatabasePool {
                 let row = sqlx::query(
                     "SELECT COUNT(*), MIN(id) FROM messages \
                      WHERE channel_id = $1 AND sender_user_id != $2 AND deleted_at IS NULL \
-                     AND (expires_at IS NULL OR expires_at > $4) \
-                     AND timestamp > $3",
+                     AND (expires_at IS NULL OR expires_at > $4::timestamptz) \
+                     AND timestamp > $3::timestamptz",
                 )
                 .bind(channel_id)
                 .bind(user_id)
@@ -3850,7 +3861,7 @@ impl DatabasePool {
             DatabasePool::Postgres(pool) => {
                 sqlx::query(
                     "INSERT INTO channel_read_state (user_id, channel_id, last_read_message_id, last_read_at, updated_at) \
-                     VALUES ($1, $2, $3, $4, $4) \
+                     VALUES ($1, $2, $3, NOW(), NOW()) \
                      ON CONFLICT (user_id, channel_id) DO UPDATE SET \
                      last_read_message_id = EXCLUDED.last_read_message_id, \
                      last_read_at = EXCLUDED.last_read_at, \
@@ -3859,7 +3870,6 @@ impl DatabasePool {
                 .bind(user_id)
                 .bind(channel_id)
                 .bind(last_read_message_id)
-                .bind(&now)
                 .execute(pool)
                 .await?;
             }
@@ -4553,7 +4563,7 @@ impl DatabasePool {
         channel_id: Uuid,
         user_id: Uuid,
     ) -> Result<usize, sqlx::Error> {
-                let now = chrono::Utc::now().to_rfc3339();
+                                let now = chrono::Utc::now().to_rfc3339();
         match self {
             DatabasePool::Postgres(pool) => {
                 let row = sqlx::query(
@@ -4563,8 +4573,8 @@ impl DatabasePool {
                      WHERE m.channel_id = $1 \
                        AND m.sender_user_id != $2 \
                        AND m.deleted_at IS NULL \
-                                             AND (m.expires_at IS NULL OR m.expires_at > $3) \
-                       AND m.timestamp > COALESCE(rs.last_read_at, '1970-01-01T00:00:00Z')",
+                                             AND (m.expires_at IS NULL OR m.expires_at > $3::timestamptz) \
+                                             AND m.timestamp > COALESCE(rs.last_read_at, TIMESTAMPTZ '1970-01-01 00:00:00+00')",
                 )
                 .bind(channel_id)
                 .bind(user_id)
