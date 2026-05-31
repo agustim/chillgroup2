@@ -726,6 +726,7 @@ body {
   background: var(--bg-header);
   border-bottom: 1px solid var(--bg-active);
   overflow-x: auto;
+  flex-shrink: 0;
 }
 
 .main-content-tab {
@@ -1494,6 +1495,7 @@ body {
   padding: 16px;
   overflow-y: auto;
   max-width: 300px;
+  min-height: 0;
 }
 
 .panel h3 {
@@ -1702,10 +1704,12 @@ body {
 .admin-users-panel {
   border-left: none;
   max-width: none;
-  margin: 12px 16px 16px;
+  margin: 0;
   border: 1px solid var(--bg-active);
   border-radius: var(--input-radius);
   background: var(--bg-header);
+  height: 100%;
+  scrollbar-gutter: stable;
 }
 
 .admin-users-panel-header {

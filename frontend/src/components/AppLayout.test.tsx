@@ -140,18 +140,27 @@ vi.mock('./main/ChannelHeader', () => ({
 // Fix 3: Mock modals must return actual modal-like DOM so tests can find dialog,
 // titles, labels, and text content.
 vi.mock('./modals/CreateTextChannelModal', () => ({
-  CreateTextChannelModal: ({ isOpen }: any) =>
-    isOpen ? (
-      <div role="dialog" aria-label="Crear canal de text">
-        <h2>Crear canal</h2>
-        <label htmlFor="channel-name">Nom del canal</label>
-        <input id="channel-name" type="text" placeholder="general" />
-        <div data-testid="channel-type-options">
-          <span># Text</span>
-          <span>🔊 Veu</span>
-        </div>
+  CreateTextChannelPanel: () => (
+    <div aria-label="Crear canal de text">
+      <h2>Crear canal</h2>
+      <label htmlFor="channel-name">Nom del canal</label>
+      <input id="channel-name" type="text" placeholder="general" />
+      <div data-testid="channel-type-options">
+        <span># Text</span>
+        <span>🔊 Veu</span>
       </div>
-    ) : null,
+    </div>
+  ),
+}))
+
+vi.mock('./modals/CreateVoiceChannelModal', () => ({
+  CreateVoiceChannelPanel: () => (
+    <div aria-label="Crear canal de veu">
+      <h2>Crear canal de veu</h2>
+      <label htmlFor="voice-channel-name">Nom del canal</label>
+      <input id="voice-channel-name" type="text" placeholder="sala de reunió" />
+    </div>
+  ),
 }))
 
 vi.mock('./modals/CreateServerModal', () => ({
@@ -454,7 +463,7 @@ describe('AppLayout', () => {
       const btn = await screen.findByTestId('btn-create-channel', {}, { timeout: 5000 })
       fireEvent.click(btn)
       await waitFor(() => {
-        expect(screen.getByRole('dialog')).toBeTruthy()
+        expect(screen.getByLabelText('Crear canal de text')).toBeTruthy()
         expect(screen.getByText('Crear canal')).toBeTruthy()
       })
     })

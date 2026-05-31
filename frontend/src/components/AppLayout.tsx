@@ -4,8 +4,8 @@ import { ServerBar } from './sidebar/ServerBar'
 import { ChannelList } from './sidebar/ChannelList'
 import { MainContent } from './main/MainContent'
 import { CreateServerPanel } from './modals/CreateServerModal'
-import { CreateTextChannelModal } from './modals/CreateTextChannelModal'
-import { CreateVoiceChannelModal } from './modals/CreateVoiceChannelModal'
+import { CreateTextChannelPanel } from './modals/CreateTextChannelModal'
+import { CreateVoiceChannelPanel } from './modals/CreateVoiceChannelModal'
 import { InviteMemberModal } from './modals/InviteMemberModal'
 import { DeviceKeysPanel } from './modals/DeviceKeysModal'
 import { ChannelKeysPanel } from './modals/ChannelKeysModal'
@@ -51,7 +51,7 @@ interface AppLayoutProps {
   onLogout?: () => void
 }
 
-type PanelType = 'none' | 'serverConfig' | 'channelConfig' | 'devices' | 'adminUsers' | 'permissions' | 'friends' | 'createServer' | 'changePassword' | 'channelKeys'
+type PanelType = 'none' | 'serverConfig' | 'channelConfig' | 'devices' | 'adminUsers' | 'permissions' | 'friends' | 'createServer' | 'changePassword' | 'channelKeys' | 'createTextChannel' | 'createVoiceChannel'
 type ServerMenuAction = 'config' | 'invite' | 'createText' | 'createVoice' | null
 
 function formatDmRepairFeedback(result: {
@@ -103,8 +103,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const [canCreateVoiceChannel, setCanCreateVoiceChannel] = useState(true)
   
   // Modal states
-  const [showCreateTextChannel, setShowCreateTextChannel] = useState(false)
-  const [showCreateVoiceChannel, setShowCreateVoiceChannel] = useState(false)
   const [showInviteServer, setShowInviteServer] = useState(false)
   const [pendingServerConfigOpenId, setPendingServerConfigOpenId] = useState<string | null>(null)
   const [serverConfigInviteUsername, setServerConfigInviteUsername] = useState('')
@@ -1296,10 +1294,10 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
         setPanel('serverConfig')
         break
       case 'createText':
-        setShowCreateTextChannel(true)
+        setPanel('createTextChannel')
         break
       case 'createVoice':
-        setShowCreateVoiceChannel(true)
+        setPanel('createVoiceChannel')
         break
     }
   }
@@ -1546,6 +1544,48 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     </div>
   ) : null
 
+  const createTextChannelTabNode = panel === 'createTextChannel' ? (
+    <div
+      className="main-content-tab active"
+      onClick={() => setPanel('createTextChannel')}
+    >
+      <span>#</span>
+      <span>Nou text</span>
+      <button
+        type="button"
+        className="main-content-tab-close"
+        onClick={(event) => {
+          event.stopPropagation()
+          setPanel('none')
+        }}
+        title="Tancar pestanya"
+      >
+        ✕
+      </button>
+    </div>
+  ) : null
+
+  const createVoiceChannelTabNode = panel === 'createVoiceChannel' ? (
+    <div
+      className="main-content-tab active"
+      onClick={() => setPanel('createVoiceChannel')}
+    >
+      <span>🔊</span>
+      <span>Nou veu</span>
+      <button
+        type="button"
+        className="main-content-tab-close"
+        onClick={(event) => {
+          event.stopPropagation()
+          setPanel('none')
+        }}
+        title="Tancar pestanya"
+      >
+        ✕
+      </button>
+    </div>
+  ) : null
+
   const mergedVoiceParticipants = voiceChannelId
     ? liveKitParticipants.map((participant) => {
         const socketPresence = (voicePresenceByChannel[voiceChannelId] ?? []).find(
@@ -1620,8 +1660,8 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           onChangePassword={handleChangePassword}
           onManagePermissions={handleManagePermissions}
           onManageAdminUsers={handleManageAdminUsers}
-          onCreateTextChannel={canManageServer && canCreateTextChannel ? () => setShowCreateTextChannel(true) : undefined}
-          onCreateVoiceChannel={canManageServer && canCreateVoiceChannel ? () => setShowCreateVoiceChannel(true) : undefined}
+          onCreateTextChannel={canManageServer && canCreateTextChannel ? () => setPanel('createTextChannel') : undefined}
+          onCreateVoiceChannel={canManageServer && canCreateVoiceChannel ? () => setPanel('createVoiceChannel') : undefined}
           canCreateTextChannel={canManageServer && canCreateTextChannel}
           canCreateVoiceChannel={canManageServer && canCreateVoiceChannel}
           canManageAdminUsers={user?.isAdmin ?? false}
@@ -1632,7 +1672,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
       )}
 
       <div className="main-content-area">
-        {(selectedServer || panel === 'createServer' || panel === 'friends' || panel === 'devices' || panel === 'changePassword' || panel === 'channelKeys') && (openTextTabs.length > 0 || activeVoiceChannel || panel === 'adminUsers' || panel === 'serverConfig' || panel === 'channelConfig' || panel === 'permissions' || panel === 'createServer' || panel === 'friends' || panel === 'devices' || panel === 'changePassword' || panel === 'channelKeys') && (
+        {(selectedServer || panel === 'createServer' || panel === 'friends' || panel === 'devices' || panel === 'changePassword' || panel === 'channelKeys' || panel === 'createTextChannel' || panel === 'createVoiceChannel') && (openTextTabs.length > 0 || activeVoiceChannel || panel === 'adminUsers' || panel === 'serverConfig' || panel === 'channelConfig' || panel === 'permissions' || panel === 'createServer' || panel === 'friends' || panel === 'devices' || panel === 'changePassword' || panel === 'channelKeys' || panel === 'createTextChannel' || panel === 'createVoiceChannel') && (
           <div className="main-content-tabs">
             {textTabNodes}
             {voiceTabNode}
@@ -1645,6 +1685,8 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
             {devicesTabNode}
             {changePasswordTabNode}
             {channelKeysTabNode}
+            {createTextChannelTabNode}
+            {createVoiceChannelTabNode}
           </div>
         )}
 
@@ -1655,9 +1697,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           <div className="panel admin-users-panel">
             <div className="admin-users-panel-header">
               <h3>Crear servidor</h3>
-              <button className="admin-panel-tab" onClick={() => setPanel('none')}>
-                Tancar
-              </button>
             </div>
 
             <CreateServerPanel
@@ -1669,9 +1708,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           <div className="panel admin-users-panel">
             <div className="admin-users-panel-header">
               <h3>Gestio d'amics</h3>
-              <button className="admin-panel-tab" onClick={() => setPanel('none')}>
-                Tancar
-              </button>
             </div>
 
             <FriendsPanel
@@ -1685,9 +1721,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           <div className="panel admin-users-panel">
             <div className="admin-users-panel-header">
               <h3>Gestio de dispositius</h3>
-              <button className="admin-panel-tab" onClick={() => setPanel('none')}>
-                Tancar
-              </button>
             </div>
 
             <DeviceKeysPanel
@@ -1700,9 +1733,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           <div className="panel admin-users-panel">
             <div className="admin-users-panel-header">
               <h3>Canviar password</h3>
-              <button className="admin-panel-tab" onClick={() => setPanel('none')}>
-                Tancar
-              </button>
             </div>
 
             <ChangePasswordPanel onClose={() => setPanel('none')} />
@@ -1711,12 +1741,31 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           <div className="panel admin-users-panel">
             <div className="admin-users-panel-header">
               <h3>Gestió de claus de canals</h3>
-              <button className="admin-panel-tab" onClick={() => setPanel('none')}>
-                Tancar
-              </button>
             </div>
 
             <ChannelKeysPanel channels={channels} />
+          </div>
+        ) : panel === 'createTextChannel' ? (
+          <div className="panel admin-users-panel">
+            <div className="admin-users-panel-header">
+              <h3>Crear canal de text</h3>
+            </div>
+
+            <CreateTextChannelPanel
+              onClose={() => setPanel('none')}
+              onCreate={handleCreateTextChannel}
+            />
+          </div>
+        ) : panel === 'createVoiceChannel' ? (
+          <div className="panel admin-users-panel">
+            <div className="admin-users-panel-header">
+              <h3>Crear canal de veu</h3>
+            </div>
+
+            <CreateVoiceChannelPanel
+              onClose={() => setPanel('none')}
+              onCreate={handleCreateVoiceChannel}
+            />
           </div>
         ) : panel === 'adminUsers' ? (
           <AdminUsersPanel
@@ -1753,14 +1802,9 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           <div className="panel admin-users-panel">
             <div className="admin-users-panel-header">
               <h3>Configuració del servidor</h3>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button className="admin-panel-tab" onClick={() => setPanel('permissions')}>
-                  Permisos usuaris/canals
-                </button>
-                <button className="admin-panel-tab" onClick={() => setPanel('none')}>
-                  Tancar
-                </button>
-              </div>
+              <button className="admin-panel-tab" onClick={() => setPanel('permissions')}>
+                Permisos usuaris/canals
+              </button>
             </div>
 
             <p>
@@ -1909,10 +1953,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
                 />
                 Canal privat
               </label>
-              <div className="modal-form-actions" style={{ justifyContent: 'space-between' }}>
-                <button type="button" className="admin-panel-tab" onClick={() => setPanel('none')}>
-                  Tancar
-                </button>
+              <div className="modal-form-actions" style={{ justifyContent: 'flex-end' }}>
                 <button type="submit" className="admin-panel-tab active">
                   Desar canvis
                 </button>
@@ -2050,18 +2091,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
         )}
 
         {/* ── Modals ─────────────────────────────────── */}
-        <CreateTextChannelModal
-          isOpen={showCreateTextChannel}
-          onClose={() => setShowCreateTextChannel(false)}
-          onCreate={handleCreateTextChannel}
-        />
-
-        <CreateVoiceChannelModal
-          isOpen={showCreateVoiceChannel}
-          onClose={() => setShowCreateVoiceChannel(false)}
-          onCreate={handleCreateVoiceChannel}
-        />
-
         {selectedServer && (
           <InviteMemberModal
             isOpen={showInviteServer}
