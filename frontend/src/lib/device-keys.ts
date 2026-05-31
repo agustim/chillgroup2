@@ -38,6 +38,12 @@ function base64ToUint8Array(value: string): Uint8Array {
   return out
 }
 
+function toArrayBuffer(data: Uint8Array): ArrayBuffer {
+  const out = new ArrayBuffer(data.byteLength)
+  new Uint8Array(out).set(data)
+  return out
+}
+
 // ── Backup encryption (PBKDF2 + AES-256-GCM, client-side) ────
 
 const KDF_ITERATIONS = 600_000
@@ -55,6 +61,7 @@ interface EncryptedBackupBundle {
 }
 
 async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
+  const safeSalt = toArrayBuffer(salt)
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
     new TextEncoder().encode(password),
@@ -63,7 +70,7 @@ async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey>
     ['deriveKey']
   )
   return crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt, iterations: KDF_ITERATIONS, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt: safeSalt, iterations: KDF_ITERATIONS, hash: 'SHA-256' },
     keyMaterial,
     { name: 'AES-GCM', length: 256 },
     false,
@@ -78,9 +85,10 @@ async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey>
 export async function encryptBackup(plaintext: string, password: string): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(16))
   const iv = crypto.getRandomValues(new Uint8Array(12))
+  const safeIv = toArrayBuffer(iv)
   const key = await deriveKey(password, salt)
   const ciphertextBuf = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
+    { name: 'AES-GCM', iv: safeIv },
     key,
     new TextEncoder().encode(plaintext)
   )
@@ -117,8 +125,8 @@ export async function decryptBackup(fileText: string, password: string): Promise
 
   const bundle = parsed as EncryptedBackupBundle
   const salt = base64ToUint8Array(bundle.salt)
-  const iv = base64ToUint8Array(bundle.iv)
-  const ciphertext = base64ToUint8Array(bundle.ciphertext)
+  const iv = toArrayBuffer(base64ToUint8Array(bundle.iv))
+  const ciphertext = toArrayBuffer(base64ToUint8Array(bundle.ciphertext))
   const key = await deriveKey(password, salt)
 
   let plaintextBuf: ArrayBuffer
