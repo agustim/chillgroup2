@@ -27,6 +27,7 @@ import {
   adminPlansCreate,
   adminPlansList,
   adminServersList,
+  adminServersUpdate,
   adminUsersList,
   invitationsList,
 } from '../../lib/api'
@@ -34,6 +35,7 @@ import {
 const mockAdminUsersList = vi.mocked(adminUsersList)
 const mockInvitationsList = vi.mocked(invitationsList)
 const mockAdminServersList = vi.mocked(adminServersList)
+const mockAdminServersUpdate = vi.mocked(adminServersUpdate)
 const mockAdminPlansList = vi.mocked(adminPlansList)
 const mockAdminPlansCreate = vi.mocked(adminPlansCreate)
 
@@ -60,6 +62,7 @@ describe('AdminUsersPanel', () => {
     mockAdminUsersList.mockResolvedValue({ success: true, data: [] })
     mockInvitationsList.mockResolvedValue({ success: true, data: [] })
     mockAdminServersList.mockResolvedValue({ success: true, data: [] })
+    mockAdminServersUpdate.mockResolvedValue({ success: true, data: undefined })
     mockAdminPlansList.mockResolvedValue({ success: true, data: basePlans })
     mockAdminPlansCreate.mockResolvedValue({
       success: true,
@@ -145,5 +148,110 @@ describe('AdminUsersPanel', () => {
     })
 
     expect(onFeedback).toHaveBeenCalledWith('Pla Team Plus creat')
+  })
+
+  it('permet configurar un LiveKit específic des de Gestió -> Servidors', async () => {
+    const onFeedback = vi.fn()
+
+    mockAdminServersList.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          serverId: 'server-1',
+          name: 'Servidor veu',
+          iconUrl: null,
+          ownerId: 'owner-1',
+          memberCount: 12,
+          livekitConfig: null,
+          createdAt: '2026-06-01T10:00:00Z',
+        },
+      ],
+    })
+
+    render(
+      <AdminUsersPanel
+        isOpen={true}
+        onClose={() => undefined}
+        onFeedback={onFeedback}
+      />
+    )
+
+    await waitFor(() => {
+      expect(mockAdminServersList).toHaveBeenCalled()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Servidors' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Modificar' }))
+
+    fireEvent.click(screen.getByLabelText('Usar LiveKit global per defecte'))
+    fireEvent.change(screen.getByLabelText('LiveKit host'), { target: { value: 'https://lk-veu.example.com' } })
+    fireEvent.change(screen.getByLabelText('LiveKit API key'), { target: { value: 'veu-key' } })
+    fireEvent.change(screen.getByLabelText('LiveKit API secret'), { target: { value: 'veu-secret' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Desar' }))
+
+    await waitFor(() => {
+      expect(mockAdminServersUpdate).toHaveBeenCalledWith(
+        'server-1',
+        'Servidor veu',
+        null,
+        'https://lk-veu.example.com',
+        'veu-key',
+        'veu-secret',
+      )
+    })
+
+    expect(onFeedback).toHaveBeenCalledWith('Servidor actualitzat')
+  })
+
+  it('permet tornar al LiveKit per defecte des de Gestió -> Servidors', async () => {
+    mockAdminServersList.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          serverId: 'server-2',
+          name: 'Servidor global',
+          iconUrl: null,
+          ownerId: 'owner-2',
+          memberCount: 4,
+          livekitConfig: {
+            host: 'https://lk-dedicat.example.com',
+            apiKey: 'lk-key',
+            isOverride: true,
+          },
+          createdAt: '2026-06-01T10:00:00Z',
+        },
+      ],
+    })
+
+    render(
+      <AdminUsersPanel
+        isOpen={true}
+        onClose={() => undefined}
+        onFeedback={() => undefined}
+      />
+    )
+
+    await waitFor(() => {
+      expect(mockAdminServersList).toHaveBeenCalled()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Servidors' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Modificar' }))
+
+    expect(screen.getByText('LiveKit: https://lk-dedicat.example.com')).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('Usar LiveKit global per defecte'))
+    fireEvent.click(screen.getByRole('button', { name: 'Desar' }))
+
+    await waitFor(() => {
+      expect(mockAdminServersUpdate).toHaveBeenCalledWith(
+        'server-2',
+        'Servidor global',
+        null,
+        null,
+        null,
+        null,
+      )
+    })
   })
 })

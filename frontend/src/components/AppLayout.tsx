@@ -32,7 +32,6 @@ import {
   serversCreate,
   serversGet,
   serversList,
-  serversUpdateLiveKit,
   channelsCreate,
   channelsList,
   channelsMarkRead,
@@ -109,9 +108,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const [showInviteServer, setShowInviteServer] = useState(false)
   const [pendingServerConfigOpenId, setPendingServerConfigOpenId] = useState<string | null>(null)
   const [serverConfigInviteUsername, setServerConfigInviteUsername] = useState('')
-  const [serverConfigLiveKitHost, setServerConfigLiveKitHost] = useState('')
-  const [serverConfigLiveKitApiKey, setServerConfigLiveKitApiKey] = useState('')
-  const [serverConfigLiveKitApiSecret, setServerConfigLiveKitApiSecret] = useState('')
   const [pendingMemberRemovalId, setPendingMemberRemovalId] = useState<string | null>(null)
   const [channelConfigName, setChannelConfigName] = useState('')
   const [channelConfigMessageTTL, setChannelConfigMessageTTL] = useState('')
@@ -244,17 +240,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     selectedServerInfo?.myRole === 'admin' ||
     serverDetails?.myRole === 'owner' ||
     serverDetails?.myRole === 'admin'
-
-  useEffect(() => {
-    if (panel !== 'serverConfig' || !serverDetails) {
-      setServerConfigLiveKitApiSecret('')
-      return
-    }
-
-    setServerConfigLiveKitHost(serverDetails.livekitConfig?.host ?? '')
-    setServerConfigLiveKitApiKey(serverDetails.livekitConfig?.apiKey ?? '')
-    setServerConfigLiveKitApiSecret('')
-  }, [panel, serverDetails?.serverId, serverDetails?.livekitConfig?.host, serverDetails?.livekitConfig?.apiKey])
 
   useEffect(() => {
     if (panel !== 'channelConfig' || !resolvedSelectedChannel) {
@@ -1076,55 +1061,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     setServerConfigInviteUsername('')
   }
 
-  const handleServerLiveKitSubmit = async (event: React.FormEvent) => {
-    event.preventDefault()
-    if (!selectedServer) return
-
-    const host = serverConfigLiveKitHost.trim()
-    const apiKey = serverConfigLiveKitApiKey.trim()
-    const apiSecret = serverConfigLiveKitApiSecret.trim()
-
-    const wantsOverride = Boolean(host || apiKey || apiSecret)
-    if (wantsOverride && (!host || !apiKey || !apiSecret)) {
-      setFeedback('Per configurar un LiveKit propi has d omplir host, API key i API secret')
-      return
-    }
-
-    const result = await serversUpdateLiveKit(
-      selectedServer,
-      wantsOverride ? host : null,
-      wantsOverride ? apiKey : null,
-      wantsOverride ? apiSecret : null,
-    )
-
-    if (!result.success) {
-      setFeedback(result.error.message)
-      return
-    }
-
-    setServerDetails(result.data)
-    setServerConfigLiveKitHost(result.data.livekitConfig?.host ?? '')
-    setServerConfigLiveKitApiKey(result.data.livekitConfig?.apiKey ?? '')
-    setServerConfigLiveKitApiSecret('')
-    setFeedback(wantsOverride ? 'LiveKit del servidor actualitzat' : 'S ha restaurat el LiveKit global per defecte')
-  }
-
-  const handleServerLiveKitReset = async () => {
-    if (!selectedServer) return
-
-    const result = await serversUpdateLiveKit(selectedServer, null, null, null)
-    if (!result.success) {
-      setFeedback(result.error.message)
-      return
-    }
-
-    setServerDetails(result.data)
-    setServerConfigLiveKitHost('')
-    setServerConfigLiveKitApiKey('')
-    setServerConfigLiveKitApiSecret('')
-    setFeedback('S ha restaurat el LiveKit global per defecte')
-  }
-
   const handleUpdateServerMemberRole = async (userId: string, role: 'admin' | 'member') => {
     if (!selectedServer) return
     const result = await serverUpdateMemberRole(selectedServer, userId, role)
@@ -1902,57 +1838,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
                 <div className="modal-form-actions" style={{ justifyContent: 'flex-end' }}>
                   <button type="submit" className="admin-panel-tab">
                     Convidar
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {canManageServer && (
-              <form onSubmit={handleServerLiveKitSubmit} className="modal-form" style={{ marginTop: '12px', marginBottom: '12px' }}>
-                <h4>LiveKit del servidor</h4>
-                <p style={{ marginTop: 0, opacity: 0.8 }}>
-                  {serverDetails.livekitConfig?.isOverride
-                    ? `Override activa: ${serverDetails.livekitConfig.host}`
-                    : 'Sense override. Aquest servidor usa el LiveKit global del backend.'}
-                </p>
-                <div className="form-group">
-                  <label htmlFor="integrated-server-livekit-host">LiveKit host</label>
-                  <input
-                    id="integrated-server-livekit-host"
-                    type="text"
-                    value={serverConfigLiveKitHost}
-                    onChange={(e) => setServerConfigLiveKitHost(e.target.value)}
-                    placeholder="https://livekit.exemple.com"
-                  />
-                </div>
-                <div className="form-group">
-                  <label htmlFor="integrated-server-livekit-api-key">LiveKit API key</label>
-                  <input
-                    id="integrated-server-livekit-api-key"
-                    type="text"
-                    value={serverConfigLiveKitApiKey}
-                    onChange={(e) => setServerConfigLiveKitApiKey(e.target.value)}
-                    placeholder="API key"
-                  />
-                </div>
-                <div className="form-group">
-                  <label htmlFor="integrated-server-livekit-api-secret">LiveKit API secret</label>
-                  <input
-                    id="integrated-server-livekit-api-secret"
-                    type="password"
-                    value={serverConfigLiveKitApiSecret}
-                    onChange={(e) => setServerConfigLiveKitApiSecret(e.target.value)}
-                    placeholder={serverDetails.livekitConfig?.isOverride ? 'Introdueix un secret nou per actualitzar l override' : 'API secret'}
-                  />
-                </div>
-                <div className="modal-form-actions" style={{ justifyContent: 'flex-end' }}>
-                  {serverDetails.livekitConfig?.isOverride && (
-                    <button type="button" className="admin-panel-tab" onClick={() => void handleServerLiveKitReset()}>
-                      Usar per defecte
-                    </button>
-                  )}
-                  <button type="submit" className="admin-panel-tab active">
-                    Desar LiveKit
                   </button>
                 </div>
               </form>
