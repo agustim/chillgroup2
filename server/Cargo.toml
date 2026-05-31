@@ -24,6 +24,7 @@ argon2 = { workspace = true }
 rand = { workspace = true }
 aes-gcm = { workspace = true }
 ml-kem = { workspace = true }
+sha2 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }

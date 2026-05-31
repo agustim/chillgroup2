@@ -5,6 +5,7 @@
 use crate::error::CryptoError;
 use argon2::{password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString}, Argon2};
 use rand::rngs::OsRng;
+use sha2::{Digest, Sha256};
 
 /// Generar un hash de password amb Argon2.
 pub fn hash_password(password: &str) -> Result<String, CryptoError> {
@@ -26,6 +27,18 @@ pub fn verify_password(password: &str, hash_str: &str) -> Result<bool, CryptoErr
     let parsed_hash = PasswordHash::new(hash_str).map_err(|_| CryptoError::CryptoError)?;
     let argon2 = Argon2::default();
     Ok(argon2.verify_password(password.as_bytes(), &parsed_hash).is_ok())
+}
+
+/// Hash d'un codi d'invitació admin one-shot.
+pub fn hash_admin_invitation_code(code: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(code.trim().as_bytes());
+    let digest = hasher.finalize();
+    let mut out = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        out.push_str(&format!("{:02x}", byte));
+    }
+    out
 }
 
 #[cfg(test)]
@@ -73,5 +86,16 @@ mod tests {
     fn test_hash_password_contains_argon2_marker() {
         let hash = hash_password("test").expect("Ha de generar hash");
         assert!(hash.contains("$argon2id$"));
+    }
+
+    #[test]
+    fn test_hash_admin_invitation_code_is_deterministic() {
+        let hash1 = hash_admin_invitation_code("ADMIN-CODE-ONE");
+        let hash2 = hash_admin_invitation_code("ADMIN-CODE-ONE");
+        let hash3 = hash_admin_invitation_code("ADMIN-CODE-TWO");
+
+        assert_eq!(hash1, hash2);
+        assert_ne!(hash1, hash3);
+        assert_eq!(hash1.len(), 64);
     }
 }

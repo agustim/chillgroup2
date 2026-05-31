@@ -82,7 +82,7 @@ Crear una eina de xat moderna, quantum-resistent, amb tres nivells de seguretat 
 | Missatges E2EE | ✅ (3 nivells) | ❌ | ✅ (només privat) | ✅ (només privat) |
 | Quantum-resistant | ✅ Kyber-1024 | ❌ | ❌ | ❌ |
 | Open Source | ✅ | ❌ | ✅ | ❌ |
-| Auto-destrució missatges | ✅ TTL | ✅ | ✅ | ✅ |
+| Auto-destrució missatges | ✅ TTL | ❌ (només amb bots/automatització) | ✅ | ✅ |
 
 ## Modes d'Operació
 
@@ -99,6 +99,7 @@ ChillGroup pot funcionar en dos modes depenent de la configuració:
 - L'endpoint de registre públic és desactivat
 - Ideal per a **empreses**, **grups privats** o **instàncies corporatives**
 - Requiere credencials d'admin inicial (`ADMIN_USER`, `ADMIN_PASSWORD`)
+- Opcionalment es pot promocionar un únic registre via `ONE_ADMIN_INVITATION` + `admin_invitation_code`
 - Els admins tenen accés a: crear/modificar/esborrar usuaris, llistar usuaris
 
 **Important**: Els administradors **NO** podem accedir a missatges xifrats (E2EE). Mantenen la privacesa completa.

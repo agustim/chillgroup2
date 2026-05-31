@@ -297,6 +297,8 @@ OPEN_REGISTER=true\n\
 # Si OPEN_REGISTER=false, defineix ADMIN_USER i ADMIN_PASSWORD\n\
 # ADMIN_USER=admin\n\
 # ADMIN_PASSWORD=canvia-aixo\n\
+# Codi one-shot per promoure el següent registre a admin (opcional)\n\
+# ONE_ADMIN_INVITATION=CODI-UNIC-ADMIN\n\
 \n\
 # Cleanup TTL (minuts)\n\
 TTL_CLEANUP_INTERVAL_MINUTES=5\n\
@@ -366,6 +368,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .await
         .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))?;
     info!("✅ Base de dades connectada correctament");
+
+    if let Ok(raw_code) = std::env::var("ONE_ADMIN_INVITATION") {
+        let trimmed = raw_code.trim();
+        if !trimmed.is_empty() {
+            let code_hash = hash::hash_admin_invitation_code(trimmed);
+            db_pool
+                .sync_one_admin_invitation_hash(&code_hash)
+                .await
+                .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))?;
+            info!("✅ ONE_ADMIN_INVITATION sincronitzat");
+        }
+    }
 
     if !config.open_register {
         let admin_username = config

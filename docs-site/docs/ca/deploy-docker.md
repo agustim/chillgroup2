@@ -61,6 +61,7 @@ Les mes rellevants son:
 - `JWT_SECRET`
 - `SERVER_MASTER_KEY`
 - `OPEN_REGISTER`
+- `ONE_ADMIN_INVITATION` (opcional, un sol ús per promocionar un registre a admin)
 
 ## Verificacio
 
@@ -80,6 +81,7 @@ Per entorns no locals:
 
 - Canvia `JWT_SECRET` i `SERVER_MASTER_KEY`.
 - No facis servir `OPEN_REGISTER=true` en produccio.
+- Si uses `ONE_ADMIN_INVITATION`, elimina-la o rota-la després del primer ús.
 - Revisa ports exposats i firewall.
 - Si uses reverse proxy, apunta'l a `app:8080`.
 

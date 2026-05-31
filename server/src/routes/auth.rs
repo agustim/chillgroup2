@@ -28,6 +28,7 @@ pub struct RegisterRequest {
     pub username: String,
     pub password: String,
     pub device_id: Option<Uuid>,
+    pub admin_invitation_code: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,6 +44,7 @@ pub struct RegisterWithInvitationRequest {
     pub username: String,
     pub password: String,
     pub device_id: Option<Uuid>,
+    pub admin_invitation_code: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -81,6 +83,15 @@ fn generate_invitation_code() -> String {
     .to_uppercase()
 }
 
+fn parse_admin_invitation_hash(code: Option<&str>) -> Option<String> {
+    let trimmed = code?.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    Some(hash::hash_admin_invitation_code(trimmed))
+}
+
 // ── Register ─────────────────────────────────────────────────────
 
 #[axum::debug_handler]
@@ -90,7 +101,9 @@ pub async fn register(
 ) -> Result<(StatusCode, Json<AuthResponse>), AppError> {
     info!("📝 Endpoint de register cridat per username: {}", req.username);
 
-    if !state.config.open_register {
+    let admin_invitation_hash = parse_admin_invitation_hash(req.admin_invitation_code.as_deref());
+
+    if !state.config.open_register && admin_invitation_hash.is_none() {
         warn!("❌ Register rebutjat: OPEN_REGISTER=false");
         return Err(AppError::RegistrationClosed);
     }
@@ -151,6 +164,31 @@ pub async fn register(
     };
     info!("✅ Usuari creat a DB amb user_id={}", user_id);
 
+    let mut is_admin = false;
+    if let Some(invitation_hash) = admin_invitation_hash {
+        let consumed = state
+            .db
+            .consume_one_admin_invitation_hash(&invitation_hash, user_id)
+            .await
+            .map_err(|_| AppError::InternalError)?;
+
+        if !consumed {
+            let _ = state.db.delete_user_by_id(user_id).await;
+            return Err(AppError::InvitationInvalid);
+        }
+
+        let updated = state
+            .db
+            .update_user_role_by_id(user_id, "admin")
+            .await
+            .map_err(|_| AppError::InternalError)?;
+        if !updated {
+            return Err(AppError::InternalError);
+        }
+
+        is_admin = true;
+    }
+
     // Crear dispositiu persistent per a l'usuari
     let device_label = format!("Dispositiu principal");
     let device_id = match state
@@ -166,7 +204,7 @@ pub async fn register(
     };
 
     // Generar token JWT
-    let claims = generate_claims(user_id, &req.username, device_id, false, &state.config);
+    let claims = generate_claims(user_id, &req.username, device_id, is_admin, &state.config);
     let token = match generate_token(&claims, &state.config) {
         Ok(t) => t,
         Err(e) => {
@@ -184,7 +222,7 @@ pub async fn register(
             token,
             device_id,
             device_label: Some("Dispositiu principal".to_string()),
-            is_admin: false,
+            is_admin,
         }),
     ))
 }
@@ -275,6 +313,8 @@ pub async fn register_with_invitation(
     State(state): State<AppState>,
     Json(req): Json<RegisterWithInvitationRequest>,
 ) -> Result<(StatusCode, Json<AuthResponse>), AppError> {
+    let admin_invitation_hash = parse_admin_invitation_hash(req.admin_invitation_code.as_deref());
+
     if req.username.len() < MIN_USERNAME_LENGTH || req.username.len() > MAX_USERNAME_LENGTH {
         return Err(AppError::UsernameExists);
     }
@@ -319,6 +359,31 @@ pub async fn register_with_invitation(
         .create_user_with_role(&req.username, &password_hash, "user")
         .await
         .map_err(|_| AppError::InternalError)?;
+
+    let mut is_admin = false;
+    if let Some(invitation_hash) = admin_invitation_hash {
+        let consumed = state
+            .db
+            .consume_one_admin_invitation_hash(&invitation_hash, user_id)
+            .await
+            .map_err(|_| AppError::InternalError)?;
+
+        if !consumed {
+            let _ = state.db.delete_user_by_id(user_id).await;
+            return Err(AppError::InvitationInvalid);
+        }
+
+        let updated = state
+            .db
+            .update_user_role_by_id(user_id, "admin")
+            .await
+            .map_err(|_| AppError::InternalError)?;
+        if !updated {
+            return Err(AppError::InternalError);
+        }
+
+        is_admin = true;
+    }
 
     if let Some(server_id) = invitation_server_id {
         let already_member = state
@@ -379,7 +444,7 @@ pub async fn register_with_invitation(
         .await
         .map_err(|_| AppError::InternalError)?;
 
-    let claims = generate_claims(user_id, &req.username, device_id, false, &state.config);
+    let claims = generate_claims(user_id, &req.username, device_id, is_admin, &state.config);
     let token = generate_token(&claims, &state.config).map_err(|_| AppError::InternalError)?;
 
     Ok((
@@ -390,7 +455,7 @@ pub async fn register_with_invitation(
             token,
             device_id,
             device_label: Some(device_label),
-            is_admin: false,
+            is_admin,
         }),
     ))
 }
@@ -769,5 +834,68 @@ mod tests {
             .expect("check server membership");
 
         assert_eq!(role.as_deref(), Some("member"));
+    }
+
+    #[tokio::test]
+    async fn register_with_one_admin_invitation_promotes_to_admin_once() {
+        let state = make_state(false).await;
+        let invitation_hash = crate::crypto::hash::hash_admin_invitation_code("ONE-ADMIN-CODE");
+        state
+            .db
+            .sync_one_admin_invitation_hash(&invitation_hash)
+            .await
+            .expect("seed one admin invitation");
+
+        let server = TestServer::new(router(state.clone())).expect("router should build");
+
+        let first = server
+            .post("/api/auth/register")
+            .json(&serde_json::json!({
+                "username": "bootstrap_admin",
+                "password": "password123",
+                "admin_invitation_code": "ONE-ADMIN-CODE"
+            }))
+            .await;
+
+        assert_eq!(first.status_code(), 201);
+        let first_body: serde_json::Value = first.json();
+        assert_eq!(first_body["is_admin"], true);
+
+        let second = server
+            .post("/api/auth/register")
+            .json(&serde_json::json!({
+                "username": "second_user",
+                "password": "password123",
+                "admin_invitation_code": "ONE-ADMIN-CODE"
+            }))
+            .await;
+
+        assert_eq!(second.status_code(), 404);
+        let second_body: serde_json::Value = second.json();
+        assert_eq!(second_body["error"]["code"], 1011);
+    }
+
+    #[tokio::test]
+    async fn register_with_invalid_admin_invitation_when_closed_does_not_create_user() {
+        let state = make_state(false).await;
+        let server = TestServer::new(router(state.clone())).expect("router should build");
+
+        let response = server
+            .post("/api/auth/register")
+            .json(&serde_json::json!({
+                "username": "should_not_exist",
+                "password": "password123",
+                "admin_invitation_code": "INVALID-CODE"
+            }))
+            .await;
+
+        assert_eq!(response.status_code(), 404);
+
+        let exists = state
+            .db
+            .user_exists("should_not_exist")
+            .await
+            .expect("query user");
+        assert!(!exists);
     }
 }

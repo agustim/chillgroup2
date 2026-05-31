@@ -881,6 +881,9 @@ OPEN_REGISTER=false                  # Desactiva el registre públic
 # Credencials d'administrador
 ADMIN_USER=admin                     # Username inicial del administrador
 ADMIN_PASSWORD=SuperSecurePass123    # Contrasenya inicial (recomanació: generar amb `openssl rand -base64 32`)
+
+# Opcional: codi one-shot per promoure un únic registre a admin
+ONE_ADMIN_INVITATION=CODI-UNIC-ADMIN
 ```
 
 ### Inicialització Automàtica
@@ -890,6 +893,9 @@ Al llançar el servidor amb `OPEN_REGISTER=false`, el sistema ha de:
 1. Verificar si l'usuari `ADMIN_USER` ja existeix a la BD
 2. Si NO existeix: crear-lo automàticament amb role `admin`
 3. Si SÍ existeix: continuar sense fer res (idempotent)
+
+Si defineixes `ONE_ADMIN_INVITATION`, el backend sincronitza el hash del codi i permet que un únic registre amb `admin_invitation_code` passi a `admin`.
+Quan es consumeix, no es pot reutilitzar.
 
 **Código Rust** (pseudocodi a `config.rs` o `main.rs`):
 
@@ -919,6 +925,7 @@ Per a provar el sistema d'administració en local:
 echo "OPEN_REGISTER=false" >> .env
 echo "ADMIN_USER=admin" >> .env
 echo "ADMIN_PASSWORD=admin123" >> .env
+echo "ONE_ADMIN_INVITATION=CODI-UNIC-ADMIN" >> .env
 
 # 2. Iniciar el servidor
 cargo run --bin server
@@ -944,6 +951,15 @@ curl -X POST http://localhost:8080/api/admin/users \
     "password": "temppass123",
     "role": "user"
   }'
+
+# 7. O bé registrar un admin one-shot (si ONE_ADMIN_INVITATION està definit)
+curl -X POST http://localhost:8080/api/auth/register \
+    -H "Content-Type: application/json" \
+    -d '{
+        "username": "bootstrap_admin",
+        "password": "password123",
+        "admin_invitation_code": "CODI-UNIC-ADMIN"
+    }'
 ```
 
 ### Frontend — Pantalla de Login d'Admin

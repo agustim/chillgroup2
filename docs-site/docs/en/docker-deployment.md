@@ -61,6 +61,7 @@ Most relevant values:
 - `JWT_SECRET`
 - `SERVER_MASTER_KEY`
 - `OPEN_REGISTER`
+- `ONE_ADMIN_INVITATION` (optional, one-time code to promote one registration to admin)
 
 ## Verification
 
@@ -80,6 +81,7 @@ For non-local deployments:
 
 - Replace `JWT_SECRET` and `SERVER_MASTER_KEY`.
 - Do not keep `OPEN_REGISTER=true` in production.
+- If using `ONE_ADMIN_INVITATION`, remove or rotate it after first use.
 - Review exposed ports and firewall rules.
 - If using a reverse proxy, route traffic to `app:8080`.
 

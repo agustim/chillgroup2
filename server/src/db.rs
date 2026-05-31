@@ -329,6 +329,19 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
         r#"CREATE INDEX IF NOT EXISTS idx_invitations_code ON invitations(code)"#,
         r#"CREATE INDEX IF NOT EXISTS idx_invitations_active ON invitations(is_active)"#,
 
+        // One-shot admin bootstrap invitation (single slot)
+        r#"
+        CREATE TABLE IF NOT EXISTS admin_bootstrap_invitation (
+            slot INTEGER PRIMARY KEY,
+            code_hash TEXT NOT NULL,
+            consumed_by_user_id TEXT,
+            consumed_at DATETIME,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        "#,
+        r#"CREATE INDEX IF NOT EXISTS idx_admin_bootstrap_invitation_code_hash ON admin_bootstrap_invitation(code_hash)"#,
+
         // Channel read state (unread counters server-authoritative)
         r#"
         CREATE TABLE IF NOT EXISTS channel_read_state (
@@ -1671,6 +1684,96 @@ impl DatabasePool {
                         (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), is_active != 0, r.get(6))
                     })
                     .collect())
+            }
+        }
+    }
+
+    pub async fn sync_one_admin_invitation_hash(&self, code_hash: &str) -> Result<(), String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "INSERT INTO admin_bootstrap_invitation (slot, code_hash, consumed_by_user_id, consumed_at, created_at, updated_at) \
+                     VALUES (1, $1, NULL, NULL, NOW(), NOW()) \
+                     ON CONFLICT (slot) DO UPDATE SET \
+                         code_hash = CASE \
+                             WHEN admin_bootstrap_invitation.code_hash = EXCLUDED.code_hash THEN admin_bootstrap_invitation.code_hash \
+                             ELSE EXCLUDED.code_hash \
+                         END, \
+                         consumed_by_user_id = CASE \
+                             WHEN admin_bootstrap_invitation.code_hash = EXCLUDED.code_hash THEN admin_bootstrap_invitation.consumed_by_user_id \
+                             ELSE NULL \
+                         END, \
+                         consumed_at = CASE \
+                             WHEN admin_bootstrap_invitation.code_hash = EXCLUDED.code_hash THEN admin_bootstrap_invitation.consumed_at \
+                             ELSE NULL \
+                         END, \
+                         updated_at = NOW()",
+                )
+                .bind(code_hash)
+                .execute(pool)
+                .await
+                .map_err(|e| format!("Error PostgreSQL: {}", e))?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "INSERT INTO admin_bootstrap_invitation (slot, code_hash, consumed_by_user_id, consumed_at, created_at, updated_at) \
+                     VALUES (1, ?, NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) \
+                     ON CONFLICT(slot) DO UPDATE SET \
+                         code_hash = CASE \
+                             WHEN admin_bootstrap_invitation.code_hash = excluded.code_hash THEN admin_bootstrap_invitation.code_hash \
+                             ELSE excluded.code_hash \
+                         END, \
+                         consumed_by_user_id = CASE \
+                             WHEN admin_bootstrap_invitation.code_hash = excluded.code_hash THEN admin_bootstrap_invitation.consumed_by_user_id \
+                             ELSE NULL \
+                         END, \
+                         consumed_at = CASE \
+                             WHEN admin_bootstrap_invitation.code_hash = excluded.code_hash THEN admin_bootstrap_invitation.consumed_at \
+                             ELSE NULL \
+                         END, \
+                         updated_at = CURRENT_TIMESTAMP",
+                )
+                .bind(code_hash)
+                .execute(pool)
+                .await
+                .map_err(|e| format!("Error SQLite: {}", e))?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn consume_one_admin_invitation_hash(
+        &self,
+        code_hash: &str,
+        consumed_by_user_id: Uuid,
+    ) -> Result<bool, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let result = sqlx::query(
+                    "UPDATE admin_bootstrap_invitation \
+                     SET consumed_by_user_id = $1, consumed_at = NOW(), updated_at = NOW() \
+                     WHERE slot = 1 AND code_hash = $2 AND consumed_at IS NULL",
+                )
+                .bind(consumed_by_user_id)
+                .bind(code_hash)
+                .execute(pool)
+                .await
+                .map_err(|e| format!("Error PostgreSQL: {}", e))?;
+                Ok(result.rows_affected() > 0)
+            }
+            DatabasePool::Sqlite(pool) => {
+                let result = sqlx::query(
+                    "UPDATE admin_bootstrap_invitation \
+                     SET consumed_by_user_id = ?, consumed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP \
+                     WHERE slot = 1 AND code_hash = ? AND consumed_at IS NULL",
+                )
+                .bind(consumed_by_user_id)
+                .bind(code_hash)
+                .execute(pool)
+                .await
+                .map_err(|e| format!("Error SQLite: {}", e))?;
+                Ok(result.rows_affected() > 0)
             }
         }
     }

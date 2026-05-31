@@ -70,6 +70,15 @@ LIVEKIT_API_SECRET=secret
 # JWT
 JWT_SECRET=el-teu-secret-aqui-canvia-m aixxo
 JWT_EXPIRATION_DAYS=7
+
+# Registre
+OPEN_REGISTER=true
+# Si OPEN_REGISTER=false, cal ADMIN_USER i ADMIN_PASSWORD
+# ADMIN_USER=admin
+# ADMIN_PASSWORD=SuperSecurePass123
+
+# Codi one-shot opcional per promoure el següent registre a admin
+# ONE_ADMIN_INVITATION=CODI-UNIC-ADMIN
 ```
 
 ### 3. Arrencada amb Docker
@@ -115,6 +124,17 @@ Nota: si el fitxer de sortida ja existeix, la comanda falla per defecte.
 Per sobreescriure, cal `-f` o `--force`.
 
 El servidor escoltarà a `http://localhost:8080`.
+
+### 4.1 Bootstrap admin one-shot (opcional)
+
+Si necessites promoure un únic registre a admin sense SQL manual:
+
+```bash
+echo "ONE_ADMIN_INVITATION=CODI-UNIC-ADMIN" >> .env
+```
+
+Després, registra el nou usuari enviant `admin_invitation_code` al registre.
+El codi només funciona una vegada.
 
 ### 5. Arrancar el frontend
 
