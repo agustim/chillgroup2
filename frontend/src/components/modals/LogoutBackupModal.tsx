@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 
 import { Button } from '../shared/Button'
-import { exportFullBackup } from '../../lib/device-keys'
+import { encryptBackup, exportFullBackup } from '../../lib/device-keys'
 import { clearAll } from '../../lib/storage'
 
 interface LogoutBackupModalProps {
@@ -13,9 +13,14 @@ interface LogoutBackupModalProps {
 export function LogoutBackupModal({ username, onConfirm, onCancel }: LogoutBackupModalProps) {
   const [isBusy, setIsBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
 
-  const triggerDownload = (json: string) => {
-    const blob = new Blob([json], { type: 'application/json' })
+  const passwordsMatch = password === confirmPassword
+  const hasPassword = password.length > 0
+
+  const triggerDownload = (content: string) => {
+    const blob = new Blob([content], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     const date = new Date().toISOString().slice(0, 10)
@@ -28,11 +33,16 @@ export function LogoutBackupModal({ username, onConfirm, onCancel }: LogoutBacku
   }
 
   const handleDownloadAndLogout = async () => {
+    if (hasPassword && !passwordsMatch) {
+      setError('Les contrasenyes no coincideixen')
+      return
+    }
     setIsBusy(true)
     setError(null)
     try {
       const json = await exportFullBackup()
-      triggerDownload(json)
+      const output = hasPassword ? await encryptBackup(json, password) : json
+      triggerDownload(output)
       await clearAll()
       onConfirm()
     } catch {
@@ -62,8 +72,44 @@ export function LogoutBackupModal({ username, onConfirm, onCancel }: LogoutBacku
             En tancar sessió, les claus criptogràfiques locals s'esborraran del navegador per seguretat.
           </p>
           <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '16px' }}>
-            Desa un backup per poder restaurar les claus (dispositiu i canals) quan tornis a entrar.
+            Desa un backup per poder restaurar les claus quan tornis a entrar. Pots protegir-lo amb contrasenya.
           </p>
+
+          <div className="modal-form" style={{ marginBottom: '16px' }}>
+            <div className="form-group">
+              <label htmlFor="backup-password">Contrasenya del backup</label>
+              <input
+                id="backup-password"
+                type="password"
+                className="form-input"
+                value={password}
+                onChange={(e) => { setPassword(e.target.value); setError(null) }}
+                placeholder="Deixa buit per desar sense xifrar"
+                autoComplete="new-password"
+                disabled={isBusy}
+              />
+            </div>
+            {hasPassword && (
+              <div className="form-group">
+                <label htmlFor="backup-password-confirm">Confirmar contrasenya</label>
+                <input
+                  id="backup-password-confirm"
+                  type="password"
+                  className="form-input"
+                  value={confirmPassword}
+                  onChange={(e) => { setConfirmPassword(e.target.value); setError(null) }}
+                  placeholder="Repeteix la contrasenya"
+                  autoComplete="new-password"
+                  disabled={isBusy}
+                />
+                {confirmPassword.length > 0 && !passwordsMatch && (
+                  <span className="password-hint" style={{ color: 'var(--error)' }}>
+                    Les contrasenyes no coincideixen
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
 
           {error && <div className="modal-error" style={{ marginBottom: '12px' }}>{error}</div>}
 
@@ -74,8 +120,12 @@ export function LogoutBackupModal({ username, onConfirm, onCancel }: LogoutBacku
             <Button variant="secondary" onClick={() => void handleLogoutWithoutBackup()} disabled={isBusy}>
               Sortir sense backup
             </Button>
-            <Button variant="primary" onClick={() => void handleDownloadAndLogout()} disabled={isBusy}>
-              {isBusy ? 'Generant...' : 'Descarregar backup i sortir'}
+            <Button
+              variant="primary"
+              onClick={() => void handleDownloadAndLogout()}
+              disabled={isBusy || (hasPassword && !passwordsMatch)}
+            >
+              {isBusy ? 'Generant...' : hasPassword ? 'Descarregar backup xifrat i sortir' : 'Descarregar backup i sortir'}
             </Button>
           </div>
         </div>

@@ -38,6 +38,111 @@ function base64ToUint8Array(value: string): Uint8Array {
   return out
 }
 
+// ── Backup encryption (PBKDF2 + AES-256-GCM, client-side) ────
+
+const KDF_ITERATIONS = 600_000
+
+interface EncryptedBackupBundle {
+  encrypted: true
+  version: 1
+  algorithm: 'AES-GCM'
+  kdf: 'PBKDF2'
+  kdfHash: 'SHA-256'
+  kdfIterations: number
+  salt: string  // base64, 16 bytes
+  iv: string    // base64, 12 bytes
+  ciphertext: string  // base64
+}
+
+async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(password),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveKey']
+  )
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: KDF_ITERATIONS, hash: 'SHA-256' },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  )
+}
+
+/**
+ * Xifra un string JSON amb AES-256-GCM derivat de la contrasenya (PBKDF2).
+ * Retorna un JSON wrapper amb salt, iv i ciphertext en base64.
+ */
+export async function encryptBackup(plaintext: string, password: string): Promise<string> {
+  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const key = await deriveKey(password, salt)
+  const ciphertextBuf = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    new TextEncoder().encode(plaintext)
+  )
+  const bundle: EncryptedBackupBundle = {
+    encrypted: true,
+    version: 1,
+    algorithm: 'AES-GCM',
+    kdf: 'PBKDF2',
+    kdfHash: 'SHA-256',
+    kdfIterations: KDF_ITERATIONS,
+    salt: uint8ArrayToBase64(salt),
+    iv: uint8ArrayToBase64(iv),
+    ciphertext: uint8ArrayToBase64(new Uint8Array(ciphertextBuf)),
+  }
+  return JSON.stringify(bundle, null, 2)
+}
+
+/**
+ * Desxifra un backup xifrat amb encryptBackup.
+ * Si el fitxer no està xifrat (no té `encrypted: true`), el retorna tal qual.
+ * Llança un error si la contrasenya és incorrecta o el fitxer és corrupte.
+ */
+export async function decryptBackup(fileText: string, password: string): Promise<string> {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(fileText)
+  } catch {
+    throw new Error('Format JSON invàlid')
+  }
+
+  if (typeof parsed !== 'object' || parsed === null || !(parsed as EncryptedBackupBundle).encrypted) {
+    return fileText  // no xifrat, retornar tal qual
+  }
+
+  const bundle = parsed as EncryptedBackupBundle
+  const salt = base64ToUint8Array(bundle.salt)
+  const iv = base64ToUint8Array(bundle.iv)
+  const ciphertext = base64ToUint8Array(bundle.ciphertext)
+  const key = await deriveKey(password, salt)
+
+  let plaintextBuf: ArrayBuffer
+  try {
+    plaintextBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext)
+  } catch {
+    throw new Error('Contrasenya incorrecta o fitxer corrupte')
+  }
+
+  return new TextDecoder().decode(plaintextBuf)
+}
+
+/**
+ * Comprova si un text de fitxer correspon a un backup xifrat.
+ */
+export function isEncryptedBackup(fileText: string): boolean {
+  try {
+    const parsed = JSON.parse(fileText) as Partial<EncryptedBackupBundle>
+    return parsed.encrypted === true
+  } catch {
+    return false
+  }
+}
+
 export interface DeviceKeypairBundle {
   version: 1
   kemAlgorithm: 'ML-KEM-1024'

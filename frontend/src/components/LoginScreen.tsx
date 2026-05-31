@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { Button } from './shared/Button'
-import { importFullBackup } from '../lib/device-keys'
+import { importFullBackup, decryptBackup, isEncryptedBackup } from '../lib/device-keys'
 
 export function LoginScreen() {
   const { login, register, registerWithInvitation, isLoading, error } = useAuth()
@@ -16,6 +16,8 @@ export function LoginScreen() {
   const [validationError, setValidationError] = useState('')
   const [backupStatus, setBackupStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [isImportingBackup, setIsImportingBackup] = useState(false)
+  const [pendingEncryptedBackup, setPendingEncryptedBackup] = useState<string | null>(null)
+  const [backupPassword, setBackupPassword] = useState('')
   const backupFileRef = useRef<HTMLInputElement>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -84,11 +86,41 @@ export function LoginScreen() {
     const file = e.target.files?.[0]
     if (!file) return
 
+    setBackupStatus(null)
+    setBackupPassword('')
+    try {
+      const text = await file.text()
+      if (isEncryptedBackup(text)) {
+        setPendingEncryptedBackup(text)
+        setBackupStatus(null)
+      } else {
+        setIsImportingBackup(true)
+        const result = await importFullBackup(text)
+        setBackupStatus({
+          type: 'success',
+          message: `Backup restaurat: ${result.devices} dispositiu(s), ${result.symmetricChannels + result.asymmetricChannels} clau(s) de canal`,
+        })
+      }
+    } catch (err) {
+      setBackupStatus({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'No s\'ha pogut llegir el fitxer',
+      })
+    } finally {
+      setIsImportingBackup(false)
+      if (backupFileRef.current) backupFileRef.current.value = ''
+    }
+  }
+
+  const handleDecryptAndImport = async () => {
+    if (!pendingEncryptedBackup || !backupPassword) return
     setIsImportingBackup(true)
     setBackupStatus(null)
     try {
-      const text = await file.text()
-      const result = await importFullBackup(text)
+      const plaintext = await decryptBackup(pendingEncryptedBackup, backupPassword)
+      const result = await importFullBackup(plaintext)
+      setPendingEncryptedBackup(null)
+      setBackupPassword('')
       setBackupStatus({
         type: 'success',
         message: `Backup restaurat: ${result.devices} dispositiu(s), ${result.symmetricChannels + result.asymmetricChannels} clau(s) de canal`,
@@ -100,7 +132,6 @@ export function LoginScreen() {
       })
     } finally {
       setIsImportingBackup(false)
-      if (backupFileRef.current) backupFileRef.current.value = ''
     }
   }
 
@@ -223,14 +254,51 @@ export function LoginScreen() {
             onChange={(e) => void handleBackupFileChange(e)}
             disabled={isImportingBackup || isLoading}
           />
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => backupFileRef.current?.click()}
-            disabled={isImportingBackup || isLoading}
-          >
-            {isImportingBackup ? 'Important...' : 'Restaurar backup (.json)'}
-          </Button>
+          {pendingEncryptedBackup ? (
+            <div className="backup-decrypt-form">
+              <p className="login-backup-label" style={{ marginBottom: '6px' }}>
+                El backup està xifrat. Introdueix la contrasenya:
+              </p>
+              <input
+                type="password"
+                className="form-input"
+                value={backupPassword}
+                onChange={(e) => setBackupPassword(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void handleDecryptAndImport() }}
+                placeholder="Contrasenya del backup"
+                autoComplete="current-password"
+                disabled={isImportingBackup}
+                autoFocus
+              />
+              <div style={{ display: 'flex', gap: '8px', marginTop: '8px', justifyContent: 'center' }}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => { setPendingEncryptedBackup(null); setBackupPassword('') }}
+                  disabled={isImportingBackup}
+                >
+                  Cancel·lar
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => void handleDecryptAndImport()}
+                  disabled={isImportingBackup || !backupPassword}
+                >
+                  {isImportingBackup ? 'Desxifrant...' : 'Importar'}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => backupFileRef.current?.click()}
+              disabled={isImportingBackup || isLoading}
+            >
+              {isImportingBackup ? 'Important...' : 'Restaurar backup (.json)'}
+            </Button>
+          )}
         </div>
       </div>
     </div>
