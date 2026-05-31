@@ -25,6 +25,7 @@ interface ChannelListProps {
   onChangePassword?: () => void
   onManagePermissions?: () => void
   onManageAdminUsers?: () => void
+  onCollapseList?: () => void
   onLogout?: () => void
   onCreateTextChannel?: () => void
   onCreateVoiceChannel?: () => void
@@ -59,6 +60,7 @@ export function ChannelList({
   onChangePassword,
   onManagePermissions,
   onManageAdminUsers,
+  onCollapseList,
   onLogout,
   onCreateTextChannel,
   onCreateVoiceChannel,
@@ -132,6 +134,14 @@ export function ChannelList({
         <div className="user-avatar">{username.charAt(0).toUpperCase()}</div>
         <span className="user-name">{username}</span>
         <div className="user-actions" ref={userActionsRef}>
+          <button
+            className="channel-list-toggle-btn"
+            onClick={() => onCollapseList?.()}
+            title="Amagar panell de canals"
+            aria-label="Amagar panell de canals"
+          >
+            ◀
+          </button>
           <button
             className={`user-actions-toggle ${isUserMenuOpen ? 'active' : ''}`}
             onClick={() => setIsUserMenuOpen((current) => !current)}

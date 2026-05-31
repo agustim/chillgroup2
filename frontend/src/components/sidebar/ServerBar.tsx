@@ -31,10 +31,21 @@ interface ServerBarProps {
   onSelectServer: (serverId: string) => void
   onCreateServer: () => void
   canCreateServer?: boolean
+  isChannelListCollapsed?: boolean
+  onShowChannelList?: () => void
   onServerAction?: (action: ServerMenuAction) => void
 }
 
-export function ServerBar({ servers, selectedServer, onSelectServer, onCreateServer, canCreateServer = true, onServerAction }: ServerBarProps) {
+export function ServerBar({
+  servers,
+  selectedServer,
+  onSelectServer,
+  onCreateServer,
+  canCreateServer = true,
+  isChannelListCollapsed = false,
+  onShowChannelList,
+  onServerAction,
+}: ServerBarProps) {
   const [openMenuServerId, setOpenMenuServerId] = useState<string | null>(null)
   const menuButtonRef = useRef<HTMLButtonElement | null>(null)
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null)
@@ -89,6 +100,16 @@ export function ServerBar({ servers, selectedServer, onSelectServer, onCreateSer
 
   return (
     <div className="server-bar" ref={serverBarRef}>
+      {selectedServer && isChannelListCollapsed && (
+        <button
+          className="server-bar-channel-toggle"
+          onClick={onShowChannelList}
+          title="Mostrar panell de canals"
+          aria-label="Mostrar panell de canals"
+        >
+          ▶
+        </button>
+      )}
       {servers.map((server) => (
         <div key={server.serverId} style={{ position: 'relative' }}>
           <button

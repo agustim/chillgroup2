@@ -88,6 +88,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const [serverDetails, setServerDetails] = useState<ServerFullInfo | null>(null)
   const [channels, setChannels] = useState<Channel[]>([])
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null)
+  const [isChannelListCollapsed, setIsChannelListCollapsed] = useState(false)
   const [openTextChannelIds, setOpenTextChannelIds] = useState<string[]>([])
   const [voiceAsTextMode, setVoiceAsTextMode] = useState(false)
   const [voiceChannelId, setVoiceChannelId] = useState<string | null>(null)
@@ -1626,10 +1627,12 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
         onSelectServer={handleSelectServer}
         onCreateServer={handleCreateServer}
         canCreateServer={canCreateServer}
+        isChannelListCollapsed={isChannelListCollapsed}
+        onShowChannelList={() => setIsChannelListCollapsed(false)}
         onServerAction={handleServerMenuAction}
       />
 
-      {selectedServer && (
+      {selectedServer && !isChannelListCollapsed && (
         <ChannelList
           channels={channels}
           selectedChannel={selectedChannel}
@@ -1660,6 +1663,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           onChangePassword={handleChangePassword}
           onManagePermissions={handleManagePermissions}
           onManageAdminUsers={handleManageAdminUsers}
+          onCollapseList={() => setIsChannelListCollapsed(true)}
           onCreateTextChannel={canManageServer && canCreateTextChannel ? () => setPanel('createTextChannel') : undefined}
           onCreateVoiceChannel={canManageServer && canCreateVoiceChannel ? () => setPanel('createVoiceChannel') : undefined}
           canCreateTextChannel={canManageServer && canCreateTextChannel}
