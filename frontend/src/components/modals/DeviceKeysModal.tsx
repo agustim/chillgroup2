@@ -272,17 +272,6 @@ function DeviceKeysContent({
       {error && <div className="modal-error">{error}</div>}
       {success && <div className="modal-success">{success}</div>}
 
-      <div className="device-keys-tabs" role="tablist" aria-label="Gestio de claus">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={true}
-          className="device-keys-tab active"
-        >
-          Gestio dispositiu
-        </button>
-      </div>
-
       <section className="device-keys-section">
         <h4>Dispositiu actiu</h4>
         <p>

@@ -1743,7 +1743,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
               <h3>Gestió de claus de canals</h3>
             </div>
 
-            <ChannelKeysPanel channels={channels} />
+            <ChannelKeysPanel channels={channels} serverName={serverDetails?.name} />
           </div>
         ) : panel === 'createTextChannel' ? (
           <div className="panel admin-users-panel">

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 
 import { Button } from '../shared/Button'
+import { channelsList, serversList } from '../../lib/api'
 import {
   deleteSymmetricChannelKey,
   exportAsymmetricChannelKeys,
@@ -14,14 +15,16 @@ import type { Channel } from '../../types'
 
 interface ChannelKeysPanelProps {
   channels?: Channel[]
+  serverName?: string
 }
 
 interface ChannelKeysContentProps {
   isActive: boolean
   channels?: Channel[]
+  serverName?: string
 }
 
-function ChannelKeysContent({ isActive, channels = [] }: ChannelKeysContentProps) {
+function ChannelKeysContent({ isActive, channels = [], serverName }: ChannelKeysContentProps) {
   const [isBusy, setIsBusy] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -41,21 +44,45 @@ function ChannelKeysContent({ isActive, channels = [] }: ChannelKeysContentProps
   const [asymImportText, setAsymImportText] = useState('')
   const [exportedSymmetricBundle, setExportedSymmetricBundle] = useState('')
   const [exportedAsymmetricBundle, setExportedAsymmetricBundle] = useState('')
+  const [channelLabelById, setChannelLabelById] = useState<Record<string, string>>({})
 
   const channelNameById = useMemo(
     () => new Map(channels.map((channel) => [channel.channelId, channel.name])),
     [channels]
   )
 
+  const fallbackChannelLabelById = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const channel of channels) {
+      map[channel.channelId] = serverName ? `${serverName} · #${channel.name}` : `#${channel.name}`
+    }
+    return map
+  }, [channels, serverName])
+
   const formatChannelLabel = (channelId: string) => {
+    const knownLabel = channelLabelById[channelId] ?? fallbackChannelLabelById[channelId]
+    if (knownLabel) {
+      return knownLabel
+    }
+
     const name = channelNameById.get(channelId)
-    return name ? `${name} · ${channelId}` : channelId
+    if (name && serverName) {
+      return `${serverName} · #${name}`
+    }
+    if (name) {
+      return `#${name}`
+    }
+    return 'Canal desconegut'
   }
+
+  const getRequiredChannelIds = (
+    symKeys: Array<{ channelId: string }>,
+    asymKeys: Array<{ channelId: string }>
+  ) => Array.from(new Set([...symKeys.map((key) => key.channelId), ...asymKeys.map((key) => key.channelId)]))
 
   const refreshState = async () => {
     const [symKeys, channelKeys] = await Promise.all([listSymmetricChannelKeys(), listChannelKeys()])
-    setSymmetricKeys(symKeys)
-    setAsymmetricKeys(
+    const mappedAsymmetricKeys =
       channelKeys
         .filter((entry) => entry.type === 'asymmetric')
         .map((entry) => ({
@@ -65,7 +92,56 @@ function ChannelKeysContent({ isActive, channels = [] }: ChannelKeysContentProps
           acquiredAt: entry.acquiredAt,
         }))
         .sort((a, b) => b.acquiredAt - a.acquiredAt)
-    )
+
+    setSymmetricKeys(symKeys)
+    setAsymmetricKeys(mappedAsymmetricKeys)
+
+    return getRequiredChannelIds(symKeys, mappedAsymmetricKeys)
+  }
+
+  const refreshChannelDirectory = async (requiredChannelIds: string[]) => {
+    const nextLabels: Record<string, string> = {
+      ...channelLabelById,
+      ...fallbackChannelLabelById,
+    }
+    const unresolved = new Set(requiredChannelIds.filter((channelId) => !nextLabels[channelId]))
+
+    if (unresolved.size === 0) {
+      setChannelLabelById(nextLabels)
+      return
+    }
+
+    const serversResult = await serversList()
+    if (!serversResult.success) {
+      setChannelLabelById(nextLabels)
+      return
+    }
+
+    for (const server of serversResult.data) {
+      const channelsResult = await channelsList(server.serverId)
+      if (!channelsResult.success) {
+        continue
+      }
+
+      for (const channel of channelsResult.data) {
+        if (!unresolved.has(channel.channelId)) {
+          continue
+        }
+        nextLabels[channel.channelId] = `${server.name} · #${channel.name}`
+        unresolved.delete(channel.channelId)
+      }
+
+      if (unresolved.size === 0) {
+        break
+      }
+    }
+
+    setChannelLabelById(nextLabels)
+  }
+
+  const refreshStateAndDirectory = async () => {
+    const requiredChannelIds = await refreshState()
+    await refreshChannelDirectory(requiredChannelIds)
   }
 
   useEffect(() => {
@@ -79,8 +155,8 @@ function ChannelKeysContent({ isActive, channels = [] }: ChannelKeysContentProps
     setAsymImportText('')
     setExportedSymmetricBundle('')
     setExportedAsymmetricBundle('')
-    void refreshState()
-  }, [isActive])
+    void refreshStateAndDirectory()
+  }, [isActive, fallbackChannelLabelById])
 
   const handleExportSymmetric = async () => {
     setIsBusy(true)
@@ -116,8 +192,8 @@ function ChannelKeysContent({ isActive, channels = [] }: ChannelKeysContentProps
     setSuccess('')
     try {
       await deleteSymmetricChannelKey(channelId)
-      await refreshState()
-      setSuccess(`Clau simètrica del canal ${channelId} eliminada`)
+      await refreshStateAndDirectory()
+      setSuccess(`Clau simètrica de ${formatChannelLabel(channelId)} eliminada`)
     } catch {
       setError('No s\'ha pogut eliminar la clau simètrica')
     } finally {
@@ -136,7 +212,7 @@ function ChannelKeysContent({ isActive, channels = [] }: ChannelKeysContentProps
     setSuccess('')
     try {
       const imported = await importSymmetricChannelKeys(symImportText)
-      await refreshState()
+      await refreshStateAndDirectory()
       setSuccess(`Importades ${imported} claus simètriques de canals`)
       setSymImportText('')
     } catch (err) {
@@ -158,7 +234,7 @@ function ChannelKeysContent({ isActive, channels = [] }: ChannelKeysContentProps
     setSuccess('')
     try {
       const imported = await importAsymmetricChannelKeys(asymImportText)
-      await refreshState()
+      await refreshStateAndDirectory()
       setSuccess(`Importades ${imported} claus asimètriques de canals`)
       setAsymImportText('')
     } catch (err) {
@@ -187,7 +263,7 @@ function ChannelKeysContent({ isActive, channels = [] }: ChannelKeysContentProps
               {symmetricKeys.map((key) => (
                 <li key={`${key.channelId}-${key.keyVersion}`} className="device-keys-list-item">
                   <div className="device-keys-list-main">
-                    <strong>Canal {formatChannelLabel(key.channelId)} · v{key.keyVersion}</strong>
+                    <strong title={key.channelId}>Canal {formatChannelLabel(key.channelId)} · v{key.keyVersion}</strong>
                     <span>Clau: {key.preview}</span>
                     <span>Guardada: {new Date(key.acquiredAt).toLocaleString()}</span>
                   </div>
@@ -230,7 +306,7 @@ function ChannelKeysContent({ isActive, channels = [] }: ChannelKeysContentProps
               {asymmetricKeys.map((key) => (
                 <li key={`${key.channelId}-${key.keyVersion}`} className="device-keys-list-item">
                   <div className="device-keys-list-main">
-                    <strong>Canal {formatChannelLabel(key.channelId)} · v{key.keyVersion}</strong>
+                    <strong title={key.channelId}>Canal {formatChannelLabel(key.channelId)} · v{key.keyVersion}</strong>
                     <span>KeyVersionId: {key.keyVersionId ?? 'sense id'}</span>
                     <span>Guardat: {new Date(key.acquiredAt).toLocaleString()}</span>
                   </div>
@@ -272,6 +348,6 @@ function ChannelKeysContent({ isActive, channels = [] }: ChannelKeysContentProps
   )
 }
 
-export function ChannelKeysPanel({ channels = [] }: ChannelKeysPanelProps) {
-  return <ChannelKeysContent isActive={true} channels={channels} />
+export function ChannelKeysPanel({ channels = [], serverName }: ChannelKeysPanelProps) {
+  return <ChannelKeysContent isActive={true} channels={channels} serverName={serverName} />
 }
