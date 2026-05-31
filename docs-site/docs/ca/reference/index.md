@@ -86,11 +86,29 @@ Les actualitzacions recents de build i configuració (modes `external/embedded`,
 
 Les regles de variables d'entorn del frontend (build-time vs runtime) estan documentades a `FRONTEND.md`.
 
+### Arrencada recomanada
+
+1. Genera un `.env` d'exemple si encara no el tens:
+
+```bash
+cd server
+cargo run -- --generate-env-example ../.env
+cd ..
+```
+
+2. Arrenca Postgres, LiveKit i el backend empaquetat amb `build.sh`:
+
+```bash
+docker compose up --build
+```
+
+L'API quedarà a `http://localhost:8080`, Postgres a `localhost:5432` i LiveKit a `localhost:7880`.
+
 ## Accions Ràpides
 
 ```bash
-# Arrancar infraestructura
-docker compose up -d postgres livekit
+# Arrancar infraestructura i backend
+docker compose up --build
 
 # Executar migracions
 cd server && sqlx migrate run && cd ..

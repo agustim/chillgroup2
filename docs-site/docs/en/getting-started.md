@@ -21,6 +21,10 @@ This documentation site is intended to expose ChillGroup's project docs as a sta
 2. Build the docs site.
 3. Publish the generated static output to GitHub Pages.
 
+## Project deployment
+
+- For Docker-based deployment, see [Docker deployment](/en/docker-deployment).
+
 ## Recommended reading order
 
 - Start with [the reference overview](/ca/reference/OVERVIEW) to understand the product goals.

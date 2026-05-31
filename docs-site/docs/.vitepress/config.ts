@@ -39,6 +39,7 @@ export default defineConfig({
           items: [
             { text: 'Inici', link: '/ca/' },
             { text: 'Guia inicial', link: '/ca/guia-inicial' },
+            { text: 'Deploy amb Docker', link: '/ca/deploy-docker' },
             { text: 'Referencia tecnica', link: '/ca/reference/' }
           ]
         },
@@ -65,6 +66,7 @@ export default defineConfig({
           items: [
             { text: 'Home', link: '/en/' },
             { text: 'Getting started', link: '/en/getting-started' },
+            { text: 'Docker deployment', link: '/en/docker-deployment' },
             { text: 'Reference map', link: '/en/reference/' }
           ]
         }

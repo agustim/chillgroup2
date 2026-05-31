@@ -21,6 +21,10 @@ Aquest portal serveix per publicar la documentacio de ChillGroup com a web estat
 2. Executa el build del portal de docs.
 3. GitHub Pages publica la versio estatica generada.
 
+## Deploy del projecte
+
+- Per desplegar amb Docker, ves a [Deploy amb Docker](/ca/deploy-docker).
+
 ## Per on comencar
 
 - Si vols entendre el producte, comenca per [Overview](/ca/reference/OVERVIEW).
