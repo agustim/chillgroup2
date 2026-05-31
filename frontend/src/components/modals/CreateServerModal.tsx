@@ -1,14 +1,17 @@
 import React, { useState } from 'react'
-import { Modal } from '../ui/Modal'
 import { Button } from '../shared/Button'
 
-interface CreateServerModalProps {
-  isOpen: boolean
+interface CreateServerPanelProps {
   onClose: () => void
   onCreate: (name: string, iconUrl: string | null) => Promise<void>
 }
 
-export function CreateServerModal({ isOpen, onClose, onCreate }: CreateServerModalProps) {
+interface CreateServerFormProps {
+  onClose: () => void
+  onCreate: (name: string, iconUrl: string | null) => Promise<void>
+}
+
+function CreateServerForm({ onClose, onCreate }: CreateServerFormProps) {
   const [name, setName] = useState('')
   const [iconUrl, setIconUrl] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -40,43 +43,45 @@ export function CreateServerModal({ isOpen, onClose, onCreate }: CreateServerMod
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Crear servidor">
-      <form onSubmit={handleSubmit} className="modal-form">
-        <div className="form-group">
-          <label htmlFor="server-name">Nom del servidor</label>
-          <input
-            id="server-name"
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Ex: El meu servidor"
-            autoFocus
-            maxLength={50}
-          />
-        </div>
+    <form onSubmit={handleSubmit} className="modal-form">
+      <div className="form-group">
+        <label htmlFor="server-name">Nom del servidor</label>
+        <input
+          id="server-name"
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Ex: El meu servidor"
+          autoFocus
+          maxLength={50}
+        />
+      </div>
 
-        <div className="form-group">
-          <label htmlFor="server-icon">URL de la icona (opcional)</label>
-          <input
-            id="server-icon"
-            type="url"
-            value={iconUrl}
-            onChange={(e) => setIconUrl(e.target.value)}
-            placeholder="https://exemple.com/icona.png"
-          />
-        </div>
+      <div className="form-group">
+        <label htmlFor="server-icon">URL de la icona (opcional)</label>
+        <input
+          id="server-icon"
+          type="url"
+          value={iconUrl}
+          onChange={(e) => setIconUrl(e.target.value)}
+          placeholder="https://exemple.com/icona.png"
+        />
+      </div>
 
-        {error && <div className="modal-error">{error}</div>}
+      {error && <div className="modal-error">{error}</div>}
 
-        <div className="modal-form-actions">
-          <Button type="button" variant="ghost" onClick={onClose} disabled={isSubmitting}>
-            Cancel·lar
-          </Button>
-          <Button type="submit" variant="primary" disabled={isSubmitting || !name.trim()}>
-            {isSubmitting ? 'Creant...' : 'Crear'}
-          </Button>
-        </div>
-      </form>
-    </Modal>
+      <div className="modal-form-actions">
+        <Button type="button" variant="ghost" onClick={onClose} disabled={isSubmitting}>
+          Cancel·lar
+        </Button>
+        <Button type="submit" variant="primary" disabled={isSubmitting || !name.trim()}>
+          {isSubmitting ? 'Creant...' : 'Crear'}
+        </Button>
+      </div>
+    </form>
   )
+}
+
+export function CreateServerPanel({ onClose, onCreate }: CreateServerPanelProps) {
+  return <CreateServerForm onClose={onClose} onCreate={onCreate} />
 }

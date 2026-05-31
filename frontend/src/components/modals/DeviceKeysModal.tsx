@@ -1,29 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react'
 
-import { Modal } from '../ui/Modal'
 import { Button } from '../shared/Button'
 import {
   deleteDeviceKeypair,
-  deleteSymmetricChannelKey,
   exportDeviceKeypair,
-  exportAsymmetricChannelKeys,
-  exportSymmetricChannelKeys,
   generateAndStoreDeviceKeypair,
   getDeviceKeySummary,
   KeypairDeviceIdExistsError,
   importAndStoreDeviceKeypair,
-  importAsymmetricChannelKeys,
-  importSymmetricChannelKeys,
   listDeviceKeypairs,
-  listChannelKeys,
-  listSymmetricChannelKeys,
 } from '../../lib/device-keys'
 import { persistDeviceId } from '../../lib/device-identity'
 import { userDevicesList, userDeviceRevoke } from '../../lib/api'
 
-interface DeviceKeysModalProps {
-  isOpen: boolean
-  onClose: () => void
+interface DeviceKeysBaseProps {
   currentDeviceId: string | null
   channels?: Array<{
     channelId: string
@@ -37,14 +27,18 @@ interface DeviceKeysModalProps {
   }>
 }
 
-export function DeviceKeysModal({
-  isOpen,
-  onClose,
+interface DeviceKeysPanelProps extends DeviceKeysBaseProps {}
+
+interface DeviceKeysContentProps extends DeviceKeysBaseProps {
+  isActive: boolean
+}
+
+function DeviceKeysContent({
+  isActive,
   currentDeviceId,
   channels = [],
   devices = [],
-}: DeviceKeysModalProps) {
-  const [activeTab, setActiveTab] = useState<'device' | 'channels'>('device')
+}: DeviceKeysContentProps) {
   const [isBusy, setIsBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -72,28 +66,12 @@ export function DeviceKeysModal({
     revoked: boolean
     isCurrent: boolean
   }>>([])
-  const [symmetricKeys, setSymmetricKeys] = useState<Array<{
-    channelId: string
-    keyVersion: number
-    acquiredAt: number
-    preview: string
-  }>>([])
-  const [asymmetricKeys, setAsymmetricKeys] = useState<Array<{
-    channelId: string
-    keyVersion: number
-    keyVersionId: string | null
-    acquiredAt: number
-  }>>([])
   const [pendingOverwrite, setPendingOverwrite] = useState<
     { kind: 'generate' } | { kind: 'import'; text: string } | null
   >(null)
 
   const [deviceImportText, setDeviceImportText] = useState('')
-  const [symImportText, setSymImportText] = useState('')
-  const [asymImportText, setAsymImportText] = useState('')
   const [exportedDeviceBundle, setExportedDeviceBundle] = useState('')
-  const [exportedSymmetricBundle, setExportedSymmetricBundle] = useState('')
-  const [exportedAsymmetricBundle, setExportedAsymmetricBundle] = useState('')
 
   const activeDevice = useMemo(
     () => serverDevices.find((item) => item.deviceId === currentDeviceId)
@@ -133,39 +111,16 @@ export function DeviceKeysModal({
       })
   }, [keypairs, serverDevices, currentDeviceId])
 
-  const channelNameById = useMemo(
-    () => new Map(channels.map((channel) => [channel.channelId, channel.name])),
-    [channels]
-  )
-
-  const formatChannelLabel = (channelId: string) => {
-    const name = channelNameById.get(channelId)
-    return name ? `${name} · ${channelId}` : channelId
-  }
-
   const refreshState = async () => {
-    const [summary, pairs, symKeys, channelKeys, devicesResult] = await Promise.all([
+    const [summary, pairs, devicesResult] = await Promise.all([
       currentDeviceId ? getDeviceKeySummary(currentDeviceId) : Promise.resolve(null),
       listDeviceKeypairs(),
-      listSymmetricChannelKeys(),
-      listChannelKeys(),
       userDevicesList(),
     ])
 
     setDeviceSummary(summary)
     setKeypairs(pairs)
-    setSymmetricKeys(symKeys)
-    setAsymmetricKeys(
-      channelKeys
-        .filter((entry) => entry.type === 'asymmetric')
-        .map((entry) => ({
-          channelId: entry.channelId,
-          keyVersion: entry.keyVersion,
-          keyVersionId: entry.keyVersionId ?? null,
-          acquiredAt: entry.acquiredAt,
-        }))
-        .sort((a, b) => b.acquiredAt - a.acquiredAt)
-    )
+
     if (devicesResult.success) {
       setServerDevices(devicesResult.data.map((device) => ({
         deviceId: device.deviceId,
@@ -186,22 +141,18 @@ export function DeviceKeysModal({
   }
 
   useEffect(() => {
-    if (!isOpen) {
+    if (!isActive) {
       return
     }
 
     setError(null)
     setSuccess(null)
     setPendingOverwrite(null)
-    setActiveTab('device')
     setKeypairDeviceId(currentDeviceId ?? '')
     setExportedDeviceBundle('')
-    setExportedSymmetricBundle('')
-    setExportedAsymmetricBundle('')
-    setSymImportText('')
-    setAsymImportText('')
+    setDeviceImportText('')
     void refreshState()
-  }, [isOpen, currentDeviceId])
+  }, [isActive, currentDeviceId])
 
   const handleGenerateDeviceKeys = async (overwrite = false) => {
     const resolvedDeviceId = keypairDeviceId.trim()
@@ -280,42 +231,11 @@ export function DeviceKeysModal({
     }
   }
 
-  const handleExportSymmetric = async () => {
-    setIsBusy(true)
-    setError(null)
-    setSuccess(null)
-
-    try {
-      const json = await exportSymmetricChannelKeys()
-      setExportedSymmetricBundle(json)
-      setSuccess('Exportació de claus simètriques preparada')
-    } catch {
-      setError('No s\'han pogut exportar les claus simètriques')
-    } finally {
-      setIsBusy(false)
-    }
-  }
-
-  const handleExportAsymmetric = async () => {
-    setIsBusy(true)
-    setError(null)
-    setSuccess(null)
-
-    try {
-      const json = await exportAsymmetricChannelKeys()
-      setExportedAsymmetricBundle(json)
-      setSuccess('Exportació de claus asimètriques preparada')
-    } catch {
-      setError('No s\'han pogut exportar les claus asimètriques')
-    } finally {
-      setIsBusy(false)
-    }
-  }
-
   const handleDeleteKeypair = async (deviceId: string) => {
     setIsBusy(true)
     setError(null)
     setSuccess(null)
+
     try {
       await deleteDeviceKeypair(deviceId)
       await refreshState()
@@ -331,6 +251,7 @@ export function DeviceKeysModal({
     setIsBusy(true)
     setError(null)
     setSuccess(null)
+
     try {
       const result = await userDeviceRevoke(deviceId)
       if (!result.success) {
@@ -346,342 +267,176 @@ export function DeviceKeysModal({
     }
   }
 
-  const handleDeleteSymmetric = async (channelId: string) => {
-    setIsBusy(true)
-    setError(null)
-    setSuccess(null)
-    try {
-      await deleteSymmetricChannelKey(channelId)
-      await refreshState()
-      setSuccess(`Clau simètrica del canal ${channelId} eliminada`)
-    } catch {
-      setError('No s\'ha pogut eliminar la clau simètrica')
-    } finally {
-      setIsBusy(false)
-    }
-  }
-
-  const handleImportSymmetric = async () => {
-    if (!symImportText.trim()) {
-      setError('Enganxa el JSON de claus simètriques')
-      return
-    }
-
-    setIsBusy(true)
-    setError(null)
-    setSuccess(null)
-
-    try {
-      const imported = await importSymmetricChannelKeys(symImportText)
-      await refreshState()
-      setSuccess(`Importades ${imported} claus simètriques de canals`)
-      setSymImportText('')
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'No s\'han pogut importar les claus'
-      setError(msg)
-    } finally {
-      setIsBusy(false)
-    }
-  }
-
-  const handleImportAsymmetric = async () => {
-    if (!asymImportText.trim()) {
-      setError('Enganxa el JSON de claus asimètriques')
-      return
-    }
-
-    setIsBusy(true)
-    setError(null)
-    setSuccess(null)
-
-    try {
-      const imported = await importAsymmetricChannelKeys(asymImportText)
-      await refreshState()
-      setSuccess(`Importades ${imported} claus asimètriques de canals`)
-      setAsymImportText('')
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'No s\'han pogut importar les claus'
-      setError(msg)
-    } finally {
-      setIsBusy(false)
-    }
-  }
-
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Gestió de dispositius">
-      <div className="device-keys-modal">
-        {error && <div className="modal-error">{error}</div>}
-        {success && <div className="modal-success">{success}</div>}
+    <div className="device-keys-modal">
+      {error && <div className="modal-error">{error}</div>}
+      {success && <div className="modal-success">{success}</div>}
 
-        <div className="device-keys-tabs" role="tablist" aria-label="Gestió de claus">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'device'}
-            className={`device-keys-tab ${activeTab === 'device' ? 'active' : ''}`}
-            onClick={() => setActiveTab('device')}
-          >
-            Gestió dispositiu
-          </button>
-        </div>
+      <div className="device-keys-tabs" role="tablist" aria-label="Gestio de claus">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={true}
+          className="device-keys-tab active"
+        >
+          Gestio dispositiu
+        </button>
+      </div>
 
-        {activeTab === 'device' && (
-        <>
-        <section className="device-keys-section">
-          <h4>Dispositiu actiu</h4>
+      <section className="device-keys-section">
+        <h4>Dispositiu actiu</h4>
+        <p>
+          ID: <strong>{currentDeviceId ?? 'No disponible'}</strong>
+        </p>
+        {activeDevice && (
           <p>
-            ID: <strong>{currentDeviceId ?? 'No disponible'}</strong>
+            Etiqueta: <strong>{activeDevice.label}</strong> · Estat:{' '}
+            {activeDevice.revoked ? 'Revocat' : 'Actiu'}
           </p>
-          {activeDevice && (
-            <p>
-              Etiqueta: <strong>{activeDevice.label}</strong> · Estat:{' '}
-              {activeDevice.revoked ? 'Revocat' : 'Actiu'}
-            </p>
-          )}
-          <p>
-            Keypair local:{' '}
-            <strong>{deviceSummary?.hasKeypair ? 'Present' : 'No trobat'}</strong>
-          </p>
-          <p>
-            Signing key local:{' '}
-            <strong>{deviceSummary?.hasSigningKeypair ? 'Present' : 'No trobat'}</strong>
-          </p>
-          {deviceSummary?.kemPublicKeyPreview && (
-            <p>KEM public key: {deviceSummary.kemPublicKeyPreview}</p>
-          )}
-          {deviceSummary?.dsaPublicKeyPreview && (
-            <p>DSA public key: {deviceSummary.dsaPublicKeyPreview}</p>
-          )}
-          <div className="device-keys-form-grid">
-            <input
-              className="device-keys-input"
-              type="text"
-              value={keypairDeviceId}
-              onChange={(e) => setKeypairDeviceId(e.target.value)}
-              placeholder="Device ID del parell de claus"
-              disabled={isBusy}
-            />
-          </div>
-          <div className="modal-form-actions">
-            <Button variant="primary" size="sm" onClick={() => void handleGenerateDeviceKeys(false)} disabled={isBusy}>
-              Generar claus noves
-            </Button>
-            {pendingOverwrite?.kind === 'generate' && (
-              <Button variant="danger" size="sm" onClick={() => void handleGenerateDeviceKeys(true)} disabled={isBusy}>
-                Sobrescriure
-              </Button>
-            )}
-          </div>
-        </section>
-
-        <section className="device-keys-section">
-          <h4>Dispositius del compte</h4>
-          {mergedDevices.length === 0 ? (
-            <p>Encara no hi ha dispositius disponibles.</p>
-          ) : (
-            <ul className="device-keys-list">
-              {mergedDevices.map((device) => (
-                <li key={device.deviceId} className="device-keys-list-item">
-                  <div className="device-keys-list-main">
-                    <strong>{device.label} · {device.deviceId}</strong>
-                    <span>
-                      {device.isCurrent ? 'Actual · ' : ''}
-                      {device.isRemoteOnly ? 'Només servidor' : device.isLocalOnly ? 'Només local' : 'Local + servidor'}
-                    </span>
-                    {device.server && (
-                      <span>
-                        KEM: {device.hasKemPublicKey ? 'registrada' : 'pendent'} · 
-                        DSA: {device.hasDsaPublicKey ? 'registrada' : 'pendent'} · 
-                        Estat: {device.server.revoked ? 'revocat' : 'actiu'}
-                      </span>
-                    )}
-                    {device.server?.lastSeen && (
-                      <span>Darrer accés: {new Date(device.server.lastSeen).toLocaleString()}</span>
-                    )}
-                    {device.local && (
-                      <span>Keypair local actualitzat: {new Date(device.local.updatedAt).toLocaleString()}</span>
-                    )}
-                  </div>
-                  <div className="device-keys-list-actions">
-                    {device.local && (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => void handleExportDeviceKeys(device.deviceId)}
-                        disabled={isBusy}
-                      >
-                        Backup local
-                      </Button>
-                    )}
-                    {device.local && (
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        onClick={() => void handleDeleteKeypair(device.deviceId)}
-                        disabled={isBusy}
-                      >
-                        Esborrar local
-                      </Button>
-                    )}
-                    {device.server && !device.isCurrent && !device.server.revoked && (
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        onClick={() => void handleRevokeServerDevice(device.deviceId)}
-                        disabled={isBusy}
-                      >
-                        Eliminar del servidor
-                      </Button>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className="device-keys-section">
-          <h4>Importar keypair de dispositiu</h4>
-          <textarea
-            className="device-keys-textarea"
-            value={deviceImportText}
-            onChange={(e) => setDeviceImportText(e.target.value)}
-            placeholder="Enganxa aquí el JSON exportat del keypair"
-            rows={5}
+        )}
+        <p>
+          Keypair local:{' '}
+          <strong>{deviceSummary?.hasKeypair ? 'Present' : 'No trobat'}</strong>
+        </p>
+        <p>
+          Signing key local:{' '}
+          <strong>{deviceSummary?.hasSigningKeypair ? 'Present' : 'No trobat'}</strong>
+        </p>
+        {deviceSummary?.kemPublicKeyPreview && (
+          <p>KEM public key: {deviceSummary.kemPublicKeyPreview}</p>
+        )}
+        {deviceSummary?.dsaPublicKeyPreview && (
+          <p>DSA public key: {deviceSummary.dsaPublicKeyPreview}</p>
+        )}
+        <div className="device-keys-form-grid">
+          <input
+            className="device-keys-input"
+            type="text"
+            value={keypairDeviceId}
+            onChange={(e) => setKeypairDeviceId(e.target.value)}
+            placeholder="Device ID del parell de claus"
             disabled={isBusy}
           />
-          <div className="modal-form-actions">
-            <Button variant="secondary" size="sm" onClick={() => void handleImportDeviceKeys(false)} disabled={isBusy}>
-              Importar keypair
+        </div>
+        <div className="modal-form-actions">
+          <Button variant="primary" size="sm" onClick={() => void handleGenerateDeviceKeys(false)} disabled={isBusy}>
+            Generar claus noves
+          </Button>
+          {pendingOverwrite?.kind === 'generate' && (
+            <Button variant="danger" size="sm" onClick={() => void handleGenerateDeviceKeys(true)} disabled={isBusy}>
+              Sobrescriure
             </Button>
-            {pendingOverwrite?.kind === 'import' && (
-              <Button
-                variant="danger"
-                size="sm"
-                onClick={() => void handleImportDeviceKeys(true, pendingOverwrite.text)}
-                disabled={isBusy}
-              >
-                Sobrescriure
-              </Button>
-            )}
-          </div>
-        </section>
+          )}
+        </div>
+      </section>
 
-        {exportedDeviceBundle && (
-          <section className="device-keys-section">
-            <h4>Backup del dispositiu (JSON)</h4>
-            <textarea className="device-keys-textarea" value={exportedDeviceBundle} readOnly rows={6} />
-          </section>
-        )}
-        </>
-        )}
-
-        {false && (
-        <>
-        <section className="device-keys-section">
-          <h4>Claus simètriques de canals</h4>
-          <p>Claus simètriques guardades localment: <strong>{symmetricKeys.length}</strong></p>
-          <p>
-            Els canals asimètrics depenen del keypair KEM + DSA del dispositiu actual.
-            Si falta algun dels dos, no podràs verificar ni redistribuir bundles signats.
-          </p>
-          <div className="modal-form-actions">
-            <Button variant="secondary" size="sm" onClick={handleExportSymmetric} disabled={isBusy}>
-              Exportar simètriques
-            </Button>
-          </div>
-          {symmetricKeys.length > 0 && (
-            <ul className="device-keys-list">
-              {symmetricKeys.map((key) => (
-                <li key={`${key.channelId}-${key.keyVersion}`} className="device-keys-list-item">
-                  <div className="device-keys-list-main">
-                    <strong>Canal {formatChannelLabel(key.channelId)} · v{key.keyVersion}</strong>
-                    <span>Clau: {key.preview}</span>
-                    <span>Guardada: {new Date(key.acquiredAt).toLocaleString()}</span>
-                  </div>
-                  <div className="device-keys-list-actions">
+      <section className="device-keys-section">
+        <h4>Dispositius del compte</h4>
+        {mergedDevices.length === 0 ? (
+          <p>Encara no hi ha dispositius disponibles.</p>
+        ) : (
+          <ul className="device-keys-list">
+            {mergedDevices.map((device) => (
+              <li key={device.deviceId} className="device-keys-list-item">
+                <div className="device-keys-list-main">
+                  <strong>{device.label} · {device.deviceId}</strong>
+                  <span>
+                    {device.isCurrent ? 'Actual · ' : ''}
+                    {device.isRemoteOnly ? 'Nomes servidor' : device.isLocalOnly ? 'Nomes local' : 'Local + servidor'}
+                  </span>
+                  {device.server && (
+                    <span>
+                      KEM: {device.hasKemPublicKey ? 'registrada' : 'pendent'} ·
+                      DSA: {device.hasDsaPublicKey ? 'registrada' : 'pendent'} ·
+                      Estat: {device.server.revoked ? 'revocat' : 'actiu'}
+                    </span>
+                  )}
+                  {device.server?.lastSeen && (
+                    <span>Darrer acces: {new Date(device.server.lastSeen).toLocaleString()}</span>
+                  )}
+                  {device.local && (
+                    <span>Keypair local actualitzat: {new Date(device.local.updatedAt).toLocaleString()}</span>
+                  )}
+                </div>
+                <div className="device-keys-list-actions">
+                  {device.local && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => void handleExportDeviceKeys(device.deviceId)}
+                      disabled={isBusy}
+                    >
+                      Backup local
+                    </Button>
+                  )}
+                  {device.local && (
                     <Button
                       variant="danger"
                       size="sm"
-                      onClick={() => void handleDeleteSymmetric(key.channelId)}
+                      onClick={() => void handleDeleteKeypair(device.deviceId)}
                       disabled={isBusy}
                     >
-                      Esborrar
+                      Esborrar local
                     </Button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-          <textarea
-            className="device-keys-textarea"
-            value={symImportText}
-            onChange={(e) => setSymImportText(e.target.value)}
-            placeholder="Enganxa aquí JSON de claus simètriques"
-            rows={5}
-            disabled={isBusy}
-          />
-          <div className="modal-form-actions">
-            <Button variant="secondary" size="sm" onClick={handleImportSymmetric} disabled={isBusy}>
-              Importar simètriques
-            </Button>
-          </div>
-        </section>
+                  )}
+                  {device.server && !device.isCurrent && !device.server.revoked && (
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      onClick={() => void handleRevokeServerDevice(device.deviceId)}
+                      disabled={isBusy}
+                    >
+                      Eliminar del servidor
+                    </Button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
+      <section className="device-keys-section">
+        <h4>Importar keypair de dispositiu</h4>
+        <textarea
+          className="device-keys-textarea"
+          value={deviceImportText}
+          onChange={(e) => setDeviceImportText(e.target.value)}
+          placeholder="Enganxa aqui el JSON exportat del keypair"
+          rows={5}
+          disabled={isBusy}
+        />
+        <div className="modal-form-actions">
+          <Button variant="secondary" size="sm" onClick={() => void handleImportDeviceKeys(false)} disabled={isBusy}>
+            Importar keypair
+          </Button>
+          {pendingOverwrite?.kind === 'import' && (
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => void handleImportDeviceKeys(true, pendingOverwrite.text)}
+              disabled={isBusy}
+            >
+              Sobrescriure
+            </Button>
+          )}
+        </div>
+      </section>
+
+      {exportedDeviceBundle && (
         <section className="device-keys-section">
-          <h4>Bundles asimètrics de canals</h4>
-          <p>Bundles asimètrics guardats localment: <strong>{asymmetricKeys.length}</strong></p>
-          <div className="modal-form-actions">
-            <Button variant="secondary" size="sm" onClick={handleExportAsymmetric} disabled={isBusy}>
-              Exportar asimètriques
-            </Button>
-          </div>
-          {asymmetricKeys.length > 0 ? (
-            <ul className="device-keys-list">
-              {asymmetricKeys.map((key) => (
-                <li key={`${key.channelId}-${key.keyVersion}`} className="device-keys-list-item">
-                  <div className="device-keys-list-main">
-                    <strong>Canal {formatChannelLabel(key.channelId)} · v{key.keyVersion}</strong>
-                    <span>KeyVersionId: {key.keyVersionId ?? 'sense id'}</span>
-                    <span>Guardat: {new Date(key.acquiredAt).toLocaleString()}</span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>No hi ha bundles asimètrics guardats localment.</p>
-          )}
-          <textarea
-            className="device-keys-textarea"
-            value={asymImportText}
-            onChange={(e) => setAsymImportText(e.target.value)}
-            placeholder="Enganxa aquí JSON de bundles asimètrics"
-            rows={5}
-            disabled={isBusy}
-          />
-          <div className="modal-form-actions">
-            <Button variant="secondary" size="sm" onClick={handleImportAsymmetric} disabled={isBusy}>
-              Importar asimètriques
-            </Button>
-          </div>
+          <h4>Backup del dispositiu (JSON)</h4>
+          <textarea className="device-keys-textarea" value={exportedDeviceBundle} readOnly rows={6} />
         </section>
+      )}
 
-        {exportedAsymmetricBundle && (
-          <section className="device-keys-section">
-            <h4>Backup de claus asimètriques (JSON)</h4>
-            <textarea className="device-keys-textarea" value={exportedAsymmetricBundle} readOnly rows={6} />
-          </section>
-        )}
-
-        {exportedSymmetricBundle && (
-          <section className="device-keys-section">
-            <h4>Backup de claus simètriques (JSON)</h4>
-            <textarea className="device-keys-textarea" value={exportedSymmetricBundle} readOnly rows={6} />
-          </section>
-        )}
-        </>
-        )}
-      </div>
-    </Modal>
+      {channels.length > 0 && (
+        <div style={{ display: 'none' }} aria-hidden="true">{channels.length}</div>
+      )}
+    </div>
   )
+}
+
+export function DeviceKeysPanel(props: DeviceKeysPanelProps) {
+  return <DeviceKeysContent isActive={true} {...props} />
 }

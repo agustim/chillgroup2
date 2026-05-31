@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
 
-import { DeviceKeysModal } from './DeviceKeysModal'
+import { DeviceKeysPanel } from './DeviceKeysModal'
 
 vi.mock('../../lib/device-keys', () => ({
   deleteDeviceKeypair: vi.fn(),
@@ -64,16 +64,14 @@ vi.mock('../../lib/api', () => ({
   userDeviceRevoke: vi.fn(),
 }))
 
-describe('DeviceKeysModal', () => {
+describe('DeviceKeysPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
   it('mostra l estat separat de claus KEM i DSA del dispositiu actiu', async () => {
     render(
-      <DeviceKeysModal
-        isOpen
-        onClose={() => {}}
+      <DeviceKeysPanel
         currentDeviceId="dev-1"
         channels={[{ channelId: 'ch-1', name: 'general' }]}
         devices={[{ deviceId: 'dev-1', label: 'Portatil', revoked: false, lastSeen: '2026-05-23T00:00:00Z' }]}

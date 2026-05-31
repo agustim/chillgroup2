@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
 
-import { Modal } from '../ui/Modal'
 import { Button } from '../shared/Button'
 import {
   deleteSymmetricChannelKey,
@@ -13,13 +12,16 @@ import {
 } from '../../lib/device-keys'
 import type { Channel } from '../../types'
 
-interface ChannelKeysModalProps {
-  isOpen: boolean
-  onClose: () => void
+interface ChannelKeysPanelProps {
   channels?: Channel[]
 }
 
-export function ChannelKeysModal({ isOpen, onClose, channels = [] }: ChannelKeysModalProps) {
+interface ChannelKeysContentProps {
+  isActive: boolean
+  channels?: Channel[]
+}
+
+function ChannelKeysContent({ isActive, channels = [] }: ChannelKeysContentProps) {
   const [isBusy, setIsBusy] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -67,7 +69,7 @@ export function ChannelKeysModal({ isOpen, onClose, channels = [] }: ChannelKeys
   }
 
   useEffect(() => {
-    if (!isOpen) {
+    if (!isActive) {
       return
     }
 
@@ -78,7 +80,7 @@ export function ChannelKeysModal({ isOpen, onClose, channels = [] }: ChannelKeys
     setExportedSymmetricBundle('')
     setExportedAsymmetricBundle('')
     void refreshState()
-  }, [isOpen])
+  }, [isActive])
 
   const handleExportSymmetric = async () => {
     setIsBusy(true)
@@ -168,10 +170,9 @@ export function ChannelKeysModal({ isOpen, onClose, channels = [] }: ChannelKeys
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Gestió de claus de canals">
-      <div className="device-keys-modal">
-        {error && <div className="modal-error">{error}</div>}
-        {success && <div className="modal-success">{success}</div>}
+    <div className="device-keys-modal">
+      {error && <div className="modal-error">{error}</div>}
+      {success && <div className="modal-success">{success}</div>}
 
         <section className="device-keys-section">
           <h4>Claus simètriques</h4>
@@ -267,7 +268,10 @@ export function ChannelKeysModal({ isOpen, onClose, channels = [] }: ChannelKeys
             <textarea className="device-keys-textarea" value={exportedAsymmetricBundle} readOnly rows={6} />
           </section>
         )}
-      </div>
-    </Modal>
+    </div>
   )
+}
+
+export function ChannelKeysPanel({ channels = [] }: ChannelKeysPanelProps) {
+  return <ChannelKeysContent isActive={true} channels={channels} />
 }

@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import { render, screen, fireEvent, cleanup, waitFor, act } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
-import { CreateServerModal } from './CreateServerModal'
+import { CreateServerPanel } from './CreateServerModal'
 
-describe('CreateServerModal', () => {
+describe('CreateServerPanel', () => {
   afterEach(() => {
     cleanup()
     document.body.innerHTML = ''
@@ -18,43 +18,36 @@ describe('CreateServerModal', () => {
     onCreate = vi.fn().mockResolvedValue(undefined)
   })
 
-  function renderModal(open = true) {
+  function renderPanel() {
     return render(
-      <CreateServerModal
-        isOpen={open}
+      <CreateServerPanel
         onClose={onClose}
         onCreate={onCreate}
       />
     )
   }
 
-  it('no renderitza res quan isOpen es false', () => {
-    renderModal(false)
-    expect(screen.queryByRole('dialog')).toBeNull()
-  })
-
   it('renderitza el formulari amb els camps correctes', () => {
-    renderModal()
-    expect(screen.getByRole('dialog')).toBeTruthy()
-    expect(screen.getByText('Crear servidor')).toBeTruthy()
+    renderPanel()
+    expect(screen.getByRole('button', { name: /Crear/ })).toBeTruthy()
     expect(screen.getByLabelText('Nom del servidor')).toBeTruthy()
     expect(screen.getByLabelText('URL de la icona (opcional)')).toBeTruthy()
   })
 
   it('el botó de crear esta disabled quan el nom esta buit', () => {
-    renderModal()
+    renderPanel()
     expect(screen.getByRole('button', { name: /Crear/ })).toBeDisabled()
   })
 
   it('el botó s activa amb nom de 2+ caracters', () => {
-    renderModal()
+    renderPanel()
     const input = screen.getByLabelText('Nom del servidor') as HTMLInputElement
     fireEvent.change(input, { target: { value: 'AB' } })
     expect(screen.getByRole('button', { name: /Crear/ })).not.toBeDisabled()
   })
 
   it('el botó s activa amb nom de 1 caracter (validacio en submit)', () => {
-    renderModal()
+    renderPanel()
     const input = screen.getByLabelText('Nom del servidor') as HTMLInputElement
     // Validation only happens on submit, not on input change
     fireEvent.change(input, { target: { value: 'A' } })
@@ -62,7 +55,7 @@ describe('CreateServerModal', () => {
   })
 
   it('accepta un nom valid i crida onCreate', async () => {
-    renderModal()
+    renderPanel()
     const input = screen.getByLabelText('Nom del servidor') as HTMLInputElement
     fireEvent.change(input, { target: { value: 'El meu servidor' } })
     fireEvent.click(screen.getByRole('button', { name: /Crear/ }))
@@ -72,7 +65,7 @@ describe('CreateServerModal', () => {
   })
 
   it('neteja el formulari i tanca despres de crear amb exit', async () => {
-    renderModal()
+    renderPanel()
     const input = screen.getByLabelText('Nom del servidor') as HTMLInputElement
     fireEvent.change(input, { target: { value: 'Nou Servidor' } })
     fireEvent.click(screen.getByRole('button', { name: /Crear/ }))
@@ -85,15 +78,15 @@ describe('CreateServerModal', () => {
     })
   })
 
-  it('tanca el modal amb el botó Cancel·lar', () => {
-    renderModal()
+  it('executa onClose amb el botó Cancel·lar', () => {
+    renderPanel()
     fireEvent.click(screen.getByRole('button', { name: /Cancel·lar/ }))
     expect(onClose).toHaveBeenCalledTimes(1)
     expect(onCreate).not.toHaveBeenCalled()
   })
 
   it('bloqueja submit amb nom buit', () => {
-    renderModal()
+    renderPanel()
     const btn = screen.getByRole('button', { name: /Crear/ })
     expect(btn).toBeDisabled()
     fireEvent.click(btn)
@@ -101,7 +94,7 @@ describe('CreateServerModal', () => {
   })
 
   it('validacio en submit rejecta nom curt', async () => {
-    renderModal()
+    renderPanel()
     const input = screen.getByLabelText('Nom del servidor') as HTMLInputElement
     // Button is enabled (validation only happens on submit)
     fireEvent.change(input, { target: { value: 'A' } })
@@ -114,7 +107,7 @@ describe('CreateServerModal', () => {
   })
 
   it('accepta nom amb icona', async () => {
-    renderModal()
+    renderPanel()
     const nameInput = screen.getByLabelText('Nom del servidor') as HTMLInputElement
     fireEvent.change(nameInput, { target: { value: 'Servidor' } })
     const iconInput = screen.getByLabelText('URL de la icona (opcional)') as HTMLInputElement
@@ -126,7 +119,7 @@ describe('CreateServerModal', () => {
   })
 
   it('passa null per a icona quan esta buit', async () => {
-    renderModal()
+    renderPanel()
     const input = screen.getByLabelText('Nom del servidor') as HTMLInputElement
     fireEvent.change(input, { target: { value: 'Servidor' } })
     fireEvent.click(screen.getByRole('button', { name: /Crear/ }))

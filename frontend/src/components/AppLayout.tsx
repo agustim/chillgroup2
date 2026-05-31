@@ -3,15 +3,15 @@ import { useAuth } from '../contexts/AuthContext'
 import { ServerBar } from './sidebar/ServerBar'
 import { ChannelList } from './sidebar/ChannelList'
 import { MainContent } from './main/MainContent'
-import { CreateServerModal } from './modals/CreateServerModal'
+import { CreateServerPanel } from './modals/CreateServerModal'
 import { CreateTextChannelModal } from './modals/CreateTextChannelModal'
 import { CreateVoiceChannelModal } from './modals/CreateVoiceChannelModal'
 import { InviteMemberModal } from './modals/InviteMemberModal'
-import { DeviceKeysModal } from './modals/DeviceKeysModal'
-import { ChannelKeysModal } from './modals/ChannelKeysModal'
+import { DeviceKeysPanel } from './modals/DeviceKeysModal'
+import { ChannelKeysPanel } from './modals/ChannelKeysModal'
 import { PermissionsPanel } from './modals/PermissionsModal'
-import { ChangePasswordModal } from './modals/ChangePasswordModal'
-import { FriendsModal } from './modals/FriendsModal'
+import { ChangePasswordPanel } from './modals/ChangePasswordModal'
+import { FriendsPanel } from './modals/FriendsModal'
 import { AdminUsersPanel } from './main/AdminUsersPanel'
 import { useLiveKit } from '../hooks/useLiveKit'
 import { Channel, FriendPresence, Server, ServerFullInfo, VoiceParticipant } from '../types'
@@ -51,7 +51,7 @@ interface AppLayoutProps {
   onLogout?: () => void
 }
 
-type PanelType = 'none' | 'serverConfig' | 'channelConfig' | 'devices' | 'adminUsers' | 'permissions'
+type PanelType = 'none' | 'serverConfig' | 'channelConfig' | 'devices' | 'adminUsers' | 'permissions' | 'friends' | 'createServer' | 'changePassword' | 'channelKeys'
 type ServerMenuAction = 'config' | 'invite' | 'createText' | 'createVoice' | null
 
 function formatDmRepairFeedback(result: {
@@ -103,14 +103,9 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const [canCreateVoiceChannel, setCanCreateVoiceChannel] = useState(true)
   
   // Modal states
-  const [showCreateServer, setShowCreateServer] = useState(false)
   const [showCreateTextChannel, setShowCreateTextChannel] = useState(false)
   const [showCreateVoiceChannel, setShowCreateVoiceChannel] = useState(false)
   const [showInviteServer, setShowInviteServer] = useState(false)
-  const [showDeviceKeysModal, setShowDeviceKeysModal] = useState(false)
-  const [showChannelKeysModal, setShowChannelKeysModal] = useState(false)
-  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false)
-  const [showFriendsModal, setShowFriendsModal] = useState(false)
   const [pendingServerConfigOpenId, setPendingServerConfigOpenId] = useState<string | null>(null)
   const [serverConfigInviteUsername, setServerConfigInviteUsername] = useState('')
   const [pendingMemberRemovalId, setPendingMemberRemovalId] = useState<string | null>(null)
@@ -174,12 +169,12 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     hasLocalDeviceKeypair(currentDeviceId)
       .then((hasKeypair) => {
         if (!cancelled && !hasKeypair) {
-          setShowDeviceKeysModal(true)
+          setPanel('devices')
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setShowDeviceKeysModal(true)
+          setPanel('devices')
         }
       })
 
@@ -931,7 +926,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
       return
     }
 
-    setShowCreateServer(true)
+    setPanel('createServer')
   }
 
   const handleCreateServerSubmit = async (name: string, iconUrl: string | null) => {
@@ -939,6 +934,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     if (result.success) {
       await fetchServers()
       setSelectedServer(result.data.serverId)
+      setPanel('none')
       setFeedback(`Servidor "${result.data.name}" creat`)
     } else {
       setFeedback(result.error.message)
@@ -1133,19 +1129,19 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   }
 
   const handleManageDevices = () => {
-    setShowDeviceKeysModal(true)
+    setPanel('devices')
   }
 
   const handleManageChannelKeys = () => {
-    setShowChannelKeysModal(true)
+    setPanel('channelKeys')
   }
 
   const handleManageFriends = () => {
-    setShowFriendsModal(true)
+    setPanel('friends')
   }
 
   const handleChangePassword = () => {
-    setShowChangePasswordModal(true)
+    setPanel('changePassword')
   }
 
   const handleManagePermissions = () => {
@@ -1297,7 +1293,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
         setPanel('serverConfig')
         break
       case 'invite':
-        setShowInviteServer(true)
+        setPanel('serverConfig')
         break
       case 'createText':
         setShowCreateTextChannel(true)
@@ -1445,6 +1441,111 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     </div>
   ) : null
 
+  const createServerTabNode = panel === 'createServer' ? (
+    <div
+      className="main-content-tab active"
+      onClick={() => setPanel('createServer')}
+    >
+      <span>➕</span>
+      <span>Nou servidor</span>
+      <button
+        type="button"
+        className="main-content-tab-close"
+        onClick={(event) => {
+          event.stopPropagation()
+          setPanel('none')
+        }}
+        title="Tancar pestanya"
+      >
+        ✕
+      </button>
+    </div>
+  ) : null
+
+  const friendsTabNode = panel === 'friends' ? (
+    <div
+      className="main-content-tab active"
+      onClick={() => setPanel('friends')}
+    >
+      <span>👥</span>
+      <span>Amics</span>
+      <button
+        type="button"
+        className="main-content-tab-close"
+        onClick={(event) => {
+          event.stopPropagation()
+          setPanel('none')
+        }}
+        title="Tancar pestanya"
+      >
+        ✕
+      </button>
+    </div>
+  ) : null
+
+  const devicesTabNode = panel === 'devices' ? (
+    <div
+      className="main-content-tab active"
+      onClick={() => setPanel('devices')}
+    >
+      <span>📱</span>
+      <span>Dispositius</span>
+      <button
+        type="button"
+        className="main-content-tab-close"
+        onClick={(event) => {
+          event.stopPropagation()
+          setPanel('none')
+        }}
+        title="Tancar pestanya"
+      >
+        ✕
+      </button>
+    </div>
+  ) : null
+
+  const changePasswordTabNode = panel === 'changePassword' ? (
+    <div
+      className="main-content-tab active"
+      onClick={() => setPanel('changePassword')}
+    >
+      <span>🔒</span>
+      <span>Password</span>
+      <button
+        type="button"
+        className="main-content-tab-close"
+        onClick={(event) => {
+          event.stopPropagation()
+          setPanel('none')
+        }}
+        title="Tancar pestanya"
+      >
+        ✕
+      </button>
+    </div>
+  ) : null
+
+  const channelKeysTabNode = panel === 'channelKeys' ? (
+    <div
+      className="main-content-tab active"
+      onClick={() => setPanel('channelKeys')}
+    >
+      <span>🔑</span>
+      <span>Claus</span>
+      <button
+        type="button"
+        className="main-content-tab-close"
+        onClick={(event) => {
+          event.stopPropagation()
+          setPanel('none')
+        }}
+        title="Tancar pestanya"
+      >
+        ✕
+      </button>
+    </div>
+  ) : null
+
   const mergedVoiceParticipants = voiceChannelId
     ? liveKitParticipants.map((participant) => {
         const socketPresence = (voicePresenceByChannel[voiceChannelId] ?? []).find(
@@ -1531,7 +1632,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
       )}
 
       <div className="main-content-area">
-        {selectedServer && (openTextTabs.length > 0 || activeVoiceChannel || panel === 'adminUsers' || panel === 'serverConfig' || panel === 'channelConfig' || panel === 'permissions') && (
+        {(selectedServer || panel === 'createServer' || panel === 'friends' || panel === 'devices' || panel === 'changePassword' || panel === 'channelKeys') && (openTextTabs.length > 0 || activeVoiceChannel || panel === 'adminUsers' || panel === 'serverConfig' || panel === 'channelConfig' || panel === 'permissions' || panel === 'createServer' || panel === 'friends' || panel === 'devices' || panel === 'changePassword' || panel === 'channelKeys') && (
           <div className="main-content-tabs">
             {textTabNodes}
             {voiceTabNode}
@@ -1539,13 +1640,85 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
             {channelConfigTabNode}
             {permissionsTabNode}
             {adminUsersTabNode}
+            {createServerTabNode}
+            {friendsTabNode}
+            {devicesTabNode}
+            {changePasswordTabNode}
+            {channelKeysTabNode}
           </div>
         )}
 
         {feedback && <div className="feedback-banner">{feedback}</div>}
         {liveKitError && <div className="feedback-banner" style={{ backgroundColor: '#ff4444' }}>{liveKitError}</div>}
 
-        {panel === 'adminUsers' ? (
+        {panel === 'createServer' ? (
+          <div className="panel admin-users-panel">
+            <div className="admin-users-panel-header">
+              <h3>Crear servidor</h3>
+              <button className="admin-panel-tab" onClick={() => setPanel('none')}>
+                Tancar
+              </button>
+            </div>
+
+            <CreateServerPanel
+              onClose={() => setPanel('none')}
+              onCreate={handleCreateServerSubmit}
+            />
+          </div>
+        ) : panel === 'friends' ? (
+          <div className="panel admin-users-panel">
+            <div className="admin-users-panel-header">
+              <h3>Gestio d'amics</h3>
+              <button className="admin-panel-tab" onClick={() => setPanel('none')}>
+                Tancar
+              </button>
+            </div>
+
+            <FriendsPanel
+              friends={friends}
+              onAddFriend={handleAddFriend}
+              onRemoveFriend={handleRemoveFriend}
+              onSearchUsers={handleSearchUsers}
+            />
+          </div>
+        ) : panel === 'devices' ? (
+          <div className="panel admin-users-panel">
+            <div className="admin-users-panel-header">
+              <h3>Gestio de dispositius</h3>
+              <button className="admin-panel-tab" onClick={() => setPanel('none')}>
+                Tancar
+              </button>
+            </div>
+
+            <DeviceKeysPanel
+              currentDeviceId={currentDeviceId}
+              channels={channels}
+              devices={user?.devices ?? []}
+            />
+          </div>
+        ) : panel === 'changePassword' ? (
+          <div className="panel admin-users-panel">
+            <div className="admin-users-panel-header">
+              <h3>Canviar password</h3>
+              <button className="admin-panel-tab" onClick={() => setPanel('none')}>
+                Tancar
+              </button>
+            </div>
+
+            <ChangePasswordPanel onClose={() => setPanel('none')} />
+          </div>
+        ) : panel === 'channelKeys' ? (
+          <div className="panel admin-users-panel">
+            <div className="admin-users-panel-header">
+              <h3>Gestió de claus de canals</h3>
+              <button className="admin-panel-tab" onClick={() => setPanel('none')}>
+                Tancar
+              </button>
+            </div>
+
+            <ChannelKeysPanel channels={channels} />
+          </div>
+        ) : panel === 'adminUsers' ? (
           <AdminUsersPanel
             isOpen={true}
             onClose={() => setPanel('none')}
@@ -1877,12 +2050,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
         )}
 
         {/* ── Modals ─────────────────────────────────── */}
-        <CreateServerModal
-          isOpen={showCreateServer}
-          onClose={() => setShowCreateServer(false)}
-          onCreate={handleCreateServerSubmit}
-        />
-
         <CreateTextChannelModal
           isOpen={showCreateTextChannel}
           onClose={() => setShowCreateTextChannel(false)}
@@ -1905,37 +2072,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           />
         )}
 
-        {user && (
-          <DeviceKeysModal
-            isOpen={showDeviceKeysModal}
-            onClose={() => setShowDeviceKeysModal(false)}
-            currentDeviceId={currentDeviceId}
-            channels={channels}
-            devices={user.devices ?? []}
-          />
-        )}
-
-        {user && (
-          <ChannelKeysModal
-            isOpen={showChannelKeysModal}
-            onClose={() => setShowChannelKeysModal(false)}
-            channels={channels}
-          />
-        )}
-
-        <FriendsModal
-          isOpen={showFriendsModal}
-          onClose={() => setShowFriendsModal(false)}
-          friends={friends}
-          onAddFriend={handleAddFriend}
-          onRemoveFriend={handleRemoveFriend}
-          onSearchUsers={handleSearchUsers}
-        />
-
-        <ChangePasswordModal
-          isOpen={showChangePasswordModal}
-          onClose={() => setShowChangePasswordModal(false)}
-        />
       </div>
     </div>
   )

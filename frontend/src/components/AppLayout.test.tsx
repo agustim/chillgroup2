@@ -67,9 +67,12 @@ vi.mock('./sidebar/ServerBar', () => ({
 // but the old mock only used `onCreateChannel`. Also must render channel type info
 // (# Text, 🔊 Veu) for the form inputs test.
 vi.mock('./sidebar/ChannelList', () => ({
-  ChannelList: ({ channels, selectedChannel, onSelectChannel, onCreateTextChannel, onConfigureChannel, onManageFriends, onLogout, canCreateTextChannel, friends }: any) => (
+  ChannelList: ({ channels, selectedChannel, onSelectChannel, onCreateTextChannel, onConfigureChannel, onManageDevices, onManageChannelKeys, onManageFriends, onChangePassword, onLogout, canCreateTextChannel, friends }: any) => (
     <div data-testid="channel-list">
+      <button data-testid="btn-manage-devices" onClick={onManageDevices}>Gestio de dispositius</button>
+      <button data-testid="btn-manage-channel-keys" onClick={onManageChannelKeys}>Gestio claus-canals</button>
       <button data-testid="btn-manage-friends" onClick={onManageFriends}>Gestió d'amics</button>
+      <button data-testid="btn-change-password" onClick={onChangePassword}>Canviar password</button>
       <button data-testid="btn-logout" onClick={onLogout}>Sortir</button>
       {channels.map((c: any) => (
         <div key={c.channelId}>
@@ -102,16 +105,15 @@ vi.mock('./sidebar/ChannelList', () => ({
 }))
 
 vi.mock('./modals/FriendsModal', () => ({
-  FriendsModal: ({ isOpen, friends, onAddFriend, onRemoveFriend, onSearchUsers }: any) =>
-    isOpen ? (
-      <div role="dialog" aria-label="Gestió d'amics">
-        <h2>Gestió d'amics</h2>
-        <span data-testid="friends-total">{friends.length}</span>
-        <button data-testid="btn-search-friends" onClick={() => onSearchUsers?.('amic')}>Buscar</button>
-        <button data-testid="btn-add-friend" onClick={() => onAddFriend('amic')}>Afegir</button>
-        <button data-testid="btn-remove-friend" onClick={() => onRemoveFriend('friend-1')}>Treure</button>
-      </div>
-    ) : null,
+  FriendsPanel: ({ friends, onAddFriend, onRemoveFriend, onSearchUsers }: any) => (
+    <div aria-label="Gestio d'amics">
+      <h2>Gestio d'amics</h2>
+      <span data-testid="friends-total">{friends.length}</span>
+      <button data-testid="btn-search-friends" onClick={() => onSearchUsers?.('amic')}>Buscar</button>
+      <button data-testid="btn-add-friend" onClick={() => onAddFriend('amic')}>Afegir</button>
+      <button data-testid="btn-remove-friend" onClick={() => onRemoveFriend('friend-1')}>Treure</button>
+    </div>
+  ),
 }))
 
 vi.mock('./main/MainContent', () => ({
@@ -153,14 +155,38 @@ vi.mock('./modals/CreateTextChannelModal', () => ({
 }))
 
 vi.mock('./modals/CreateServerModal', () => ({
-  CreateServerModal: ({ isOpen }: any) =>
-    isOpen ? (
-      <div role="dialog" aria-label="Crear servidor">
-        <h2>Crear servidor</h2>
-        <label htmlFor="server-name">Nom del servidor</label>
-        <input id="server-name" type="text" placeholder="Ex: El meu servidor" />
-      </div>
-    ) : null,
+  CreateServerPanel: () => (
+    <div aria-label="Crear servidor">
+      <h2>Crear servidor</h2>
+      <label htmlFor="server-name">Nom del servidor</label>
+      <input id="server-name" type="text" placeholder="Ex: El meu servidor" />
+    </div>
+  ),
+}))
+
+vi.mock('./modals/DeviceKeysModal', () => ({
+  DeviceKeysPanel: () => (
+    <div aria-label="Gestio de dispositius">
+      <h2>Gestio de dispositius</h2>
+    </div>
+  ),
+}))
+
+vi.mock('./modals/ChangePasswordModal', () => ({
+  ChangePasswordPanel: ({ onClose }: any) => (
+    <div aria-label="Canviar password">
+      <h2>Canviar password</h2>
+      <button data-testid="btn-close-change-password" onClick={onClose}>Tancar</button>
+    </div>
+  ),
+}))
+
+vi.mock('./modals/ChannelKeysModal', () => ({
+  ChannelKeysPanel: () => (
+    <div aria-label="Gestio de claus de canals">
+      <h2>Gestio de claus de canals</h2>
+    </div>
+  ),
 }))
 
 vi.mock('./modals/InviteMemberModal', () => ({
@@ -411,12 +437,11 @@ describe('AppLayout', () => {
   })
 
   describe('Open modals', () => {
-    it('CreateServerModal es obre amb el botó +', async () => {
+    it('panel de crear servidor s obre amb el boto +', async () => {
       renderApp()
+      fireEvent.click(screen.getByTestId('btn-create-server'))
       await waitFor(() => {
-        fireEvent.click(screen.getByTestId('btn-create-server'))
-        expect(screen.getByRole('dialog')).toBeTruthy()
-        expect(screen.getByText('Crear servidor')).toBeTruthy()
+        expect(screen.getByLabelText('Crear servidor')).toBeTruthy()
       })
     })
 
@@ -490,14 +515,47 @@ describe('AppLayout', () => {
       })
     })
 
-    it('FriendsModal es obre amb l accio Gestió d amics', async () => {
+    it('panell d amics s obre amb l accio Gestio d amics', async () => {
       renderApp()
       await waitFor(() => {
         expect(screen.getByTestId('btn-manage-friends')).toBeTruthy()
       })
       fireEvent.click(screen.getByTestId('btn-manage-friends'))
       await waitFor(() => {
-        expect(screen.getByRole('dialog', { name: "Gestió d'amics" })).toBeTruthy()
+        expect(screen.getByLabelText("Gestio d'amics")).toBeTruthy()
+      })
+    })
+
+    it('panell de dispositius s obre amb l accio de menu', async () => {
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('btn-manage-devices')).toBeTruthy()
+      })
+      fireEvent.click(screen.getByTestId('btn-manage-devices'))
+      await waitFor(() => {
+        expect(screen.getByLabelText('Gestio de dispositius')).toBeTruthy()
+      })
+    })
+
+    it('panell de canvi de password s obre amb l accio de menu', async () => {
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('btn-change-password')).toBeTruthy()
+      })
+      fireEvent.click(screen.getByTestId('btn-change-password'))
+      await waitFor(() => {
+        expect(screen.getByLabelText('Canviar password')).toBeTruthy()
+      })
+    })
+
+    it('panell de claus de canals s obre amb l accio de menu', async () => {
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('btn-manage-channel-keys')).toBeTruthy()
+      })
+      fireEvent.click(screen.getByTestId('btn-manage-channel-keys'))
+      await waitFor(() => {
+        expect(screen.getByLabelText('Gestio de claus de canals')).toBeTruthy()
       })
     })
 
@@ -515,7 +573,7 @@ describe('AppLayout', () => {
   })
 
   describe('Form inputs', () => {
-    it('CreateServerModal té el camp de nom', async () => {
+    it('panell de crear servidor te el camp de nom', async () => {
       renderApp()
       await waitFor(async () => {
         fireEvent.click(screen.getByTestId('btn-create-server'))
