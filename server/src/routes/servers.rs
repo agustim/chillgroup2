@@ -43,6 +43,9 @@ pub struct UpdateMemberRoleRequest {
 pub struct UpdateServerRequest {
     pub name: Option<String>,
     pub icon_url: Option<Option<String>>,
+    pub livekit_host: Option<Option<String>>,
+    pub livekit_api_key: Option<Option<String>>,
+    pub livekit_api_secret: Option<Option<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -170,6 +173,18 @@ pub async fn update_server(
 ) -> Result<Json<ServerFullInfo>, AppError> {
     ensure_server_permission(&state, server_id, claims.user_id, claims.is_admin, SERVER_PERMISSION_MANAGE_PROFILE).await?;
 
+    let livekit_fields_present = [
+        req.livekit_host.is_some(),
+        req.livekit_api_key.is_some(),
+        req.livekit_api_secret.is_some(),
+    ];
+
+    if livekit_fields_present.iter().any(|present| *present)
+        && !livekit_fields_present.iter().all(|present| *present)
+    {
+        return Err(AppError::BadRequest);
+    }
+
     state
         .db
         .update_server_metadata(
@@ -179,6 +194,19 @@ pub async fn update_server(
         )
         .await
         .map_err(AppError::DatabaseError)?;
+
+    if livekit_fields_present.iter().all(|present| *present) {
+        state
+            .db
+            .set_server_livekit_override(
+                server_id,
+                req.livekit_host.as_ref().and_then(|value| value.as_deref()),
+                req.livekit_api_key.as_ref().and_then(|value| value.as_deref()),
+                req.livekit_api_secret.as_ref().and_then(|value| value.as_deref()),
+            )
+            .await
+            .map_err(AppError::DatabaseError)?;
+    }
 
     let server_info = state
         .db
@@ -619,6 +647,7 @@ mod tests {
             Json(UpdateServerRequest {
                 name: Some("server-after".to_string()),
                 icon_url: Some(Some("https://example.com/icon.png".to_string())),
+                ..Default::default()
             }),
         )
         .await
@@ -667,6 +696,7 @@ mod tests {
             Json(UpdateServerRequest {
                 name: Some("server-non-member-after".to_string()),
                 icon_url: Some(Some("https://example.com/admin-non-member.png".to_string())),
+                ..Default::default()
             }),
         )
         .await

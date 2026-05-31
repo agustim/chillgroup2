@@ -148,7 +148,7 @@ export function useLiveKit(): UseLiveKitResult {
   }, [])
 
   // Obtenir token del backend
-  const fetchToken = useCallback(async (channelId: string): Promise<string> => {
+  const fetchToken = useCallback(async (channelId: string): Promise<{ token: string; url: string }> => {
     const token = getJwtToken()
     if (!token) throw new Error('No estàs autenticat')
 
@@ -169,7 +169,10 @@ export function useLiveKit(): UseLiveKitResult {
     }
 
     const data = await response.json()
-    return data.token
+    return {
+      token: data.token,
+      url: data.url || __LIVEKIT_HOST__,
+    }
   }, [])
 
   const hasMicrophoneEnabled = useCallback((participant: any): boolean => {
@@ -345,14 +348,12 @@ export function useLiveKit(): UseLiveKitResult {
       }
       localAudioTrackRef.current = null
 
-      // Obtenir URL del LiveKit (carregada des del .env de l'arrel)
-      const livekitUrl = __LIVEKIT_HOST__
+      // Obtenir token i URL efectiva del LiveKit des del backend
+      const { token, url } = await fetchToken(channelId)
+      const livekitUrl = url || __LIVEKIT_HOST__
       if (!livekitUrl) {
         throw new Error('LIVEKIT_HOST no està configurada')
       }
-
-      // Obtenir token del backend
-      const token = await fetchToken(channelId)
 
       // Aplicar preferència actual de so abans de subscriure nous tracks
       isDeafenedRef.current = isDeafened

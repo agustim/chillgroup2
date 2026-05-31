@@ -97,6 +97,13 @@ pub struct ServerInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerLiveKitConfig {
+    pub host: String,
+    pub api_key: String,
+    pub is_override: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerFullInfo {
     pub server_id: Uuid,
     pub name: String,
@@ -104,6 +111,7 @@ pub struct ServerFullInfo {
     pub owner_id: Uuid,
     pub my_role: ServerRole,
     pub members: Vec<ServerMember>,
+    pub livekit_config: Option<ServerLiveKitConfig>,
     pub created_at: String,
 }
 

@@ -169,6 +169,11 @@ export interface AdminServerItem {
   iconUrl: string | null
   ownerId: string
   memberCount: number
+  livekitConfig: {
+    host: string
+    apiKey: string
+    isOverride: boolean
+  } | null
   createdAt: string
 }
 
@@ -380,6 +385,8 @@ function mapServerMember(member: any) {
 }
 
 function mapServerFullInfo(server: any): ServerFullInfo {
+  const livekitConfig = server.livekit_config ?? server.livekitConfig ?? null
+
   return {
     serverId: server.server_id ?? server.serverId,
     name: server.name,
@@ -388,6 +395,13 @@ function mapServerFullInfo(server: any): ServerFullInfo {
     memberCount: server.member_count ?? server.memberCount ?? (server.members?.length ?? 0),
     myRole: server.my_role ?? server.myRole ?? 'member',
     members: (server.members ?? []).map(mapServerMember),
+    livekitConfig: livekitConfig
+      ? {
+          host: livekitConfig.host,
+          apiKey: livekitConfig.api_key ?? livekitConfig.apiKey,
+          isOverride: livekitConfig.is_override ?? livekitConfig.isOverride ?? true,
+        }
+      : null,
     createdAt: server.created_at ?? server.createdAt,
   }
 }
@@ -582,6 +596,21 @@ export async function serversUpdate(serverId: string, name?: string, iconUrl?: s
   if (iconUrl !== undefined) payload.icon_url = iconUrl
 
   const result = await apiRequest<any>('PUT', `/api/servers/${serverId}`, payload)
+  if (!result.success) return result
+  return { success: true, data: mapServerFullInfo(result.data) }
+}
+
+export async function serversUpdateLiveKit(
+  serverId: string,
+  livekitHost: string | null,
+  livekitApiKey: string | null,
+  livekitApiSecret: string | null,
+): Promise<ApiResult<ServerFullInfo>> {
+  const result = await apiRequest<any>('PUT', `/api/servers/${serverId}`, {
+    livekit_host: livekitHost,
+    livekit_api_key: livekitApiKey,
+    livekit_api_secret: livekitApiSecret,
+  })
   if (!result.success) return result
   return { success: true, data: mapServerFullInfo(result.data) }
 }
@@ -1087,12 +1116,21 @@ function mapAdminUserItem(raw: any): AdminUserItem {
 }
 
 function mapAdminServerItem(raw: any): AdminServerItem {
+  const livekitConfig = raw.livekitConfig ?? raw.livekit_config ?? null
+
   return {
     serverId: raw.serverId ?? raw.server_id,
     name: raw.name,
     iconUrl: raw.iconUrl ?? raw.icon_url ?? null,
     ownerId: raw.ownerId ?? raw.owner_id,
     memberCount: raw.memberCount ?? raw.member_count ?? 0,
+    livekitConfig: livekitConfig
+      ? {
+          host: livekitConfig.host,
+          apiKey: livekitConfig.apiKey ?? livekitConfig.api_key,
+          isOverride: livekitConfig.isOverride ?? livekitConfig.is_override ?? true,
+        }
+      : null,
     createdAt: raw.createdAt ?? raw.created_at ?? '',
   }
 }
@@ -1188,10 +1226,20 @@ export async function adminServersCreate(name: string, iconUrl?: string | null):
   return { success: true, data: mapAdminServerItem(serverLike) }
 }
 
-export async function adminServersUpdate(serverId: string, name?: string, iconUrl?: string | null): Promise<ApiResult<void>> {
+export async function adminServersUpdate(
+  serverId: string,
+  name?: string,
+  iconUrl?: string | null,
+  livekitHost?: string | null,
+  livekitApiKey?: string | null,
+  livekitApiSecret?: string | null,
+): Promise<ApiResult<void>> {
   const payload: Record<string, unknown> = {}
   if (name !== undefined) payload.name = name
   if (iconUrl !== undefined) payload.icon_url = iconUrl
+  if (livekitHost !== undefined) payload.livekit_host = livekitHost
+  if (livekitApiKey !== undefined) payload.livekit_api_key = livekitApiKey
+  if (livekitApiSecret !== undefined) payload.livekit_api_secret = livekitApiSecret
 
   const result = await apiRequest<void>('PUT', `/api/admin/servers/${serverId}`, payload)
   if (!result.success) return result
@@ -1402,6 +1450,7 @@ export async function adminUserLimitsGet(userId: string): Promise<ApiResult<Admi
 
 export interface LiveKitTokenResponse {
   token: string
+  url: string
 }
 
 export async function livekitGetToken(

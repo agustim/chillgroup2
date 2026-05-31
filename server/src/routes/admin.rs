@@ -29,12 +29,21 @@ pub struct AdminUserItem {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AdminServerLiveKitConfig {
+    pub host: String,
+    pub api_key: String,
+    pub is_override: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AdminServerItem {
     pub server_id: Uuid,
     pub name: String,
     pub icon_url: Option<String>,
     pub owner_id: Uuid,
     pub member_count: u32,
+    pub livekit_config: Option<AdminServerLiveKitConfig>,
     pub created_at: String,
 }
 
@@ -56,6 +65,9 @@ pub struct CreateAdminServerRequest {
 pub struct UpdateAdminServerRequest {
     pub name: Option<String>,
     pub icon_url: Option<Option<String>>,
+    pub livekit_host: Option<Option<String>>,
+    pub livekit_api_key: Option<Option<String>>,
+    pub livekit_api_secret: Option<Option<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -486,12 +498,20 @@ pub async fn list_servers(
 
     let data: Vec<AdminServerItem> = servers
         .into_iter()
-        .map(|(server_id, name, icon_url, owner_id, member_count, created_at)| AdminServerItem {
+        .map(|(server_id, name, icon_url, owner_id, member_count, livekit_host, livekit_api_key, created_at)| AdminServerItem {
             server_id,
             name,
             icon_url,
             owner_id,
             member_count,
+            livekit_config: match (livekit_host, livekit_api_key) {
+                (Some(host), Some(api_key)) => Some(AdminServerLiveKitConfig {
+                    host,
+                    api_key,
+                    is_override: true,
+                }),
+                _ => None,
+            },
             created_at,
         })
         .collect();
@@ -554,6 +574,10 @@ pub async fn update_server(
         return Err(AppError::Forbidden);
     }
 
+    let livekit_host_present = req.livekit_host.is_some();
+    let livekit_api_key_present = req.livekit_api_key.is_some();
+    let livekit_api_secret_present = req.livekit_api_secret.is_some();
+
     if let Some(name) = &req.name {
         if name.trim().is_empty() {
             return Err(AppError::BadRequest);
@@ -569,6 +593,45 @@ pub async fn update_server(
         )
         .await
         .map_err(|_| AppError::DatabaseUnavailable)?;
+
+    if livekit_host_present || livekit_api_key_present || livekit_api_secret_present {
+        if !livekit_host_present || !livekit_api_key_present {
+            return Err(AppError::BadRequest);
+        }
+
+        let next_host = req.livekit_host.as_ref().and_then(|value| value.as_deref());
+        let next_api_key = req.livekit_api_key.as_ref().and_then(|value| value.as_deref());
+
+        if next_host.is_none() && next_api_key.is_none() {
+            state
+                .db
+                .set_server_livekit_override(server_id, None, None, None)
+                .await
+                .map_err(|_| AppError::DatabaseUnavailable)?;
+        } else {
+            let existing_override = state
+                .db
+                .get_server_livekit_override(server_id)
+                .await
+                .map_err(|_| AppError::DatabaseUnavailable)?;
+
+            let preserved_secret = existing_override.as_ref().map(|value| value.api_secret.as_str());
+            let next_api_secret = match req.livekit_api_secret.as_ref() {
+                Some(value) => value.as_deref(),
+                None => preserved_secret,
+            };
+
+            if next_host.is_none() || next_api_key.is_none() || next_api_secret.is_none() {
+                return Err(AppError::BadRequest);
+            }
+
+            state
+                .db
+                .set_server_livekit_override(server_id, next_host, next_api_key, next_api_secret)
+                .await
+                .map_err(|_| AppError::DatabaseUnavailable)?;
+        }
+    }
 
     let exists = state
         .db

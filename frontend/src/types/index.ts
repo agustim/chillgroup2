@@ -37,8 +37,15 @@ export interface Server {
   createdAt: string
 }
 
+export interface ServerLiveKitConfig {
+  host: string
+  apiKey: string
+  isOverride: boolean
+}
+
 export interface ServerFullInfo extends Server {
   members: ServerMember[]
+  livekitConfig?: ServerLiveKitConfig | null
 }
 
 export type ServerRole = 'owner' | 'admin' | 'member'

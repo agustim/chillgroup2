@@ -5,8 +5,15 @@ use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use crate::config::Config;
 use crate::models::{Channel, ChannelType, EncryptionType, Message};
-use shared::types::{ServerInfo, ServerFullInfo, ServerMember as SharedServerMember, ServerRole};
+use shared::types::{ServerInfo, ServerFullInfo, ServerLiveKitConfig, ServerMember as SharedServerMember, ServerRole};
 use tracing::{info, error};
+
+#[derive(Debug, Clone)]
+pub struct ServerLiveKitOverride {
+    pub host: String,
+    pub api_key: String,
+    pub api_secret: String,
+}
 
 /// Connexió a la base de dades amb comprovació de connectivitat.
 pub async fn connect_db(config: &Config) -> Result<DatabasePool, String> {
@@ -174,6 +181,9 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
             name TEXT NOT NULL,
             icon_url TEXT,
             owner_id TEXT NOT NULL,
+            livekit_host TEXT,
+            livekit_api_key TEXT,
+            livekit_api_secret TEXT,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (owner_id) REFERENCES users(id)
         )
@@ -371,6 +381,7 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
     migrate_sqlite_channel_members_permissions(pool).await?;
     migrate_sqlite_messages_add_key_version(pool).await?;
     migrate_sqlite_invitations_add_server_id(pool).await?;
+    migrate_sqlite_servers_add_livekit_override(pool).await?;
 
     for idx in [
         "CREATE INDEX IF NOT EXISTS idx_channels_scope ON channels(scope)",
@@ -383,6 +394,54 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
     }
 
     info!("✅ Taules creades/verificades correctament");
+    Ok(())
+}
+
+async fn migrate_sqlite_servers_add_livekit_override(pool: &sqlx::SqlitePool) -> Result<(), String> {
+    let table_info = sqlx::query("PRAGMA table_info(servers)")
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("Error llegint schema de servers a SQLite: {}", e))?;
+
+    if table_info.is_empty() {
+        return Ok(());
+    }
+
+    let mut has_livekit_host = false;
+    let mut has_livekit_api_key = false;
+    let mut has_livekit_api_secret = false;
+
+    for row in table_info {
+        let name: String = row.get(1);
+        match name.as_str() {
+            "livekit_host" => has_livekit_host = true,
+            "livekit_api_key" => has_livekit_api_key = true,
+            "livekit_api_secret" => has_livekit_api_secret = true,
+            _ => {}
+        }
+    }
+
+    if !has_livekit_host {
+        sqlx::query("ALTER TABLE servers ADD COLUMN livekit_host TEXT")
+            .execute(pool)
+            .await
+            .map_err(|e| format!("Error afegint livekit_host a servers SQLite: {}", e))?;
+    }
+
+    if !has_livekit_api_key {
+        sqlx::query("ALTER TABLE servers ADD COLUMN livekit_api_key TEXT")
+            .execute(pool)
+            .await
+            .map_err(|e| format!("Error afegint livekit_api_key a servers SQLite: {}", e))?;
+    }
+
+    if !has_livekit_api_secret {
+        sqlx::query("ALTER TABLE servers ADD COLUMN livekit_api_secret TEXT")
+            .execute(pool)
+            .await
+            .map_err(|e| format!("Error afegint livekit_api_secret a servers SQLite: {}", e))?;
+    }
+
     Ok(())
 }
 
@@ -2110,20 +2169,20 @@ impl DatabasePool {
         Ok(servers)
     }
 
-    pub async fn list_all_servers_admin(&self) -> Result<Vec<(Uuid, String, Option<String>, Uuid, u32, String)>, sqlx::Error> {
-        let query = "SELECT s.id, s.name, s.icon_url, s.owner_id, COUNT(sm.user_id) as member_count, s.created_at
+    pub async fn list_all_servers_admin(&self) -> Result<Vec<(Uuid, String, Option<String>, Uuid, u32, Option<String>, Option<String>, String)>, sqlx::Error> {
+        let query = "SELECT s.id, s.name, s.icon_url, s.owner_id, COUNT(sm.user_id) as member_count, s.livekit_host, s.livekit_api_key, s.created_at
             FROM servers s
             LEFT JOIN server_members sm ON sm.server_id = s.id
-            GROUP BY s.id, s.name, s.icon_url, s.owner_id, s.created_at
+            GROUP BY s.id, s.name, s.icon_url, s.owner_id, s.livekit_host, s.livekit_api_key, s.created_at
             ORDER BY s.created_at DESC";
 
         let mut servers = Vec::new();
         match self {
             DatabasePool::Postgres(pool) => {
-                let query_pg = "SELECT s.id, s.name, s.icon_url, s.owner_id, COUNT(sm.user_id) as member_count, s.created_at::text
+                let query_pg = "SELECT s.id, s.name, s.icon_url, s.owner_id, COUNT(sm.user_id) as member_count, s.livekit_host, s.livekit_api_key, s.created_at::text
                     FROM servers s
                     LEFT JOIN server_members sm ON sm.server_id = s.id
-                    GROUP BY s.id, s.name, s.icon_url, s.owner_id, s.created_at
+                    GROUP BY s.id, s.name, s.icon_url, s.owner_id, s.livekit_host, s.livekit_api_key, s.created_at
                     ORDER BY s.created_at DESC";
                 let rows = sqlx::query(query_pg).fetch_all(pool).await?;
                 for row in rows {
@@ -2133,7 +2192,9 @@ impl DatabasePool {
                         row.get(2),
                         row.get(3),
                         row.get::<i64, _>(4) as u32,
-                        row.get::<String, _>(5),
+                        row.get(5),
+                        row.get(6),
+                        row.get::<String, _>(7),
                     ));
                 }
             }
@@ -2146,7 +2207,9 @@ impl DatabasePool {
                         row.get(2),
                         row.get(3),
                         row.get::<i64, _>(4) as u32,
-                        row.get::<String, _>(5),
+                        row.get(5),
+                        row.get(6),
+                        row.get::<String, _>(7),
                     ));
                 }
             }
@@ -2272,6 +2335,94 @@ impl DatabasePool {
         Ok(())
     }
 
+    pub async fn set_server_livekit_override(
+        &self,
+        server_id: Uuid,
+        host: Option<&str>,
+        api_key: Option<&str>,
+        api_secret: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "UPDATE servers SET livekit_host = $1, livekit_api_key = $2, livekit_api_secret = $3 WHERE id = $4",
+                )
+                .bind(host)
+                .bind(api_key)
+                .bind(api_secret)
+                .bind(server_id)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "UPDATE servers SET livekit_host = ?, livekit_api_key = ?, livekit_api_secret = ? WHERE id = ?",
+                )
+                .bind(host)
+                .bind(api_key)
+                .bind(api_secret)
+                .bind(server_id)
+                .execute(pool)
+                .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn get_server_livekit_override(
+        &self,
+        server_id: Uuid,
+    ) -> Result<Option<ServerLiveKitOverride>, sqlx::Error> {
+        let values = match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(
+                    "SELECT livekit_host, livekit_api_key, livekit_api_secret FROM servers WHERE id = $1",
+                )
+                .bind(server_id)
+                .fetch_optional(pool)
+                .await?;
+
+                row.map(|row| {
+                    (
+                        row.get::<Option<String>, _>(0),
+                        row.get::<Option<String>, _>(1),
+                        row.get::<Option<String>, _>(2),
+                    )
+                })
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query(
+                    "SELECT livekit_host, livekit_api_key, livekit_api_secret FROM servers WHERE id = ?",
+                )
+                .bind(server_id)
+                .fetch_optional(pool)
+                .await?;
+
+                row.map(|row| {
+                    (
+                        row.get::<Option<String>, _>(0),
+                        row.get::<Option<String>, _>(1),
+                        row.get::<Option<String>, _>(2),
+                    )
+                })
+            }
+        };
+
+        let Some((host, api_key, api_secret)) = values else {
+            return Ok(None);
+        };
+
+        Ok(match (host, api_key, api_secret) {
+            (Some(host), Some(api_key), Some(api_secret)) => Some(ServerLiveKitOverride {
+                host,
+                api_key,
+                api_secret,
+            }),
+            _ => None,
+        })
+    }
+
     pub async fn delete_server(&self, server_id: Uuid) -> Result<bool, sqlx::Error> {
         match self {
             DatabasePool::Postgres(pool) => {
@@ -2342,7 +2493,7 @@ impl DatabasePool {
     pub async fn get_server_full_info(&self, server_id: Uuid, user_id: Uuid) -> Result<Option<ServerFullInfo>, sqlx::Error> {
         match self {
             DatabasePool::Postgres(pool) => {
-                let server_row = sqlx::query("SELECT id, name, icon_url, owner_id, created_at::text FROM servers WHERE id = $1")
+                let server_row = sqlx::query("SELECT id, name, icon_url, owner_id, livekit_host, livekit_api_key, created_at::text FROM servers WHERE id = $1")
                     .bind(server_id)
                     .fetch_optional(pool)
                     .await?;
@@ -2383,11 +2534,22 @@ impl DatabasePool {
                     owner_id: server_row.get(3),
                     my_role,
                     members,
-                    created_at: server_row.get::<String, _>(4),
+                    livekit_config: match (
+                        server_row.get::<Option<String>, _>(4),
+                        server_row.get::<Option<String>, _>(5),
+                    ) {
+                        (Some(host), Some(api_key)) => Some(ServerLiveKitConfig {
+                            host,
+                            api_key,
+                            is_override: true,
+                        }),
+                        _ => None,
+                    },
+                    created_at: server_row.get::<String, _>(6),
                 }))
             }
             DatabasePool::Sqlite(pool) => {
-                let server_row = sqlx::query("SELECT id, name, icon_url, owner_id, created_at FROM servers WHERE id = ?")
+                let server_row = sqlx::query("SELECT id, name, icon_url, owner_id, livekit_host, livekit_api_key, created_at FROM servers WHERE id = ?")
                     .bind(server_id)
                     .fetch_optional(pool)
                     .await?;
@@ -2428,7 +2590,18 @@ impl DatabasePool {
                     owner_id: server_row.get(3),
                     my_role,
                     members,
-                    created_at: server_row.get::<String, _>(4),
+                    livekit_config: match (
+                        server_row.get::<Option<String>, _>(4),
+                        server_row.get::<Option<String>, _>(5),
+                    ) {
+                        (Some(host), Some(api_key)) => Some(ServerLiveKitConfig {
+                            host,
+                            api_key,
+                            is_override: true,
+                        }),
+                        _ => None,
+                    },
+                    created_at: server_row.get::<String, _>(6),
                 }))
             }
         }

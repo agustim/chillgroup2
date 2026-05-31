@@ -109,6 +109,10 @@ export function AdminUsersPanel({
   const [editingServerId, setEditingServerId] = useState<string | null>(null)
   const [editingServerName, setEditingServerName] = useState('')
   const [editingServerIconUrl, setEditingServerIconUrl] = useState('')
+  const [editingServerUsesDefaultLiveKit, setEditingServerUsesDefaultLiveKit] = useState(true)
+  const [editingServerLiveKitHost, setEditingServerLiveKitHost] = useState('')
+  const [editingServerLiveKitApiKey, setEditingServerLiveKitApiKey] = useState('')
+  const [editingServerLiveKitApiSecret, setEditingServerLiveKitApiSecret] = useState('')
   const [savingServerId, setSavingServerId] = useState<string | null>(null)
   const [pendingDeleteServerId, setPendingDeleteServerId] = useState<string | null>(null)
   const [deletingServerId, setDeletingServerId] = useState<string | null>(null)
@@ -171,6 +175,10 @@ export function AdminUsersPanel({
     setEditingServerId(null)
     setEditingServerName('')
     setEditingServerIconUrl('')
+    setEditingServerUsesDefaultLiveKit(true)
+    setEditingServerLiveKitHost('')
+    setEditingServerLiveKitApiKey('')
+    setEditingServerLiveKitApiSecret('')
     setPendingDeleteServerId(null)
     setCreatingPlan(false)
     setNewPlan(DEFAULT_PLAN_INPUT)
@@ -405,10 +413,14 @@ export function AdminUsersPanel({
     }
   }
 
-  const handleStartEditServer = (server: AdminServerOption) => {
+  const handleStartEditServer = (server: AdminServerItem) => {
     setEditingServerId(server.serverId)
     setEditingServerName(server.name)
-    setEditingServerIconUrl('')
+    setEditingServerIconUrl(server.iconUrl ?? '')
+    setEditingServerUsesDefaultLiveKit(!server.livekitConfig?.isOverride)
+    setEditingServerLiveKitHost(server.livekitConfig?.host ?? '')
+    setEditingServerLiveKitApiKey(server.livekitConfig?.apiKey ?? '')
+    setEditingServerLiveKitApiSecret('')
     setPendingDeleteServerId(null)
   }
 
@@ -422,7 +434,27 @@ export function AdminUsersPanel({
     setSavingServerId(serverId)
     setError('')
     const iconUrl = editingServerIconUrl.trim() || null
-    const result = await adminServersUpdate(serverId, name, iconUrl)
+    let livekitHost: string | null | undefined
+    let livekitApiKey: string | null | undefined
+    let livekitApiSecret: string | null | undefined
+
+    if (editingServerUsesDefaultLiveKit) {
+      livekitHost = null
+      livekitApiKey = null
+      livekitApiSecret = null
+    } else {
+      livekitHost = editingServerLiveKitHost.trim()
+      livekitApiKey = editingServerLiveKitApiKey.trim()
+      livekitApiSecret = editingServerLiveKitApiSecret.trim() || undefined
+
+      if (!livekitHost || !livekitApiKey) {
+        setSavingServerId(null)
+        setError('Per usar un LiveKit específic cal indicar host i API key')
+        return
+      }
+    }
+
+    const result = await adminServersUpdate(serverId, name, iconUrl, livekitHost, livekitApiKey, livekitApiSecret)
     setSavingServerId(null)
 
     if (!result.success) {
@@ -434,6 +466,10 @@ export function AdminUsersPanel({
     setEditingServerId(null)
     setEditingServerName('')
     setEditingServerIconUrl('')
+    setEditingServerUsesDefaultLiveKit(true)
+    setEditingServerLiveKitHost('')
+    setEditingServerLiveKitApiKey('')
+    setEditingServerLiveKitApiSecret('')
     await loadAdminServers()
     if (onServerListRefresh) {
       await onServerListRefresh()
@@ -767,6 +803,9 @@ export function AdminUsersPanel({
                         <div className="admin-server-row-title">
                           <span className="admin-compact-name">{server.name}</span>
                           <span className="admin-server-row-meta">{server.serverId}</span>
+                          <span className="admin-server-row-meta">
+                            LiveKit: {server.livekitConfig?.isOverride ? server.livekitConfig.host : 'per defecte'}
+                          </span>
                         </div>
 
                         <div className="admin-server-row-actions">
@@ -820,6 +859,50 @@ export function AdminUsersPanel({
                               placeholder="Deixa buit per eliminar"
                             />
                           </div>
+                          <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                            <label style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                              <input
+                                type="checkbox"
+                                checked={editingServerUsesDefaultLiveKit}
+                                onChange={(e) => setEditingServerUsesDefaultLiveKit(e.target.checked)}
+                              />
+                              Usar LiveKit global per defecte
+                            </label>
+                          </div>
+                          {!editingServerUsesDefaultLiveKit && (
+                            <>
+                              <div className="form-group">
+                                <label htmlFor={`admin-server-livekit-host-${server.serverId}`}>LiveKit host</label>
+                                <input
+                                  id={`admin-server-livekit-host-${server.serverId}`}
+                                  type="text"
+                                  value={editingServerLiveKitHost}
+                                  onChange={(e) => setEditingServerLiveKitHost(e.target.value)}
+                                  placeholder="https://livekit.exemple.com"
+                                />
+                              </div>
+                              <div className="form-group">
+                                <label htmlFor={`admin-server-livekit-key-${server.serverId}`}>LiveKit API key</label>
+                                <input
+                                  id={`admin-server-livekit-key-${server.serverId}`}
+                                  type="text"
+                                  value={editingServerLiveKitApiKey}
+                                  onChange={(e) => setEditingServerLiveKitApiKey(e.target.value)}
+                                  placeholder="API key"
+                                />
+                              </div>
+                              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                                <label htmlFor={`admin-server-livekit-secret-${server.serverId}`}>LiveKit API secret</label>
+                                <input
+                                  id={`admin-server-livekit-secret-${server.serverId}`}
+                                  type="password"
+                                  value={editingServerLiveKitApiSecret}
+                                  onChange={(e) => setEditingServerLiveKitApiSecret(e.target.value)}
+                                  placeholder={server.livekitConfig?.isOverride ? 'Deixa buit per mantenir el secret actual' : 'API secret'}
+                                />
+                              </div>
+                            </>
+                          )}
                         </div>
                       )}
 
