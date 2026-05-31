@@ -1442,6 +1442,27 @@ impl DatabasePool {
         }
     }
 
+    pub async fn channel_name_exists_in_server(&self, server_id: Uuid, name: &str) -> Result<bool, sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query("SELECT EXISTS(SELECT 1 FROM channels WHERE server_id = $1 AND name = $2)")
+                    .bind(server_id)
+                    .bind(name)
+                    .fetch_one(pool)
+                    .await?;
+                Ok(row.get::<bool, _>(0))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query("SELECT EXISTS(SELECT 1 FROM channels WHERE server_id = ? AND name = ?)")
+                    .bind(server_id)
+                    .bind(name)
+                    .fetch_one(pool)
+                    .await?;
+                Ok(row.get::<bool, _>(0))
+            }
+        }
+    }
+
     pub async fn count_members_in_owned_servers(&self, user_id: Uuid) -> Result<i64, String> {
         match self {
             DatabasePool::Postgres(pool) => {

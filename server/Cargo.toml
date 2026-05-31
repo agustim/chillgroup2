@@ -43,7 +43,7 @@ axum-test.workspace = true
 tokio-test.workspace = true
 tempfile = "3.14"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-sqlx = { workspace = true, features = ["sqlite"] }
+sqlx = { workspace = true, features = ["sqlite", "postgres"] }
 axum = { workspace = true, features = ["ws", "macros"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

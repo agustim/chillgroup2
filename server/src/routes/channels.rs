@@ -32,6 +32,24 @@ use tracing::info;
 
 const AES_GCM_NONCE_SIZE: usize = 12;
 
+fn is_duplicate_channel_name_error(err: &sqlx::Error) -> bool {
+    match err {
+        sqlx::Error::Database(db_err) => {
+            let code = db_err.code().map(|c| c.to_string());
+            let constraint = db_err.constraint();
+            let message = db_err.message();
+
+            // PostgreSQL unique_violation = 23505. SQLite constraint unique = 2067.
+            code.as_deref() == Some("23505")
+                || code.as_deref() == Some("2067")
+                || constraint == Some("idx_channels_server_name")
+                || message.contains("idx_channels_server_name")
+                || message.contains("UNIQUE constraint failed: channels.server_id, channels.name")
+        }
+        _ => false,
+    }
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub struct GetChannelKeysQuery {
     #[serde(default)]
@@ -255,6 +273,15 @@ pub async fn create_channel(
         }
     }
 
+    let channel_name_exists = state
+        .db
+        .channel_name_exists_in_server(server_id, &req.name)
+        .await
+        .map_err(AppError::DatabaseError)?;
+    if channel_name_exists {
+        return Err(AppError::ChannelNameExists);
+    }
+
     let channel_id = Uuid::new_v4();
     let now = chrono::Utc::now();
 
@@ -269,15 +296,25 @@ pub async fn create_channel(
         EncryptionType::Asymmetric => "asymmetric",
     };
 
-    state.db.create_channel(
-        channel_id,
-        server_id,
-        &req.name,
-        channel_type_str,
-        encryption_str,
-        req.message_ttl,
-        req.is_private,
-    ).await.map_err(|e| AppError::DatabaseError(e))?;
+    state
+        .db
+        .create_channel(
+            channel_id,
+            server_id,
+            &req.name,
+            channel_type_str,
+            encryption_str,
+            req.message_ttl,
+            req.is_private,
+        )
+        .await
+        .map_err(|e| {
+            if is_duplicate_channel_name_error(&e) {
+                AppError::ChannelNameExists
+            } else {
+                AppError::DatabaseError(e)
+            }
+        })?;
 
     if req.is_private {
         state
@@ -1227,6 +1264,47 @@ mod tests {
         assert_eq!(status, StatusCode::CREATED);
         assert_eq!(channel.name, "general");
         assert_eq!(channel.server_id, server_id);
+    }
+
+    #[tokio::test]
+    async fn create_channel_returns_conflict_when_name_exists_in_same_server() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("chan_owner_dup", "hash", "user")
+            .await
+            .expect("owner creation should work");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "test-server-dup", None, owner_id)
+            .await
+            .expect("server should be created");
+
+        state
+            .db
+            .create_channel(Uuid::new_v4(), server_id, "general", "text", "none", None, false)
+            .await
+            .expect("seed channel should be created");
+
+        let result = create_channel(
+            State(state),
+            axum::Extension(claims_for(owner_id, "chan_owner_dup")),
+            Path(server_id),
+            Json(CreateChannelRequest {
+                name: "general".to_string(),
+                channel_type: ChannelType::Text,
+                encryption_type: EncryptionType::None,
+                message_ttl: None,
+                is_private: false,
+            }),
+        )
+        .await;
+
+        let err = result.expect_err("duplicate channel name should fail");
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
     }
 
     #[tokio::test]
