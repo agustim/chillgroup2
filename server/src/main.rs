@@ -29,7 +29,7 @@ use tower_http::cors::CorsLayer;
 #[cfg(not(feature = "embedded-assets"))]
 use tower_http::services::{ServeDir, ServeFile};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
-use tracing::info;
+use tracing::{info, warn};
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -354,7 +354,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     info!("🚀 Inicialitzant ChillGroup v2...");
 
-    info!("✅ Configuració carregada correctament (des de: {})", env_path.display());
+    if let Some(path) = env_path {
+        info!("✅ Configuració carregada correctament (des de: {})", path.display());
+    } else {
+        warn!("⚠️ No s'ha trobat cap fitxer .env, es carreguen les variables d'entorn del procés.");
+        info!("✅ Configuració carregada correctament (des de variables d'entorn)");
+    }
 
     // Connectar base de dades amb comprovació
     let db_pool = db::connect_db(&config)

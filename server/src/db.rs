@@ -46,6 +46,11 @@ async fn connect_postgres(config: &Config) -> Result<DatabasePool, String> {
         .await
     {
         Ok(_) => {
+            sqlx::migrate!("./migrations")
+                .run(&pool)
+                .await
+                .map_err(|e| format!("Error aplicant migrations PostgreSQL: {}", e))?;
+            info!("✅ Migrations PostgreSQL aplicades correctament");
             info!("✅ PostgreSQL connectat correctament");
             Ok(DatabasePool::Postgres(pool))
         }

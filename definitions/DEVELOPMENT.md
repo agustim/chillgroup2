@@ -51,7 +51,7 @@ chillgroup/
 │       ├── hooks/
 │       ├── lib/
 │       └── pages/
-└── docker-compose.yml      # PostgreSQL + LiveKit + Server
+└── docker-compose.yml      # PostgreSQL + LiveKit + Dockerfile
 ```
 
 ## Actualitzacions Operatives (Maig 2026)
@@ -755,43 +755,22 @@ test('can send encrypted message in asymmetric channel', async ({ page }) => {
 
 ## Docker Compose
 
-```yaml
-# docker-compose.yml
-services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: chillgroup
-      POSTGRES_USER: chillgroup
-      POSTGRES_PASSWORD: chillgroup
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+El `docker-compose.yml` de l'arrel aixeca tres serveis:
 
-  livekit:
-    image: livekit/livekit-server:latest
-    ports:
-      - "7880:7880"
-      - "7881:7881"
-      - "10000-20000/udp:10000-20000/udp"
-    command: >
-      --bind 0.0.0.0
-      --room {
-        "enabled": true,
-        "names": ["chill-*"]
-      }
-      --keys
-        {
-          "chillgroup-key": "chillgroup-secret"
-        }
-    environment:
-      LIVEKIT_KEYS: chillgroup-key=chillgroup-secret
-    volumes:
-      - ./livekit.yaml:/livekit-server.yaml
+- `postgres`: PostgreSQL 16 amb el volum `pgdata`
+- `livekit`: LiveKit en mode `--dev`
+- `app`: backend Rust compilat des de `Dockerfile` amb `build.sh --mode embedded`
 
-volumes:
-  pgdata:
+Arrencada recomanada:
+
+```bash
+docker compose up --build
+```
+
+Si encara no tens un `.env` local d'exemple:
+
+```bash
+cd server && cargo run -- --generate-env-example ../.env && cd ..
 ```
 
 ## Com Executar
@@ -799,21 +778,11 @@ volumes:
 ### Desenvolupament
 
 ```bash
-# 1. Base de dades
-docker compose up -d postgres livekit
+# 1. Generar un .env d'exemple si encara no el tens
+cd server && cargo run -- --generate-env-example ../.env && cd ..
 
-# 2. Executar migracions
-cd server && sqlx migrate run && cd ..
-
-# 3. Servidor Rust
-cd server
-cargo run
-# → Servidor escoltant a 0.0.0.0:8080
-
-# 4. Frontend (altre terminal)
-cd frontend
-npm run dev
-# → Frontend a localhost:5173
+# 2. Arrencar PostgreSQL, LiveKit i el backend compilat amb build.sh
+docker compose up --build
 ```
 
 ### Producció

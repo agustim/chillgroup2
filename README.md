@@ -43,6 +43,7 @@ QuantumTeam/
 
 - **Rust**: `rustup install stable`
 - **Node.js 20+**: `nvm install 20`
+- **Docker i Docker Compose**: per arrencar tota la pila amb una sola comanda
 - **PostgreSQL 16+** (opcional): `sudo apt install postgresql`
 - **SQLite** (per defecte): `sudo apt install sqlite3`
 
@@ -71,7 +72,20 @@ JWT_SECRET=el-teu-secret-aqui-canvia-m aixxo
 JWT_EXPIRATION_DAYS=7
 ```
 
-### 3. Arrancar el backend
+### 3. Arrencada amb Docker
+
+Si vols arrencar la pila completa amb la imatge construïda a partir de `build.sh`:
+
+```bash
+cd server
+cargo run -- --generate-env-example ../.env
+cd ..
+docker compose up --build
+```
+
+Això aixeca PostgreSQL, LiveKit i el backend Rust amb el frontend integrat.
+
+### 4. Arrancar el backend manualment
 
 ```bash
 cd server
@@ -102,7 +116,7 @@ Per sobreescriure, cal `-f` o `--force`.
 
 El servidor escoltarà a `http://localhost:8080`.
 
-### 4. Arrancar el frontend
+### 5. Arrancar el frontend
 
 ```bash
 cd frontend

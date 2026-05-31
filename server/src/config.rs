@@ -86,8 +86,8 @@ fn normalize_sqlite_url(value: &str) -> String {
 
 impl Config {
     /// Carregar configuració des de variables d'entorn i .env.
-    /// Retorna el Config i la ruta del fitxer .env carregat.
-    pub fn from_env(config_location: Option<&str>) -> Result<(Self, PathBuf), String> {
+    /// Retorna el Config i la ruta del fitxer .env carregat (si s'ha trobat).
+    pub fn from_env(config_location: Option<&str>) -> Result<(Self, Option<PathBuf>), String> {
         let env_path = match config_location {
             Some(location) => {
                 let path = PathBuf::from(location);
@@ -102,14 +102,12 @@ impl Config {
                 .join(".env"),
         };
 
-        if env_path.exists() {
+        let loaded_env_path = if env_path.exists() {
             dotenvy::from_path(&env_path).map_err(|e| format!("Error carregant .env: {}", e))?;
+            Some(env_path)
         } else {
-            return Err(format!(
-                "No s'ha trobat el fitxer .env a: {}",
-                env_path.display()
-            ));
-        }
+            None
+        };
 
         fn get_var(key: &str) -> Result<String, String> {
             env::var(key).map_err(|_| format!("La variable d'entorn {} és obligatòria", key))
@@ -165,7 +163,7 @@ impl Config {
                 .unwrap_or(7),
             server_master_key: decode_hex_key_32(&get_var("SERVER_MASTER_KEY")?)?,
             static_dir: env::var("STATIC_DIR").ok().filter(|s| !s.trim().is_empty()),
-        }, env_path))
+        }, loaded_env_path))
     }
 
     /// Comprovar si és SQLite.

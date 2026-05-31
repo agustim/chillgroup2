@@ -10,35 +10,53 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U chillgroup"]
+      test: ["CMD-SHELL", "pg_isready -U chillgroup -d chillgroup"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
   livekit:
     image: livekit/livekit-server:latest
-    ports:
-      - "7880:7880"
-      - "7881:7881"
-    expose:
+    command:
+      - --bind
+      - 0.0.0.0
+      - --port
       - "7880"
-      - "7881"
-      - "7882"
-    environment:
-      LIVEKIT_KEYS: chillgroup-key=chillgroup-secret
-      LIVEKIT_CONFIG: ""
-    command: >
-      --port 7880
-      --bind 0.0.0.0
-      --room {
-        "enabled": true,
-        "names": ["chill-*"]
-      }
+      - --dev
+    # Linux only: avoids spawning docker-proxy processes for each published UDP port.
+    network_mode: host
     healthcheck:
-      test: ["CMD", "wget", "--spider", "http://localhost:7880/health"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:7880/"]
       interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    environment:
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 8080
+      BACKEND_DEBUG: info
+      DATABASE_URL: postgres://chillgroup:chillgroup@postgres:5432/chillgroup?sslmode=disable
+      LIVEKIT_HOST: http://host.docker.internal:7880
+      LIVEKIT_API_KEY: devkey
+      LIVEKIT_API_SECRET: secret
+      JWT_SECRET: change-me-in-production
+      SERVER_MASTER_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      OPEN_REGISTER: true
+      TTL_CLEANUP_INTERVAL_MINUTES: 5
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      livekit:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
 
 volumes:
   pgdata:

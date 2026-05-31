@@ -1,0 +1,13 @@
+target
+**/target
+**/node_modules
+frontend/dist
+docs-site/node_modules
+docs-site/docs/.vitepress/dist
+playwright-report
+test-results
+frontend/playwright-report
+frontend/test-results
+.git
+.env
+.env.*
