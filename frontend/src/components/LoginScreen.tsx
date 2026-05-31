@@ -1,6 +1,7 @@
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { Button } from './shared/Button'
+import { importFullBackup } from '../lib/device-keys'
 
 export function LoginScreen() {
   const { login, register, registerWithInvitation, isLoading, error } = useAuth()
@@ -13,6 +14,9 @@ export function LoginScreen() {
   const [isOpenRegister, setIsOpenRegister] = useState(initialOpenRegister)
   const [invitationCode, setInvitationCode] = useState('')
   const [validationError, setValidationError] = useState('')
+  const [backupStatus, setBackupStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [isImportingBackup, setIsImportingBackup] = useState(false)
+  const backupFileRef = useRef<HTMLInputElement>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -74,6 +78,30 @@ export function LoginScreen() {
     setPassword('')
     setConfirmPassword('')
     setInvitationCode('')
+  }
+
+  const handleBackupFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setIsImportingBackup(true)
+    setBackupStatus(null)
+    try {
+      const text = await file.text()
+      const result = await importFullBackup(text)
+      setBackupStatus({
+        type: 'success',
+        message: `Backup restaurat: ${result.devices} dispositiu(s), ${result.symmetricChannels + result.asymmetricChannels} clau(s) de canal`,
+      })
+    } catch (err) {
+      setBackupStatus({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'No s\'ha pogut importar el backup',
+      })
+    } finally {
+      setIsImportingBackup(false)
+      if (backupFileRef.current) backupFileRef.current.value = ''
+    }
   }
 
   const displayError = error || validationError
@@ -178,6 +206,31 @@ export function LoginScreen() {
               ? 'No tens compte? Registrar-se'
               : 'Ja tens compte? Entrar'}
           </button>
+        </div>
+
+        <div className="login-backup-section">
+          <p className="login-backup-label">Tens un backup de claus?</p>
+          {backupStatus && (
+            <div className={backupStatus.type === 'success' ? 'modal-success' : 'modal-error'} style={{ marginBottom: '8px' }}>
+              {backupStatus.message}
+            </div>
+          )}
+          <input
+            ref={backupFileRef}
+            type="file"
+            accept=".json,application/json"
+            style={{ display: 'none' }}
+            onChange={(e) => void handleBackupFileChange(e)}
+            disabled={isImportingBackup || isLoading}
+          />
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => backupFileRef.current?.click()}
+            disabled={isImportingBackup || isLoading}
+          >
+            {isImportingBackup ? 'Important...' : 'Restaurar backup (.json)'}
+          </Button>
         </div>
       </div>
     </div>

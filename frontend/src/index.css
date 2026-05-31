@@ -139,6 +139,19 @@ body {
   text-decoration: underline;
 }
 
+.login-backup-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--bg-active);
+  text-align: center;
+}
+
+.login-backup-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
 /* App Logged In */
 .app-logged-in {
   display: flex;

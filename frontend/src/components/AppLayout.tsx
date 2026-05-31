@@ -13,6 +13,7 @@ import { PermissionsPanel } from './modals/PermissionsModal'
 import { ChangePasswordPanel } from './modals/ChangePasswordModal'
 import { FriendsPanel } from './modals/FriendsModal'
 import { AdminUsersPanel } from './main/AdminUsersPanel'
+import { LogoutBackupModal } from './modals/LogoutBackupModal'
 import { useLiveKit } from '../hooks/useLiveKit'
 import { Channel, FriendPresence, Server, ServerFullInfo, VoiceParticipant } from '../types'
 import { disconnectSocket, getSocket } from '../lib/socket'
@@ -1200,7 +1201,14 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     return result.success ? result.data : []
   }
 
+  const [showLogoutModal, setShowLogoutModal] = useState(false)
+
   const handleLogout = () => {
+    setShowLogoutModal(true)
+  }
+
+  const handleLogoutConfirm = () => {
+    setShowLogoutModal(false)
     disconnectLiveKit()
     disconnectSocket()
     logout()
@@ -2102,6 +2110,14 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
             onInvite={handleInviteServerSubmit}
             inviteType="server"
             targetName={selectedServerInfo?.name ?? selectedServer}
+          />
+        )}
+
+        {showLogoutModal && (
+          <LogoutBackupModal
+            username={username}
+            onConfirm={handleLogoutConfirm}
+            onCancel={() => setShowLogoutModal(false)}
           />
         )}
 

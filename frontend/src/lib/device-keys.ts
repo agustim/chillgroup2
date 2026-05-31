@@ -371,3 +371,114 @@ export async function getChannelKeyPreview(channelId: string): Promise<string | 
   const encoded = uint8ArrayToBase64(key)
   return `${encoded.slice(0, 10)}...${encoded.slice(-8)}`
 }
+
+// ── Full Backup ───────────────────────────────────────────────
+
+export interface FullBackupBundle {
+  version: 1
+  exportedAt: number
+  deviceKeypairs: DeviceKeypairBundle[]
+  symmetricChannels: SymmetricChannelsBundle['channels']
+  asymmetricChannels: AsymmetricChannelsBundle['channels']
+}
+
+/**
+ * Exporta totes les claus locals (keypairs de dispositiu + claus de canal) en un únic JSON.
+ */
+export async function exportFullBackup(): Promise<string> {
+  const keypairItems = await listDeviceKeypairs()
+  const deviceKeypairs: DeviceKeypairBundle[] = []
+
+  for (const item of keypairItems) {
+    try {
+      const json = await exportDeviceKeypair(item.deviceId)
+      deviceKeypairs.push(JSON.parse(json) as DeviceKeypairBundle)
+    } catch {
+      // ignorar keypairs que no es poden exportar
+    }
+  }
+
+  const allChannelKeys = await getAllChannelKeys()
+
+  const symmetricChannels = allChannelKeys
+    .filter((entry) => entry.type === 'symmetric')
+    .map((entry) => ({
+      channelId: entry.channelId,
+      keyVersion: entry.keyVersion,
+      key: uint8ArrayToBase64(entry.keyBytes),
+      acquiredAt: entry.acquiredAt,
+    }))
+
+  const asymmetricChannels = allChannelKeys
+    .filter((entry) => entry.type === 'asymmetric')
+    .map((entry) => ({
+      channelId: entry.channelId,
+      keyVersion: entry.keyVersion,
+      keyVersionId: entry.keyVersionId ?? null,
+      key: uint8ArrayToBase64(entry.keyBytes),
+      acquiredAt: entry.acquiredAt,
+    }))
+
+  const bundle: FullBackupBundle = {
+    version: 1,
+    exportedAt: Date.now(),
+    deviceKeypairs,
+    symmetricChannels,
+    asymmetricChannels,
+  }
+
+  return JSON.stringify(bundle, null, 2)
+}
+
+/**
+ * Importa un backup complet generat per exportFullBackup.
+ * Retorna el nombre d'elements importats de cada categoria.
+ */
+export async function importFullBackup(bundleText: string): Promise<{
+  devices: number
+  symmetricChannels: number
+  asymmetricChannels: number
+}> {
+  let parsed: FullBackupBundle
+  try {
+    parsed = JSON.parse(bundleText) as FullBackupBundle
+  } catch {
+    throw new Error('Format JSON invàlid per importar el backup')
+  }
+
+  if (parsed.version !== 1 || !Array.isArray(parsed.deviceKeypairs)) {
+    throw new Error('El fitxer de backup no és compatible (versió incorrecta)')
+  }
+
+  let devices = 0
+  for (const kp of parsed.deviceKeypairs) {
+    try {
+      await importAndStoreDeviceKeypair(JSON.stringify(kp), true)
+      devices++
+    } catch {
+      // ignorar keypairs invàlids
+    }
+  }
+
+  let symmetricChannels = 0
+  if (Array.isArray(parsed.symmetricChannels)) {
+    const symBundle: SymmetricChannelsBundle = {
+      version: 1,
+      exportedAt: parsed.exportedAt,
+      channels: parsed.symmetricChannels,
+    }
+    symmetricChannels = await importSymmetricChannelKeys(JSON.stringify(symBundle))
+  }
+
+  let asymmetricChannels = 0
+  if (Array.isArray(parsed.asymmetricChannels)) {
+    const asymBundle: AsymmetricChannelsBundle = {
+      version: 1,
+      exportedAt: parsed.exportedAt,
+      channels: parsed.asymmetricChannels,
+    }
+    asymmetricChannels = await importAsymmetricChannelKeys(JSON.stringify(asymBundle))
+  }
+
+  return { devices, symmetricChannels, asymmetricChannels }
+}
