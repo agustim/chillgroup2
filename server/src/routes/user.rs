@@ -16,8 +16,10 @@ use ml_kem::ml_kem_1024;
 use serde::Deserialize;
 use tracing::info;
 use uuid::Uuid;
+use shared::constants::{MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH};
 
 use crate::{
+    crypto::hash,
     middleware::{AppState, AuthClaims},
     error::AppError,
 };
@@ -35,6 +37,12 @@ pub struct UserSearchResult {
     pub username: String,
     pub is_friend: bool,
     pub status: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChangePasswordRequest {
+    pub old_password: String,
+    pub new_password: String,
 }
 
 /// Obtenir informació de l'usuari autenticat
@@ -416,6 +424,65 @@ pub async fn revoke_my_device(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[axum::debug_handler]
+pub async fn change_my_password(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Json(req): Json<ChangePasswordRequest>,
+) -> Result<StatusCode, AppError> {
+    let old_password = req.old_password.trim();
+    let new_password = req.new_password.trim();
+
+    if old_password.is_empty() || new_password.is_empty() {
+        return Err(AppError::BadRequest);
+    }
+
+    if new_password.len() < MIN_PASSWORD_LENGTH || new_password.len() > MAX_PASSWORD_LENGTH {
+        return Err(AppError::BadRequest);
+    }
+
+    if old_password == new_password {
+        return Err(AppError::BadRequest);
+    }
+
+    let user = state
+        .db
+        .find_user_by_username(&claims.username)
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+
+    let Some((user_id, _, current_password_hash)) = user else {
+        return Err(AppError::UserNotFound);
+    };
+
+    if user_id != claims.user_id {
+        return Err(AppError::Forbidden);
+    }
+
+    let old_password_valid = hash::verify_password(old_password, &current_password_hash)
+        .map_err(|_| AppError::InternalError)?;
+
+    if !old_password_valid {
+        return Err(AppError::UnauthorizedCredentials);
+    }
+
+    let new_password_hash = hash::hash_password(new_password).map_err(|_| AppError::InternalError)?;
+
+    let updated = state
+        .db
+        .update_user_password_hash_by_id(claims.user_id, &new_password_hash)
+        .await
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+
+    if !updated {
+        return Err(AppError::UserNotFound);
+    }
+
+    info!("✅ Password actualitzada per user_id={}", claims.user_id);
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Router per a rutes d'usuari
 pub fn router(state: AppState) -> Router {
     Router::new()
@@ -424,6 +491,7 @@ pub fn router(state: AppState) -> Router {
     .route("/api/users/search", axum::routing::get(search_users))
         .route("/api/user/me/devices", axum::routing::get(list_my_devices))
         .route("/api/user/me/devices/{device_id}", axum::routing::delete(revoke_my_device))
+        .route("/api/user/me/password", axum::routing::put(change_my_password))
         .route("/api/user/me/device/publickey", axum::routing::put(update_device_public_key))
         .with_state(state)
 }

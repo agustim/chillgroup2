@@ -1912,6 +1912,29 @@ impl DatabasePool {
         }
     }
 
+    pub async fn update_user_password_hash_by_id(&self, user_id: Uuid, password_hash: &str) -> Result<bool, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let result = sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
+                    .bind(password_hash)
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error PostgreSQL: {}", e))?;
+                Ok(result.rows_affected() > 0)
+            }
+            DatabasePool::Sqlite(pool) => {
+                let result = sqlx::query("UPDATE users SET password_hash = ? WHERE id = ?")
+                    .bind(password_hash)
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error SQLite: {}", e))?;
+                Ok(result.rows_affected() > 0)
+            }
+        }
+    }
+
     pub async fn delete_user_by_id(&self, user_id: Uuid) -> Result<bool, String> {
         match self {
             DatabasePool::Postgres(pool) => {

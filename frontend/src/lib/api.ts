@@ -520,6 +520,15 @@ export async function authMe() {
   return apiRequest<UserInfo>('GET', '/api/user/me')
 }
 
+export async function userChangePassword(oldPassword: string, newPassword: string): Promise<ApiResult<void>> {
+  const result = await apiRequest<void>('PUT', '/api/user/me/password', {
+    old_password: oldPassword,
+    new_password: newPassword,
+  })
+  if (!result.success) return result
+  return { success: true, data: undefined }
+}
+
 export async function userDevicesList(): Promise<ApiResult<DeviceInfo[]>> {
   const result = await apiRequest<any[]>('GET', '/api/user/me/devices')
   if (!result.success) return result
