@@ -313,7 +313,7 @@ pub async fn register_with_invitation(
     State(state): State<AppState>,
     Json(req): Json<RegisterWithInvitationRequest>,
 ) -> Result<(StatusCode, Json<AuthResponse>), AppError> {
-    let admin_invitation_hash = parse_admin_invitation_hash(req.admin_invitation_code.as_deref());
+    let explicit_admin_invitation_hash = parse_admin_invitation_hash(req.admin_invitation_code.as_deref());
 
     if req.username.len() < MIN_USERNAME_LENGTH || req.username.len() > MAX_USERNAME_LENGTH {
         return Err(AppError::UsernameExists);
@@ -331,17 +331,29 @@ pub async fn register_with_invitation(
         .await
         .map_err(|_| AppError::DatabaseUnavailable)?;
 
-    let Some((invitation_id, invitation_server_id, max_uses, uses_count, is_active)) = invitation else {
-        return Err(AppError::InvitationInvalid);
+    let (invitation_id, invitation_server_id, admin_invitation_hash) = match invitation {
+        Some((invitation_id, invitation_server_id, max_uses, uses_count, is_active)) => {
+            if !is_active {
+                return Err(AppError::InvitationInvalid);
+            }
+
+            if max_uses != -1 && uses_count >= max_uses {
+                return Err(AppError::InvitationExhausted);
+            }
+
+            (Some(invitation_id), invitation_server_id, explicit_admin_invitation_hash)
+        }
+        None => {
+            let fallback_admin_invitation_hash = explicit_admin_invitation_hash
+                .or_else(|| parse_admin_invitation_hash(Some(req.code.as_str())));
+
+            let Some(admin_invitation_hash) = fallback_admin_invitation_hash else {
+                return Err(AppError::InvitationInvalid);
+            };
+
+            (None, None, Some(admin_invitation_hash))
+        }
     };
-
-    if !is_active {
-        return Err(AppError::InvitationInvalid);
-    }
-
-    if max_uses != -1 && uses_count >= max_uses {
-        return Err(AppError::InvitationExhausted);
-    }
 
     let exists = state
         .db
@@ -438,11 +450,13 @@ pub async fn register_with_invitation(
         .await
         .map_err(|_| AppError::InternalError)?;
 
-    state
-        .db
-        .increment_invitation_uses(invitation_id)
-        .await
-        .map_err(|_| AppError::InternalError)?;
+    if let Some(invitation_id) = invitation_id {
+        state
+            .db
+            .increment_invitation_uses(invitation_id)
+            .await
+            .map_err(|_| AppError::InternalError)?;
+    }
 
     let claims = generate_claims(user_id, &req.username, device_id, is_admin, &state.config);
     let token = generate_token(&claims, &state.config).map_err(|_| AppError::InternalError)?;
@@ -897,5 +911,31 @@ mod tests {
             .await
             .expect("query user");
         assert!(!exists);
+    }
+
+    #[tokio::test]
+    async fn register_with_invitation_accepts_one_admin_invitation_in_code_field() {
+        let state = make_state(false).await;
+        let invitation_hash = crate::crypto::hash::hash_admin_invitation_code("CODI-UNIC-ADMIN");
+        state
+            .db
+            .sync_one_admin_invitation_hash(&invitation_hash)
+            .await
+            .expect("seed one admin invitation");
+
+        let server = TestServer::new(router(state)).expect("router should build");
+        let response = server
+            .post("/api/auth/register-with-invitation")
+            .json(&serde_json::json!({
+                "code": "CODI-UNIC-ADMIN",
+                "username": "agus",
+                "password": "12345678"
+            }))
+            .await;
+
+        assert_eq!(response.status_code(), 201);
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["username"], "agus");
+        assert_eq!(body["is_admin"], true);
     }
 }

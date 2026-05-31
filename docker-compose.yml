@@ -47,7 +47,7 @@ services:
       JWT_SECRET: change-me-in-production
       SERVER_MASTER_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       OPEN_REGISTER: true
-      # ONE_ADMIN_INVITATION: CODI-UNIC-ADMIN
+      ONE_ADMIN_INVITATION: CODI-UNIC-ADMIN
       TTL_CLEANUP_INTERVAL_MINUTES: 5
     extra_hosts:
       - "host.docker.internal:host-gateway"
