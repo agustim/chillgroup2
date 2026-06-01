@@ -40,6 +40,13 @@ Crear una eina de xat moderna, quantum-resistent, amb tres nivells de seguretat 
 
 ### Infraestructura
 - **LiveKit**: Instància externa per àudio/vídeo (E2EE amb session keys)
+- **Object storage**: servidor S3-compatible (RustFS en desenvolupament local)
+   - API S3 local: `http://localhost:9000`
+   - Consola RustFS local: `http://localhost:9001`
+   - Bucket per defecte: `chillgroup-attachments`
+   - Modes de transferència:
+      - directe (`SERVER_PROXY_S3=false`): navegador <-> RustFS amb URL signades
+      - proxy (`SERVER_PROXY_S3=true`): navegador <-> backend <-> RustFS
 - **Desplegament**: Docker Compose (dev), Kubernetes o Docker Swarm (prod)
 - **Cache**: Redis opcional per sessions actives / preences
 

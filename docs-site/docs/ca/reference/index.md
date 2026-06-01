@@ -4,7 +4,7 @@
 
 ChillGroup és una plataforma de comunicació en temps real (text, àudio i vídeo) amb tres nivells de seguretat criptogràfica: sense xifratge, clau simètrica, i clau asimètrica E2EE (quantum-resistant amb Kyber-1024).
 
-**Stack**: Rust (server) + TypeScript (frontend) + LiveKit (àudio/vídeo) + SQLx (BD).
+**Stack**: Rust (server) + TypeScript (frontend) + LiveKit (àudio/vídeo) + RustFS/S3-compatible (object storage) + SQLx (BD).
 
 Aquesta carpeta conté **tota la especificació tècnica** necessària per construir el projecte des de zero, incloent-hi un agent LLM.
 
@@ -86,6 +86,8 @@ Les actualitzacions recents de build i configuració (modes `external/embedded`,
 
 Les regles de variables d'entorn del frontend (build-time vs runtime) estan documentades a `FRONTEND.md`.
 
+La configuració del servidor S3-compatible (RustFS en local) i CORS per adjunts està documentada a `DEVELOPMENT.md` i els endpoints a `API.md`.
+
 ### Arrencada recomanada
 
 1. Genera un `.env` d'exemple si encara no el tens:
@@ -102,7 +104,7 @@ cd ..
 docker compose up --build
 ```
 
-L'API quedarà a `http://localhost:8080`, Postgres a `localhost:5432` i LiveKit a `localhost:7880`.
+L'API quedarà a `http://localhost:8080`, Postgres a `localhost:5432`, LiveKit a `localhost:7880` i RustFS a `http://localhost:9000` (consola `http://localhost:9001`).
 
 ## Accions Ràpides
 
