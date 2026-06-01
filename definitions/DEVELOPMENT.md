@@ -763,7 +763,17 @@ El `docker-compose.yml` de l'arrel aixeca cinc serveis:
 - `rustfs-init`: servei one-shot que crea el bucket `chillgroup-attachments`
 - `app`: backend Rust compilat des de `Dockerfile` amb `build.sh --mode embedded`
 
-Les variables dels serveis Docker es carreguen des de `.env.compose`.
+Les variables dels serveis Docker es carreguen en aquest ordre:
+
+1. `.env.compose` (base compartida)
+2. `.env.compose.local` (override local per cada desenvolupador)
+
+Quan una variable existeix als dos fitxers, preval el valor de `.env.compose.local`.
+
+Bones pràctiques d'equip:
+
+- Versionar `.env.compose.example` com a plantilla de referència
+- Ignorar `.env.compose.local` al repositori
 
 Ports per defecte del S3 local:
 

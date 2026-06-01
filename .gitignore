@@ -1,4 +1,5 @@
 .env
+.env.compose.local
 .specify
 QWEN.md
 .qwen
