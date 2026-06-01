@@ -40,6 +40,7 @@ export default defineConfig({
             { text: 'Inici', link: '/ca/' },
             { text: 'Guia inicial', link: '/ca/guia-inicial' },
             { text: 'Deploy amb Docker', link: '/ca/deploy-docker' },
+            { text: 'Com contribuir', link: '/ca/contribuir' },
             { text: 'Referencia tecnica', link: '/ca/reference/' }
           ]
         },
@@ -67,7 +68,29 @@ export default defineConfig({
             { text: 'Home', link: '/en/' },
             { text: 'Getting started', link: '/en/getting-started' },
             { text: 'Docker deployment', link: '/en/docker-deployment' },
-            { text: 'Reference map', link: '/en/reference/' }
+            { text: 'Contributing', link: '/en/contributing' },
+            { text: 'Reference', link: '/en/reference/' }
+          ]
+        },
+        {
+          text: 'Reference (English)',
+          items: [
+            { text: 'Overview', link: '/en/reference/OVERVIEW' },
+            { text: 'Cryptography', link: '/en/reference/CRYPTOGRAPHY' },
+            { text: 'Development', link: '/en/reference/DEVELOPMENT' }
+          ]
+        },
+        {
+          text: 'Reference (Catalan)',
+          items: [
+            { text: 'Architecture', link: '/ca/reference/ARCHITECTURE' },
+            { text: 'Database', link: '/ca/reference/DATABASE' },
+            { text: 'Frontend', link: '/ca/reference/FRONTEND' },
+            { text: 'Testing', link: '/ca/reference/TESTING' },
+            { text: 'API', link: '/ca/reference/API' },
+            { text: 'DM', link: '/ca/reference/DM' },
+            { text: 'Socket', link: '/ca/reference/SOCKET' },
+            { text: 'Errors', link: '/ca/reference/ERRORS' }
           ]
         }
       ]

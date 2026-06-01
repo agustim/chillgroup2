@@ -1,20 +1,24 @@
-# Reference map
+# Reference
 
-The complete technical specification is currently maintained in Catalan and published under the reference section.
+## English documents
 
-## Core documents
+- [Overview](/en/reference/OVERVIEW): product scope, stack and design principles.
+- [Cryptography](/en/reference/CRYPTOGRAPHY): encryption levels, key exchange and zero-knowledge security flows.
+- [Development](/en/reference/DEVELOPMENT): setup, build modes, environment variables and contribution workflow.
 
-- [Overview](/ca/reference/OVERVIEW): product scope, stack and design principles.
+## Full Catalan reference
+
+The remaining specification documents are maintained in Catalan. They are linked below while translations are expanded:
+
 - [Architecture](/ca/reference/ARCHITECTURE): service layout, layers and system boundaries.
-- [Cryptography](/ca/reference/CRYPTOGRAPHY): encryption modes, key exchange and security flows.
 - [Database](/ca/reference/DATABASE): schema, migrations and persistence notes.
-- [Development](/ca/reference/DEVELOPMENT): setup flow, phases and operational guidance.
 - [Frontend](/ca/reference/FRONTEND): UI structure, components and client-side rules.
 - [Testing](/ca/reference/TESTING): unit, integration and end-to-end strategy.
 - [API](/ca/reference/API): HTTP contracts and payloads.
 - [Socket](/ca/reference/SOCKET): realtime events and message flow.
+- [DM](/ca/reference/DM): direct message channel implementation.
 - [Errors](/ca/reference/ERRORS): application error codes and handling.
 
-## Recommended next step
+## Want to help translate?
 
-If you want full bilingual parity, translate the highest-value pages first: `OVERVIEW`, `DEVELOPMENT` and `API` usually provide the fastest return.
+See the [Contributing guide](/en/contributing) for instructions on how to add English translations for the remaining pages.
