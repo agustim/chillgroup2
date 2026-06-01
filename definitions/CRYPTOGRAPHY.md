@@ -12,6 +12,40 @@ ChillGroup suporta tres nivells de seguretat per canal. L'usuari tria el nivell 
 
 Àudio i vídeo fan servir **LiveKit E2EE** amb session keys independents del xat.
 
+## Protecció Local de Claus (Client Vault)
+
+Des de juny 2026, les claus de canal guardades al client no es desen en clar a IndexedDB si el dispositiu té vault local activat.
+
+### Objectiu
+
+Evitar que un atacant amb accés al perfil del navegador pugui llegir les claus directament de IndexedDB en fred.
+
+### Model
+
+1. Inici de sessió normal (`username + contrasenya`) per autenticar al servidor.
+2. Després de l'inici de sessió, el client demana **clau local de desbloqueig** del dispositiu:
+  1. si és primer cop en aquell navegador, es crea,
+  2. si ja existeix vault, cal desbloquejar-lo.
+3. Amb el vault desbloquejat, les claus de canal es guarden xifrades en repòs (`keyCiphertext`) amb AES-GCM.
+4. La clau local no s'envia al servidor.
+
+### Logout i persistència local
+
+En sortir, l'usuari pot triar independentment:
+
+1. fer backup (xifrat o no),
+2. esborrar dades locals o mantenir-les xifrades.
+
+Si manté dades locals, el proper inici de sessió requerirà desbloqueig local per poder-les usar.
+
+### Rotació de clau local
+
+La UI permet canviar la clau local de desbloqueig. En aquest procés:
+
+1. es valida la clau local actual,
+2. es crea una nova clau local,
+3. es re-xifren les claus de canal locals amb la nova clau.
+
 ---
 
 ## Compartició de Claus (Implementació Actual)
@@ -34,7 +68,7 @@ Aquest apartat descriu quan i com es comparteixen claus al sistema real (fronten
   1. Si el canal es privat, ha de ser membre del canal.
   2. Si es públic, n'hi ha prou amb ser membre del servidor.
 4. El servidor desencripta la `channel_key` (amb `server_master_key`), l'encapsula per al dispositiu demanant (ML-KEM), i retorna `encryptedKey + kemCiphertext`.
-5. El client decapsula, obté la clau i la guarda localment.
+5. El client decapsula, obté la clau i la guarda localment (xifrada en repòs si el vault local està actiu).
 
 Punt clau: en simètric, no hi ha "push" de claus entre usuaris; cada dispositiu autoritzat la demana al servidor quan la necessita.
 
@@ -152,7 +186,7 @@ Canals públics, announcements, mems, qualsevol espai on la privadesa no importa
 
 Cada canal té una o més **versions de clau** (AES-256). La clau viu al servidor, xifrada amb la master key del servidor. El servidor actua com a dipositari de confiança: pot desxifrar la clau de canal si cal, per lliurar-la als dispositius autoritzats.
 
-Quan un client necessita la clau (primer accés o clau perduda), la sol·licita al servidor presentant la seva clau pública ML-KEM. El servidor comprova que el dispositiu té accés, encripta la clau de canal "al vol" amb la clau pública del dispositiu, i la retorna. El client la desencripta localment i la guarda a IndexedDB.
+Quan un client necessita la clau (primer accés o clau perduda), la sol·licita al servidor presentant la seva clau pública ML-KEM. El servidor comprova que el dispositiu té accés, encripta la clau de canal "al vol" amb la clau pública del dispositiu, i la retorna. El client la desencripta localment i la guarda a IndexedDB xifrada en repòs (si el vault local està actiu).
 
 ### Versioning de Claus
 
@@ -234,7 +268,7 @@ CLIENT                                  SERVIDOR
   │                                       │
   │── ML-KEM.Decapsulate(local_sk, kem_ciphertext) → shared_secret
   │── AES-GCM.Decrypt(shared_secret, wrappedKey) → channel_key
-  │── IndexedDB.store(channelId, keyVersionId, channel_key)
+  │── IndexedDB.store(channelId, keyVersionId, channel_key_xifrada_en_repos)
   │── Desxifrar missatges
 ```
 
@@ -395,7 +429,7 @@ CLIENT (creador)                              SERVIDOR
   │                                             │── INSERT bundles per device
   │◀── { keyVersionId, version: 1 } ───────────│
   │                                             │
-  │── IndexedDB.store(channelId, version=1, channel_key)
+  │── IndexedDB.store(channelId, version=1, channel_key_xifrada_en_repos)
 ```
 
 ### Flux de Convit (Invitar Membre)
@@ -439,7 +473,7 @@ CLIENT (convidat)                             SERVIDOR
   │── Si signatura KO → Rebutjar. Mostrar avís: "Bundle no verificat"
   │── ML-KEM.Decapsulate(my_secret_key, kem_ciphertext) → shared_secret
   │── AES-GCM.Decrypt(shared_secret, encrypted_key) → channel_key
-  │── IndexedDB.store(channelId, keyVersionId, channel_key)
+  │── IndexedDB.store(channelId, keyVersionId, channel_key_xifrada_en_repos)
   │── Desxifrar missatges amb channel_key
 ```
 

@@ -575,6 +575,10 @@ describe('AppLayout', () => {
       })
       fireEvent.click(screen.getByTestId('btn-logout'))
       await waitFor(() => {
+        expect(screen.getByText('Sortir sense backup')).toBeTruthy()
+      })
+      fireEvent.click(screen.getByText('Sortir sense backup'))
+      await waitFor(() => {
         expect(mockDisconnectSocket).toHaveBeenCalled()
         expect(mockLogout).toHaveBeenCalled()
       })

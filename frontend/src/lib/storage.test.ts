@@ -19,6 +19,7 @@ import {
   getLiveKitSessionKey,
   clearAll,
 } from './storage'
+import { createLocalVault, lockLocalVault } from './local-vault'
 
 const DB_NAME = 'chillgroup-store'
 
@@ -33,10 +34,14 @@ function cleanupDB(): Promise<void> {
 describe('IndexedDB Storage', () => {
   beforeEach(async () => {
     await cleanupDB()
+    localStorage.clear()
+    lockLocalVault()
   })
 
   afterEach(async () => {
     await cleanupDB()
+    localStorage.clear()
+    lockLocalVault()
   })
 
   describe('keypairs', () => {
@@ -135,6 +140,35 @@ describe('IndexedDB Storage', () => {
 
       expect(retrieved1).toEqual(key)
       expect(retrieved2).toEqual(key)
+    })
+
+    it('desa la clau de canal xifrada en repòs quan hi ha vault local', async () => {
+      await createLocalVault('passphrase-local')
+
+      const channelKey = new Uint8Array(32)
+      channelKey.fill(77)
+      await storeChannelKey('channel-vault', channelKey, 'asymmetric', 1, 'kv-1')
+
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME)
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+
+      const row = await new Promise<any>((resolve, reject) => {
+        const tx = db.transaction('channelKeysByVersion', 'readonly')
+        const store = tx.objectStore('channelKeysByVersion')
+        const req = store.get('channel-vault::1')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      db.close()
+
+      expect(row?.keyBytes ?? null).toBeNull()
+      expect(typeof row?.keyCiphertext).toBe('string')
+
+      const decrypted = await getChannelKey('channel-vault')
+      expect(decrypted).toEqual(channelKey)
     })
   })
 

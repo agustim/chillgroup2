@@ -67,6 +67,7 @@ chillgroup/
 │       │   ├── crypto.test.ts          # Encrypt/decrypt, Kyber KEM
 │       │   ├── api.test.ts             # Client API wrapper
 │       │   ├── storage.test.ts         # IndexedDB operations
+│       │   ├── local-vault.test.ts     # Setup/unlock/rotate de clau local
 │       │   └── hooks/
 │       │       ├── useAuth.test.tsx
 │       │       ├── useChannelKey.test.ts

@@ -239,11 +239,14 @@ cargo build
 
 ## 🔒 Seguretat
 
-- **Password hashing**: Argon2
+- **Hashing de contrasenya**: Argon2
 - **Missatges encriptats**: AES-GCM-256
 - **Intercanvi de claus**: Kyber-1024 (NIST Level 5)
 - **Autenticació**: JWT amb HS256
 - **E2EE**: Només els participants poden desxifrar missatges
+- **Protecció local de claus**: les claus de canal es guarden xifrades en repòs a IndexedDB (vault local del client)
+- **Desbloqueig de dispositiu**: després de l'inici de sessió, el client pot requerir clau local de desbloqueig
+- **Logout flexible**: backup (xifrat opcional) i neteja local són opcions independents
 
 ## 📝 Desenvolupament
 
