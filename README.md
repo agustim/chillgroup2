@@ -83,6 +83,15 @@ OPEN_REGISTER=true
 
 ### 3. Arrencada amb Docker
 
+Config de Docker Compose (recomanat per equip):
+
+1. Fitxer base compartit: `.env.compose`
+2. Overrides locals (no versionats): `.env.compose.local`
+3. Plantilla de referència: `.env.compose.example`
+
+`docker-compose.yml` carrega primer `.env.compose` i després `.env.compose.local`.
+Si una variable existeix als dos fitxers, preval el valor de `.env.compose.local`.
+
 Si vols arrencar la pila completa amb la imatge construïda a partir de `build.sh`:
 
 ```bash
