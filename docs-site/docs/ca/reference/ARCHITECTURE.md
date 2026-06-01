@@ -286,6 +286,73 @@ impl Database {
 }
 ```
 
+## Adjunts Xifrats (S3-Compatible)
+
+### Principis
+
+1. El backend és zero-knowledge per contingut: el fitxer es xifra al client abans d'arribar a S3.
+2. L'objecte guardat a S3 és sempre ciphertext.
+3. El backend guarda metadades i permisos, però no pot desxifrar el contingut.
+4. L'upload es fa per chunks (multipart) per suportar fitxers grans i reintents parcials.
+
+### Components
+
+```
+Client (Web/Mobile)
+    - xifra el fitxer localment
+    - divideix en chunks
+    - puja parts a S3 amb URLs signades
+
+Rust Server
+    - valida permisos de canal
+    - crea uploads i signa URLs S3
+    - persisteix metadades i envelope criptogràfic
+
+S3-compatible storage (RustFS en dev / S3 en prod)
+    - guarda objectes ciphertext
+    - no veu claus de desxifrat
+```
+
+### Flux d'Upload
+
+1. `init`: el client demana iniciar adjunt per un canal.
+2. `sign-part`: el backend retorna URL signada per cada chunk.
+3. `put part`: el client puja chunks ja xifrats directament a S3.
+4. `complete`: el backend tanca multipart i guarda metadades + dades de xifrat.
+5. `send message`: el missatge referencia `attachment_id`.
+
+### Metadades persistides de fitxer
+
+- `file_name`
+- `mime_type`
+- `size_bytes`
+- `created_at`
+
+### Metadades criptogràfiques persistides
+
+- `algorithm` (ex: `aes-256-gcm` o esquema per chunks)
+- `file_iv` o metadades de nonce per chunks
+- `wrapped_file_key`
+- `key_version_id`
+- `key_version`
+- `chunk_size_bytes`
+- `chunk_count`
+- `ciphertext_sha256`
+
+### Rotació de claus
+
+Els adjunts segueixen la mateixa estratègia de versioning que missatges:
+
+1. Cada adjunt queda lligat a una versió concreta de clau (`key_version_id`, `key_version`).
+2. Si el client no té la clau d'aquella versió, la demana explícitament com amb missatges.
+3. La rotació només afecta nous adjunts/missatges; l'històric manté la seva versió.
+
+### Antivirus i miniatures
+
+1. No hi ha antivirus server-side sobre plaintext (per disseny zero-knowledge).
+2. Si es vol miniatura, la genera el client i la puja com un segon adjunt relacionat.
+3. El missatge pot referenciar `attachment_id` principal i `thumbnail_attachment_id` opcional.
+
 ## Integració LiveKit
 
 ### Arquitectura LiveKit

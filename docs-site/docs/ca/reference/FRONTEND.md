@@ -31,6 +31,30 @@ Detall tècnic:
 - Les variables del frontend es resolen en build-time (durant `vite build`), no en runtime del binari.
 - Canviar variables de frontend després de compilar requereix reconstruir el frontend (o el binari si es distribueix en mode embedded).
 
+## Adjunts Xifrats (estat actual)
+
+Flux implementat al client:
+
+1. El composer encripta el fitxer localment amb `AES-GCM`.
+2. Fa multipart upload del ciphertext (directe a RustFS o via proxy backend, segons `SERVER_PROXY_S3`).
+3. Desa metadades criptografiques (`fileIv`, `wrappedFileKey`, `ciphertextSha256`, `keyVersionId`, `keyVersion`).
+4. Quan es renderitza el missatge, el client recupera metadades de `/attachments/:id/download` per mostrar nom/mida.
+5. En fer clic, descarrega el blob xifrat, el desxifra al navegador i nomes llavors desa el fitxer original.
+
+Comportament UX esperat:
+
+- No hi ha descàrrega automatica en render.
+- Es mostra titol/mida de l'adjunt i la descàrrega s'activa nomes al clic.
+
+Detall important en mode proxy:
+
+- Si `downloadUrl` es `/api/.../download-proxy`, la descàrrega s'ha de fer via `fetch` amb `Authorization: Bearer ...`.
+- Obrir `downloadUrl` directament pot donar error de fitxer no disponible per manca de token.
+
+Detall important en mode directe:
+
+- Si `SERVER_PROXY_S3=false`, el bucket RustFS ha de tenir CORS configurat per l'origen del frontend.
+
 ## Estructura de Directoris
 
 ```

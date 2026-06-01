@@ -51,7 +51,7 @@ chillgroup/
 │       ├── hooks/
 │       ├── lib/
 │       └── pages/
-└── docker-compose.yml      # PostgreSQL + LiveKit + Dockerfile
+└── docker-compose.yml      # PostgreSQL + LiveKit + RustFS + Dockerfile
 ```
 
 ## Actualitzacions Operatives (Maig 2026)
@@ -755,11 +755,74 @@ test('can send encrypted message in asymmetric channel', async ({ page }) => {
 
 ## Docker Compose
 
-El `docker-compose.yml` de l'arrel aixeca tres serveis:
+El `docker-compose.yml` de l'arrel aixeca sis serveis:
 
 - `postgres`: PostgreSQL 16 amb el volum `pgdata`
 - `livekit`: LiveKit en mode `--dev`
+- `rustfs`: servidor S3-compatible per adjunts (volum `rustfsdata`)
+- `rustfs-init`: servei one-shot que crea el bucket `chillgroup-attachments`
+- `rustfs-cors-init`: servei one-shot que aplica la política CORS del bucket per suportar mode directe (`SERVER_PROXY_S3=false`)
 - `app`: backend Rust compilat des de `Dockerfile` amb `build.sh --mode embedded`
+
+Les variables dels serveis Docker es carreguen en aquest ordre:
+
+1. `.env.compose` (base compartida)
+2. `.env.compose.local` (override local per cada desenvolupador)
+
+Quan una variable existeix als dos fitxers, preval el valor de `.env.compose.local`.
+
+Bones pràctiques d'equip:
+
+- Versionar `.env.compose.example` com a plantilla de referència
+- Ignorar `.env.compose.local` al repositori
+
+Ports per defecte del S3 local:
+
+- API S3: `http://localhost:9000`
+- Consola RustFS: `http://localhost:9001`
+
+Variables d'entorn rellevants per adjunts:
+
+- `S3_ENDPOINT`: endpoint intern per backend->RustFS (en compose: `http://rustfs:9000`)
+- `S3_PUBLIC_ENDPOINT`: endpoint públic per URLs signades que usa el navegador (en local: `http://localhost:9000`)
+- `SERVER_PROXY_S3` (`false` per defecte):
+    - `false`: mode directe, el client usa URLs signades contra RustFS
+    - `true`: mode proxy, el client usa endpoints del backend i aquest reenvi a RustFS
+- `S3_CORS_ALLOWED_ORIGIN_1`: origen frontend permès al bucket (p. ex. `http://localhost:8080`)
+- `S3_CORS_ALLOWED_ORIGIN_2`: segon origen permès (p. ex. `http://127.0.0.1:8080`)
+
+El mode `SERVER_PROXY_S3=true` és útil si el navegador no pot resoldre l'host intern Docker (`rustfs`) o hi ha limitacions de CORS/rede.
+
+### CORS RustFS en mode directe (`SERVER_PROXY_S3=false`)
+
+Per suportar uploads/descàrregues directes des del navegador (via URL signada), el bucket S3 ha de tenir CORS explícit.
+
+El `docker-compose.yml` incorpora un servei one-shot `rustfs-cors-init` que:
+
+1. Espera que `rustfs` i `rustfs-init` estiguin llestos.
+2. Aplica `put-bucket-cors` al bucket `S3_BUCKET` usant AWS CLI contra `S3_ENDPOINT`.
+3. Permet `GET, HEAD, PUT, POST, DELETE`, headers `*` i exposa `ETag`.
+
+Verificació ràpida de preflight:
+
+```bash
+curl -i -X OPTIONS 'http://localhost:9000/chillgroup-attachments' \
+    -H 'Origin: http://localhost:8080' \
+    -H 'Access-Control-Request-Method: PUT' \
+    -H 'Access-Control-Request-Headers: content-type'
+```
+
+Resposta esperada:
+
+- `access-control-allow-origin: http://localhost:8080`
+- `access-control-allow-methods: GET, HEAD, PUT, POST, DELETE`
+- `access-control-allow-headers: *`
+
+Troubleshooting habitual:
+
+- Si `rustfs-cors-init` falla amb credencials, comprovar que `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION` existeixen a `.env.compose`.
+- Si canvien orígens, tornar a executar `docker compose up -d rustfs-cors-init app`.
+- Si el client continua fallant per CORS en entorns no controlats, activar fallback `SERVER_PROXY_S3=true`.
 
 Arrencada recomanada:
 

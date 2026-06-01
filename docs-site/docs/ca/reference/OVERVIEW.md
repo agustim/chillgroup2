@@ -30,7 +30,7 @@ Crear una eina de xat moderna, quantum-resistent, amb tres nivells de seguretat 
 - **Temps real**: Socket.IO server (via `socketioxide`) o Axum WS natiu
 - **WebRTC SFU**: LiveKit server SDK (integració amb instància LiveKit externa)
 - **Autenticació**: JWT (RS256) + OAuth2
-- **File system**: Actix-multipart per uploads
+- **Object storage**: S3-compatible (RustFS en dev) amb upload via URL signada
 
 ### Base de Dades
 - **Primari**: PostgreSQL 16 (producció)
