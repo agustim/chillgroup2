@@ -95,6 +95,8 @@ pub enum AppError {
     MessageTooLong { max: usize },
     #[error("Missatge no trobat")]
     MessageNotFound,
+    #[error("Adjunt no trobat")]
+    AttachmentNotFound,
     #[error("Només el remitent pot editar aquest missatge")]
     NotMessageSender,
     #[error("No es pot editar un missatge més enllà de 5 minuts")]
@@ -241,6 +243,9 @@ impl IntoResponse for AppError {
             ),
             AppError::MessageNotFound => (
                 StatusCode::NOT_FOUND, 4002, "Missatge no trobat".to_string(), None,
+            ),
+            AppError::AttachmentNotFound => (
+                StatusCode::NOT_FOUND, 4003, "Adjunt no trobat".to_string(), None,
             ),
             AppError::PublicKeyNotFound => (
                 StatusCode::BAD_REQUEST, 5001, "Aquest dispositiu no té una clau pública registrada".to_string(), None,

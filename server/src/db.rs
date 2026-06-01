@@ -4,7 +4,7 @@ use sqlx::{Pool, Sqlite, Postgres, Row};
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use crate::config::Config;
-use crate::models::{Channel, ChannelType, EncryptionType, Message};
+use crate::models::{Attachment, Channel, ChannelType, EncryptionType, Message};
 use shared::types::{ServerInfo, ServerFullInfo, ServerLiveKitConfig, ServerMember as SharedServerMember, ServerRole};
 use tracing::{info, error};
 
@@ -320,6 +320,51 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
         "#,
         r#"CREATE INDEX IF NOT EXISTS idx_messages_channel_id ON messages(channel_id)"#,
         r#"CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp)"#,
+
+        // Attachments (encrypted file metadata)
+        r#"
+        CREATE TABLE IF NOT EXISTS attachments (
+            id TEXT PRIMARY KEY,
+            channel_id TEXT NOT NULL,
+            uploader_user_id TEXT NOT NULL,
+            uploader_device_id TEXT NOT NULL,
+            file_name TEXT NOT NULL,
+            mime_type TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            object_key TEXT NOT NULL,
+            status TEXT NOT NULL,
+            upload_id TEXT NOT NULL,
+            chunk_size_bytes INTEGER NOT NULL,
+            chunk_count INTEGER NOT NULL,
+            algorithm TEXT,
+            file_iv TEXT,
+            wrapped_file_key TEXT,
+            key_version_id TEXT,
+            key_version INTEGER,
+            ciphertext_sha256 TEXT,
+            completed_at DATETIME,
+            thumbnail_attachment_id TEXT,
+            FOREIGN KEY (channel_id) REFERENCES channels(id),
+            FOREIGN KEY (uploader_user_id) REFERENCES users(id),
+            FOREIGN KEY (thumbnail_attachment_id) REFERENCES attachments(id)
+        )
+        "#,
+        r#"CREATE INDEX IF NOT EXISTS idx_attachments_channel_id ON attachments(channel_id)"#,
+        r#"CREATE INDEX IF NOT EXISTS idx_attachments_status ON attachments(status)"#,
+        r#"CREATE INDEX IF NOT EXISTS idx_attachments_key_version_id ON attachments(key_version_id)"#,
+
+        // Link table between messages and attachments
+        r#"
+        CREATE TABLE IF NOT EXISTS message_attachments (
+            message_id TEXT NOT NULL,
+            attachment_id TEXT NOT NULL,
+            PRIMARY KEY (message_id, attachment_id),
+            FOREIGN KEY (message_id) REFERENCES messages(id),
+            FOREIGN KEY (attachment_id) REFERENCES attachments(id)
+        )
+        "#,
+        r#"CREATE INDEX IF NOT EXISTS idx_message_attachments_attachment_id ON message_attachments(attachment_id)"#,
 
         // Invitations
         r#"
@@ -3683,7 +3728,19 @@ impl DatabasePool {
                     .execute(&mut *tx)
                     .await?;
 
+                sqlx::query(
+                    "DELETE FROM message_attachments WHERE message_id IN (SELECT id FROM messages WHERE channel_id = ?)",
+                )
+                .bind(channel_id)
+                .execute(&mut *tx)
+                .await?;
+
                 sqlx::query("DELETE FROM messages WHERE channel_id = ?")
+                    .bind(channel_id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                sqlx::query("DELETE FROM attachments WHERE channel_id = ?")
                     .bind(channel_id)
                     .execute(&mut *tx)
                     .await?;
@@ -3711,6 +3768,284 @@ impl DatabasePool {
                     .execute(&mut *tx)
                     .await?;
 
+                tx.commit().await?;
+            }
+        }
+        Ok(())
+    }
+
+    // ── Attachments CRUD ──────────────────────────────────────────
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_attachment_init(
+        &self,
+        attachment_id: Uuid,
+        channel_id: Uuid,
+        uploader_user_id: Uuid,
+        uploader_device_id: Uuid,
+        file_name: &str,
+        mime_type: &str,
+        size_bytes: i64,
+        created_at: DateTime<Utc>,
+        object_key: &str,
+        upload_id: &str,
+        chunk_size_bytes: i64,
+        chunk_count: i32,
+    ) -> Result<(), sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "INSERT INTO attachments \
+                     (id, channel_id, uploader_user_id, uploader_device_id, file_name, mime_type, size_bytes, \
+                      created_at, object_key, status, upload_id, chunk_size_bytes, chunk_count) \
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9, 'initiated', $10, $11, $12)",
+                )
+                .bind(attachment_id)
+                .bind(channel_id)
+                .bind(uploader_user_id)
+                .bind(uploader_device_id)
+                .bind(file_name)
+                .bind(mime_type)
+                .bind(size_bytes)
+                .bind(created_at.to_rfc3339())
+                .bind(object_key)
+                .bind(upload_id)
+                .bind(chunk_size_bytes)
+                .bind(chunk_count)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "INSERT INTO attachments \
+                     (id, channel_id, uploader_user_id, uploader_device_id, file_name, mime_type, size_bytes, \
+                      created_at, object_key, status, upload_id, chunk_size_bytes, chunk_count) \
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'initiated', ?, ?, ?)",
+                )
+                .bind(attachment_id)
+                .bind(channel_id)
+                .bind(uploader_user_id)
+                .bind(uploader_device_id)
+                .bind(file_name)
+                .bind(mime_type)
+                .bind(size_bytes)
+                .bind(created_at.to_rfc3339())
+                .bind(object_key)
+                .bind(upload_id)
+                .bind(chunk_size_bytes)
+                .bind(chunk_count)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn get_attachment_by_id(
+        &self,
+        channel_id: Uuid,
+        attachment_id: Uuid,
+    ) -> Result<Option<Attachment>, sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(
+                    "SELECT id, channel_id, uploader_user_id, uploader_device_id, file_name, mime_type, size_bytes, \
+                        created_at::text, object_key, status, upload_id, chunk_size_bytes, chunk_count, algorithm, \
+                        file_iv, wrapped_file_key, key_version_id, key_version, ciphertext_sha256, completed_at::text, \
+                        thumbnail_attachment_id \
+                     FROM attachments WHERE channel_id = $1 AND id = $2",
+                )
+                .bind(channel_id)
+                .bind(attachment_id)
+                .fetch_optional(pool)
+                .await?;
+
+                Ok(row.map(|row| Attachment {
+                    id: row.get(0),
+                    channel_id: row.get(1),
+                    uploader_user_id: row.get(2),
+                    uploader_device_id: row.get(3),
+                    file_name: row.get(4),
+                    mime_type: row.get(5),
+                    size_bytes: row.get(6),
+                    created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(7))
+                        .map(|d| d.with_timezone(&Utc))
+                        .unwrap_or_else(|_| Utc::now()),
+                    object_key: row.get(8),
+                    status: row.get(9),
+                    upload_id: row.get(10),
+                    chunk_size_bytes: row.get(11),
+                    chunk_count: row.get(12),
+                    algorithm: row.get(13),
+                    file_iv: row.get(14),
+                    wrapped_file_key: row.get(15),
+                    key_version_id: row.get(16),
+                    key_version: row.get(17),
+                    ciphertext_sha256: row.get(18),
+                    completed_at: parse_datetime_utc(&row.get::<Option<String>, _>(19)),
+                    thumbnail_attachment_id: row.get(20),
+                }))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query(
+                    "SELECT id, channel_id, uploader_user_id, uploader_device_id, file_name, mime_type, size_bytes, \
+                        created_at, object_key, status, upload_id, chunk_size_bytes, chunk_count, algorithm, \
+                        file_iv, wrapped_file_key, key_version_id, key_version, ciphertext_sha256, completed_at, \
+                        thumbnail_attachment_id \
+                     FROM attachments WHERE channel_id = ? AND id = ?",
+                )
+                .bind(channel_id)
+                .bind(attachment_id)
+                .fetch_optional(pool)
+                .await?;
+
+                Ok(row.map(|row| Attachment {
+                    id: row.get(0),
+                    channel_id: row.get(1),
+                    uploader_user_id: row.get(2),
+                    uploader_device_id: row.get(3),
+                    file_name: row.get(4),
+                    mime_type: row.get(5),
+                    size_bytes: row.get(6),
+                    created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(7))
+                        .map(|d| d.with_timezone(&Utc))
+                        .unwrap_or_else(|_| Utc::now()),
+                    object_key: row.get(8),
+                    status: row.get(9),
+                    upload_id: row.get(10),
+                    chunk_size_bytes: row.get(11),
+                    chunk_count: row.get(12),
+                    algorithm: row.get(13),
+                    file_iv: row.get(14),
+                    wrapped_file_key: row.get(15),
+                    key_version_id: row.get(16),
+                    key_version: row.get(17),
+                    ciphertext_sha256: row.get(18),
+                    completed_at: parse_datetime_utc(&row.get::<Option<String>, _>(19)),
+                    thumbnail_attachment_id: row.get(20),
+                }))
+            }
+        }
+    }
+
+    pub async fn complete_attachment(
+        &self,
+        attachment_id: Uuid,
+        algorithm: &str,
+        file_iv: &str,
+        wrapped_file_key: &str,
+        key_version_id: Uuid,
+        key_version: i32,
+        ciphertext_sha256: &str,
+    ) -> Result<(), sqlx::Error> {
+        let completed_at = Utc::now().to_rfc3339();
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "UPDATE attachments \
+                     SET status = 'ready', algorithm = $1, file_iv = $2, wrapped_file_key = $3, \
+                         key_version_id = $4, key_version = $5, ciphertext_sha256 = $6, completed_at = $7::timestamptz \
+                     WHERE id = $8",
+                )
+                .bind(algorithm)
+                .bind(file_iv)
+                .bind(wrapped_file_key)
+                .bind(key_version_id)
+                .bind(key_version)
+                .bind(ciphertext_sha256)
+                .bind(&completed_at)
+                .bind(attachment_id)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "UPDATE attachments \
+                     SET status = 'ready', algorithm = ?, file_iv = ?, wrapped_file_key = ?, \
+                         key_version_id = ?, key_version = ?, ciphertext_sha256 = ?, completed_at = ? \
+                     WHERE id = ?",
+                )
+                .bind(algorithm)
+                .bind(file_iv)
+                .bind(wrapped_file_key)
+                .bind(key_version_id)
+                .bind(key_version)
+                .bind(ciphertext_sha256)
+                .bind(completed_at)
+                .bind(attachment_id)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn attach_message_attachments(
+        &self,
+        message_id: Uuid,
+        channel_id: Uuid,
+        uploader_user_id: Uuid,
+        attachment_ids: &[Uuid],
+    ) -> Result<(), sqlx::Error> {
+        if attachment_ids.is_empty() {
+            return Ok(());
+        }
+
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let mut tx = pool.begin().await?;
+                for attachment_id in attachment_ids {
+                    let updated = sqlx::query(
+                        "UPDATE attachments \
+                         SET status = 'linked' \
+                         WHERE id = $1 AND channel_id = $2 AND uploader_user_id = $3 AND status = 'ready'",
+                    )
+                    .bind(attachment_id)
+                    .bind(channel_id)
+                    .bind(uploader_user_id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                    if updated.rows_affected() == 0 {
+                        return Err(sqlx::Error::RowNotFound);
+                    }
+
+                    sqlx::query(
+                        "INSERT INTO message_attachments (message_id, attachment_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                    )
+                    .bind(message_id)
+                    .bind(attachment_id)
+                    .execute(&mut *tx)
+                    .await?;
+                }
+                tx.commit().await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                let mut tx = pool.begin().await?;
+                for attachment_id in attachment_ids {
+                    let updated = sqlx::query(
+                        "UPDATE attachments \
+                         SET status = 'linked' \
+                         WHERE id = ? AND channel_id = ? AND uploader_user_id = ? AND status = 'ready'",
+                    )
+                    .bind(attachment_id)
+                    .bind(channel_id)
+                    .bind(uploader_user_id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                    if updated.rows_affected() == 0 {
+                        return Err(sqlx::Error::RowNotFound);
+                    }
+
+                    sqlx::query(
+                        "INSERT OR IGNORE INTO message_attachments (message_id, attachment_id) VALUES (?, ?)",
+                    )
+                    .bind(message_id)
+                    .bind(attachment_id)
+                    .execute(&mut *tx)
+                    .await?;
+                }
                 tx.commit().await?;
             }
         }

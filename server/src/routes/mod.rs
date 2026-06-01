@@ -10,3 +10,4 @@ pub mod user;
 pub mod friends;
 pub mod admin;
 pub mod plans;
+pub mod attachments;

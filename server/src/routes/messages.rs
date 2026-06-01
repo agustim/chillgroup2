@@ -29,6 +29,8 @@ pub struct SendMessageRequest {
     pub is_direct: Option<bool>,
     #[serde(default)]
     pub recipient_user_id: Option<Uuid>,
+    #[serde(default, alias = "attachmentIds")]
+    pub attachment_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -308,6 +310,17 @@ pub async fn send_message(
         tracing::error!("Error saving message to DB: {}", e);
         AppError::InternalError
     })?;
+
+    if !req.attachment_ids.is_empty() {
+        state
+            .db
+            .attach_message_attachments(message_id, channel_id, claims.user_id, &req.attachment_ids)
+            .await
+            .map_err(|e| {
+                tracing::error!("Error linking attachments to message: {}", e);
+                AppError::BadRequest
+            })?;
+    }
 
     info!("Missatge enviat amb èxit: message_id={}", message_id);
 
@@ -1050,6 +1063,7 @@ mod tests {
                 expires_at: None,
                 is_direct: None,
                 recipient_user_id: None,
+                attachment_ids: vec![],
             }),
         )
         .await;
@@ -1101,6 +1115,7 @@ mod tests {
                 expires_at: None,
                 is_direct: None,
                 recipient_user_id: None,
+                attachment_ids: vec![],
             }),
         )
         .await;
@@ -1128,6 +1143,7 @@ mod tests {
                 expires_at: None,
                 is_direct: None,
                 recipient_user_id: None,
+                attachment_ids: vec![],
             }),
         )
         .await;
@@ -1441,6 +1457,7 @@ mod tests {
                 expires_at: None,
                 is_direct: None,
                 recipient_user_id: None,
+                attachment_ids: vec![],
             }),
         )
         .await

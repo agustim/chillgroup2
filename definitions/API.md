@@ -2021,6 +2021,8 @@ Tancar l'upload multipart i persistir metadades criptogràfiques de l'adjunt.
 }
 ```
 
+**Nota:** `parts` és obligatori i ha de contenir els `partNumber` + `etag` retornats pel multipart upload.
+
 **Response 200 OK:**
 ```json
 {

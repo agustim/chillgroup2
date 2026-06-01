@@ -36,6 +36,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # HTTP client (for LiveKit API)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
+# S3 client (attachments presigned URLs)
+aws-sdk-s3 = "1"
+aws-credential-types = "1"
+
 # Utilities
 async-trait = "0.1"
 thiserror = "2"

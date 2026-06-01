@@ -16,6 +16,8 @@ pub mod key;
 pub mod plan;
 #[allow(dead_code)]
 pub mod invitation;
+#[allow(dead_code)]
+pub mod attachment;
 
 #[allow(dead_code)]
 pub use channel::Channel;
@@ -31,3 +33,6 @@ pub use plan::Plan;
 #[allow(unused_imports)]
 #[allow(dead_code)]
 pub use invitation::Invitation;
+#[allow(unused_imports)]
+#[allow(dead_code)]
+pub use attachment::Attachment;
