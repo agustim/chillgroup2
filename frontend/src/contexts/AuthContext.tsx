@@ -5,6 +5,7 @@ import { authLogin, authRegister, authRegisterWithInvitation, authMe, authRefres
 import { disconnectSocket } from '../lib/socket'
 import { getStoredDeviceId, persistDeviceId } from '../lib/device-identity'
 import { generateAndStoreDeviceKeypair, hasLocalDeviceKeypair } from '../lib/device-keys'
+import { lockLocalVault } from '../lib/local-vault'
 
 const ML_KEM_1024_PUBLIC_KEY_BYTES = 1568
 
@@ -84,6 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
     setToken(null)
     setError(null)
+    lockLocalVault()
     disconnectSocket()
     try {
       sessionStorage.removeItem('chillgroup-token')

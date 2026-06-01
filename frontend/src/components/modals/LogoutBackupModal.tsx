@@ -15,6 +15,7 @@ export function LogoutBackupModal({ username, onConfirm, onCancel }: LogoutBacku
   const [error, setError] = useState<string | null>(null)
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [clearLocalData, setClearLocalData] = useState(false)
 
   const passwordsMatch = password === confirmPassword
   const hasPassword = password.length > 0
@@ -32,6 +33,13 @@ export function LogoutBackupModal({ username, onConfirm, onCancel }: LogoutBacku
     URL.revokeObjectURL(url)
   }
 
+  const finalizeLogout = async () => {
+    if (clearLocalData) {
+      await clearAll()
+    }
+    onConfirm()
+  }
+
   const handleDownloadAndLogout = async () => {
     if (hasPassword && !passwordsMatch) {
       setError('Les contrasenyes no coincideixen')
@@ -43,8 +51,7 @@ export function LogoutBackupModal({ username, onConfirm, onCancel }: LogoutBacku
       const json = await exportFullBackup()
       const output = hasPassword ? await encryptBackup(json, password) : json
       triggerDownload(output)
-      await clearAll()
-      onConfirm()
+      await finalizeLogout()
     } catch {
       setError('No s\'ha pogut generar el backup. Prova de tancar sessió sense backup.')
       setIsBusy(false)
@@ -54,9 +61,9 @@ export function LogoutBackupModal({ username, onConfirm, onCancel }: LogoutBacku
   const handleLogoutWithoutBackup = async () => {
     setIsBusy(true)
     try {
-      await clearAll()
+      await finalizeLogout()
     } finally {
-      onConfirm()
+      // finalizeLogout ja tanca sessió
     }
   }
 
@@ -69,11 +76,28 @@ export function LogoutBackupModal({ username, onConfirm, onCancel }: LogoutBacku
         </div>
         <div className="modal-body">
           <p style={{ marginBottom: '8px' }}>
-            En tancar sessió, les claus criptogràfiques locals s'esborraran del navegador per seguretat.
+            Pots decidir si vols fer backup i si vols esborrar les dades locals en aquesta sortida.
           </p>
           <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '16px' }}>
-            Desa un backup per poder restaurar les claus quan tornis a entrar. Pots protegir-lo amb contrasenya.
+            Si mantens les dades locals, continuaran xifrades i només es podran obrir amb la clau local de desbloqueig.
           </p>
+
+          <div className="form-group" style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={clearLocalData}
+                onChange={(e) => setClearLocalData(e.target.checked)}
+                disabled={isBusy}
+              />
+              <span>Esborrar dades locals en tancar sessió</span>
+            </label>
+            <span className="password-hint" style={{ marginTop: '6px' }}>
+              {clearLocalData
+                ? 'S\'eliminaran claus i dades locals del navegador després de sortir.'
+                : 'Les dades locals es conservaran xifrades per al proper inici de sessió.'}
+            </span>
+          </div>
 
           <div className="modal-form" style={{ marginBottom: '16px' }}>
             <div className="form-group">
@@ -125,7 +149,7 @@ export function LogoutBackupModal({ username, onConfirm, onCancel }: LogoutBacku
               onClick={() => void handleDownloadAndLogout()}
               disabled={isBusy || (hasPassword && !passwordsMatch)}
             >
-              {isBusy ? 'Generant...' : hasPassword ? 'Descarregar backup xifrat i sortir' : 'Descarregar backup i sortir'}
+              {isBusy ? 'Processant...' : hasPassword ? 'Descarregar backup xifrat i sortir' : 'Descarregar backup i sortir'}
             </Button>
           </div>
         </div>

@@ -2,6 +2,13 @@
 //!
 //! Gestiona l'emmagatzematge local de claus criptogràfiques i dades de sessió.
 
+import {
+  decryptBytesFromLocalVault,
+  encryptBytesForLocalVault,
+  hasLocalVault,
+  isLocalVaultUnlocked,
+} from './local-vault'
+
 const DB_NAME = 'chillgroup-store'
 const DB_VERSION = 3
 
@@ -384,6 +391,42 @@ function makeChannelVersionId(channelId: string, keyVersion: number): string {
   return `${channelId}::${keyVersion}`
 }
 
+async function encodeChannelKeyForStorage(keyBytes: Uint8Array): Promise<{
+  keyBytes: string | null
+  keyCiphertext: string | null
+}> {
+  if (hasLocalVault()) {
+    if (!isLocalVaultUnlocked()) {
+      throw new Error('Vault local bloquejat')
+    }
+    const encrypted = await encryptBytesForLocalVault(keyBytes)
+    return {
+      keyBytes: null,
+      keyCiphertext: encrypted,
+    }
+  }
+
+  return {
+    keyBytes: uint8ArrayToBase64(keyBytes),
+    keyCiphertext: null,
+  }
+}
+
+async function decodeChannelKeyFromStorage(record: {
+  keyBytes?: string | null
+  keyCiphertext?: string | null
+}): Promise<Uint8Array> {
+  if (typeof record.keyCiphertext === 'string' && record.keyCiphertext.length > 0) {
+    return decryptBytesFromLocalVault(record.keyCiphertext)
+  }
+
+  if (typeof record.keyBytes === 'string' && record.keyBytes.length > 0) {
+    return base64ToUint8Array(record.keyBytes)
+  }
+
+  throw new Error('Format de clau de canal invàlid')
+}
+
 /**
  * Guardar una clau de canal versionada.
  */
@@ -395,6 +438,7 @@ export async function storeChannelKeyVersion(
   keyVersionId?: string | null
 ): Promise<void> {
   const normalizedVersion = normalizeKeyVersion(keyVersion)
+  const encoded = await encodeChannelKeyForStorage(keyBytes)
   const db = await getDB()
   return new Promise((resolve, reject) => {
     const tx = db.transaction('channelKeysByVersion', 'readwrite')
@@ -404,7 +448,8 @@ export async function storeChannelKeyVersion(
       channelId,
       keyVersion: normalizedVersion,
       keyVersionId: keyVersionId ?? null,
-      keyBytes: uint8ArrayToBase64(keyBytes),
+      keyBytes: encoded.keyBytes,
+      keyCiphertext: encoded.keyCiphertext,
       type,
       acquiredAt: Date.now(),
       expiresAt: null,
@@ -437,8 +482,15 @@ export async function getChannelKeyVersion(channelId: string, keyVersion: number
         resolve(null)
         return
       }
-      db.close()
-      resolve(base64ToUint8Array(result.keyBytes))
+      void decodeChannelKeyFromStorage(result)
+        .then((decoded) => {
+          db.close()
+          resolve(decoded)
+        })
+        .catch((err) => {
+          db.close()
+          reject(err)
+        })
     }
     request.onerror = () => {
       db.close()
@@ -463,7 +515,7 @@ export async function getLatestChannelKey(channelId: string): Promise<{
     const request = index.getAll()
 
     request.onsuccess = () => {
-      const records = (request.result as Array<{ channelId: string; keyBytes: string; keyVersion: number; keyVersionId?: string | null }>)
+      const records = (request.result as Array<{ channelId: string; keyBytes?: string | null; keyCiphertext?: string | null; keyVersion: number; keyVersionId?: string | null }>)
         .filter((item) => item.channelId === channelId)
       if (!records || records.length === 0) {
         db.close()
@@ -475,12 +527,19 @@ export async function getLatestChannelKey(channelId: string): Promise<{
         normalizeKeyVersion(cur.keyVersion) > normalizeKeyVersion(acc.keyVersion) ? cur : acc
       )
 
-      db.close()
-      resolve({
-        keyBytes: base64ToUint8Array(latest.keyBytes),
-        keyVersion: normalizeKeyVersion(latest.keyVersion),
-        keyVersionId: latest.keyVersionId ?? null,
-      })
+      void decodeChannelKeyFromStorage(latest)
+        .then((decoded) => {
+          db.close()
+          resolve({
+            keyBytes: decoded,
+            keyVersion: normalizeKeyVersion(latest.keyVersion),
+            keyVersionId: latest.keyVersionId ?? null,
+          })
+        })
+        .catch((err) => {
+          db.close()
+          reject(err)
+        })
     }
 
     request.onerror = () => {
@@ -531,6 +590,7 @@ export async function storeChannelKey(
   keyVersionId?: string | null
 ): Promise<void> {
   await storeChannelKeyVersion(channelId, keyVersion, keyBytes, type, keyVersionId)
+  const encoded = await encodeChannelKeyForStorage(keyBytes)
 
   const db = await getDB()
   return new Promise((resolve, reject) => {
@@ -538,7 +598,8 @@ export async function storeChannelKey(
     const store = tx.objectStore('channelKeysBytes')
     store.put({
       channelId,
-      keyBytes: uint8ArrayToBase64(keyBytes),
+      keyBytes: encoded.keyBytes,
+      keyCiphertext: encoded.keyCiphertext,
       type,
       acquiredAt: Date.now(),
       expiresAt: null,
@@ -575,9 +636,15 @@ export async function getChannelKey(channelId: string): Promise<Uint8Array | nul
         resolve(null)
         return
       }
-      const keyBytes = base64ToUint8Array(result.keyBytes)
-      db.close()
-      resolve(keyBytes)
+      void decodeChannelKeyFromStorage(result)
+        .then((decoded) => {
+          db.close()
+          resolve(decoded)
+        })
+        .catch((err) => {
+          db.close()
+          reject(err)
+        })
     }
     request.onerror = () => {
       db.close()
@@ -643,17 +710,26 @@ export async function getAllChannelKeys(): Promise<StoredChannelKeyRecord[]> {
     const store = tx.objectStore('channelKeysByVersion')
     const request = store.getAll()
     request.onsuccess = () => {
-      const items = request.result.map((item: any) => ({
-        channelId: item.channelId,
-        keyVersion: normalizeKeyVersion(item.keyVersion),
-        keyVersionId: item.keyVersionId ?? null,
-        keyBytes: base64ToUint8Array(item.keyBytes),
-        type: item.type as 'symmetric' | 'asymmetric',
-        acquiredAt: item.acquiredAt,
-        expiresAt: item.expiresAt ?? null,
-      }))
-      db.close()
-      resolve(items)
+      const rawItems = request.result as Array<any>
+      void Promise.all(
+        rawItems.map(async (item) => ({
+          channelId: item.channelId,
+          keyVersion: normalizeKeyVersion(item.keyVersion),
+          keyVersionId: item.keyVersionId ?? null,
+          keyBytes: await decodeChannelKeyFromStorage(item),
+          type: item.type as 'symmetric' | 'asymmetric',
+          acquiredAt: item.acquiredAt,
+          expiresAt: item.expiresAt ?? null,
+        }))
+      )
+        .then((items) => {
+          db.close()
+          resolve(items)
+        })
+        .catch((err) => {
+          db.close()
+          reject(err)
+        })
     }
     request.onerror = () => {
       db.close()
@@ -721,6 +797,74 @@ export async function cleanupExpiredKeys(): Promise<number> {
     request.onerror = () => {
       db.close()
       reject(request.error)
+    }
+  })
+}
+
+/**
+ * Re-xifrar claus de canal antigues guardades en clar quan el vault local ja està actiu.
+ */
+export async function migrateChannelKeysToLocalVault(): Promise<number> {
+  if (!hasLocalVault() || !isLocalVaultUnlocked()) {
+    return 0
+  }
+
+  const db = await getDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(['channelKeysByVersion', 'channelKeysBytes'], 'readwrite')
+    const versionedStore = tx.objectStore('channelKeysByVersion')
+    const legacyStore = tx.objectStore('channelKeysBytes')
+    let migrated = 0
+
+    const versionedRequest = versionedStore.getAll()
+    versionedRequest.onsuccess = () => {
+      const rows = versionedRequest.result as Array<any>
+      void Promise.all(
+        rows.map(async (row) => {
+          if (row.keyCiphertext || typeof row.keyBytes !== 'string' || row.keyBytes.length === 0) {
+            return
+          }
+          const encrypted = await encryptBytesForLocalVault(base64ToUint8Array(row.keyBytes))
+          versionedStore.put({
+            ...row,
+            keyBytes: null,
+            keyCiphertext: encrypted,
+          })
+          migrated++
+        })
+      ).catch(() => {
+        // tx.onerror gestiona el rebuig final
+      })
+    }
+
+    const legacyRequest = legacyStore.getAll()
+    legacyRequest.onsuccess = () => {
+      const rows = legacyRequest.result as Array<any>
+      void Promise.all(
+        rows.map(async (row) => {
+          if (row.keyCiphertext || typeof row.keyBytes !== 'string' || row.keyBytes.length === 0) {
+            return
+          }
+          const encrypted = await encryptBytesForLocalVault(base64ToUint8Array(row.keyBytes))
+          legacyStore.put({
+            ...row,
+            keyBytes: null,
+            keyCiphertext: encrypted,
+          })
+          migrated++
+        })
+      ).catch(() => {
+        // tx.onerror gestiona el rebuig final
+      })
+    }
+
+    tx.oncomplete = () => {
+      db.close()
+      resolve(migrated)
+    }
+    tx.onerror = () => {
+      db.close()
+      reject(tx.error)
     }
   })
 }

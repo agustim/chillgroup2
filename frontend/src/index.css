@@ -159,6 +159,27 @@ body {
   gap: 4px;
 }
 
+.unlock-warning {
+  border: 1px solid rgba(244, 182, 73, 0.45);
+  background: rgba(244, 182, 73, 0.12);
+  border-radius: var(--input-radius);
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.unlock-warning strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.unlock-warning p {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 /* App Logged In */
 .app-logged-in {
   display: flex;

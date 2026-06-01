@@ -2,9 +2,30 @@ import React from 'react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { LoginScreen } from './components/LoginScreen'
 import { AppLayout } from './components/AppLayout'
+import { DeviceUnlockScreen } from './components/DeviceUnlockScreen'
+import { hasLocalVault, isLocalVaultUnlocked, lockLocalVault } from './lib/local-vault'
 
 function AppContent() {
-  const { isAuthenticated, user, isLoading } = useAuth()
+  const { isAuthenticated, user, isLoading, logout } = useAuth()
+  const [vaultConfigured, setVaultConfigured] = React.useState<boolean>(() => hasLocalVault())
+  const [vaultUnlocked, setVaultUnlocked] = React.useState<boolean>(() => isLocalVaultUnlocked())
+
+  React.useEffect(() => {
+    if (!isAuthenticated) {
+      lockLocalVault()
+      setVaultConfigured(hasLocalVault())
+      setVaultUnlocked(false)
+      return
+    }
+
+    setVaultConfigured(hasLocalVault())
+    setVaultUnlocked(isLocalVaultUnlocked())
+  }, [isAuthenticated])
+
+  const handleVaultUnlocked = React.useCallback(() => {
+    setVaultConfigured(hasLocalVault())
+    setVaultUnlocked(isLocalVaultUnlocked())
+  }, [])
 
   if (isLoading) {
     return (
@@ -20,6 +41,17 @@ function AppContent() {
   }
 
   if (isAuthenticated && user) {
+    if (!vaultConfigured || !vaultUnlocked) {
+      return (
+        <DeviceUnlockScreen
+          mode={vaultConfigured ? 'unlock' : 'setup'}
+          username={user.username}
+          onUnlocked={handleVaultUnlocked}
+          onLogout={logout}
+        />
+      )
+    }
+
     return <AppLayout username={user.username} />
   }
 
