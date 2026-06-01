@@ -2078,6 +2078,18 @@ Obtenir URL signada de descàrrega i metadades necessàries per desxifrar al cli
 
 En mode proxy, `downloadUrl` pot ser una ruta del backend (`/api/channels/:channelId/attachments/:attachmentId/download-proxy`) en lloc d'una URL signada directa de RustFS.
 
+**Nota d'estat de l'adjunt:**
+
+Despres d'enllacar un adjunt a un missatge, el backend pot marcar-lo com a `linked`. Aquest estat continua sent descarregable (no nomes `ready`).
+
+**Nota de seguretat/criptografia:**
+
+`downloadUrl` retorna el blob xifrat. El client ha de desxifrar amb `crypto.fileIv` + `crypto.wrappedFileKey` abans de guardar o obrir el fitxer.
+
+**Nota d'autenticacio en mode proxy:**
+
+Quan `downloadUrl` apunta a `/api/.../download-proxy`, la peticio de descàrrega ha d'enviar `Authorization: Bearer <JWT>` (p. ex. via `fetch`). Obrir l'enllaç directament en una pestanya nova pot fallar si el token no s'afegeix explicitament.
+
 **Nota de versioning:**
 
 Igual que amb els missatges, si el client no disposa de la clau de `keyVersionId`, l'ha de recuperar explícitament abans de desxifrar l'adjunt.
