@@ -49,17 +49,18 @@ Crear una eina de xat moderna, quantum-resistent, amb tres nivells de seguretat 
 ```
 1. Registre/Login → genera parella de claus (Kyber-1024)
    (Si OPEN_REGISTER=false, només els admins poden crear usuaris)
-2. Crea un Server (espai de treball)
-3. Crea Canals (text/veio) amb tipus de criptografia
-4. Convida membres (per username o link)
-5. Gestiona una llista d'amics persistent i cerca usuaris de tota l'eina
-6. Xat en temps real (missatges encriptats segons nivell del canal)
-7. Voces/Video via LiveKit (E2EE amb session keys)
+2. Configuració/desbloqueig de clau local del dispositiu (vault local)
+3. Crea un Server (espai de treball)
+4. Crea Canals (text/veio) amb tipus de criptografia
+5. Convida membres (per username o link)
+6. Gestiona una llista d'amics persistent i cerca usuaris de tota l'eina
+7. Xat en temps real (missatges encriptats segons nivell del canal)
+8. Voces/Video via LiveKit (E2EE amb session keys)
 ```
 
 ### Administrador (si `OPEN_REGISTER=false`)
 ```
-1. Login amb credencials d'admin (ADMIN_USER, ADMIN_PASSWORD)
+1. Inici de sessió amb credencials d'admin (ADMIN_USER, ADMIN_PASSWORD)
 2. Pot crear/modificar/esborrar usuaris
 3. Pot visualitzar llistat de tots els usuaris del sistema
 4. Els usuaris creats per admin tindran rol "user" o "admin"
@@ -82,7 +83,7 @@ Crear una eina de xat moderna, quantum-resistent, amb tres nivells de seguretat 
 | Missatges E2EE | ✅ (3 nivells) | ❌ | ✅ (només privat) | ✅ (només privat) |
 | Quantum-resistant | ✅ Kyber-1024 | ❌ | ❌ | ❌ |
 | Open Source | ✅ | ❌ | ✅ | ❌ |
-| Auto-destrució missatges | ✅ TTL | ✅ | ✅ | ✅ |
+| Auto-destrució missatges | ✅ TTL | ❌ (només amb bots/automatització) | ✅ | ✅ |
 
 ## Modes d'Operació
 
@@ -98,7 +99,8 @@ ChillGroup pot funcionar en dos modes depenent de la configuració:
 - Només els administradors poden crear usuaris
 - L'endpoint de registre públic és desactivat
 - Ideal per a **empreses**, **grups privats** o **instàncies corporatives**
-- Requiere credencials d'admin inicial (`ADMIN_USER`, `ADMIN_PASSWORD`)
+- Requereix credencials d'admin inicial (`ADMIN_USER`, `ADMIN_PASSWORD`)
+- Opcionalment es pot promocionar un únic registre via `ONE_ADMIN_INVITATION` + `admin_invitation_code`
 - Els admins tenen accés a: crear/modificar/esborrar usuaris, llistar usuaris
 
 **Important**: Els administradors **NO** podem accedir a missatges xifrats (E2EE). Mantenen la privacesa completa.

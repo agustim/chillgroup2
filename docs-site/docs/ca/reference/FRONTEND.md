@@ -483,6 +483,7 @@ export const EncryptionIcon: React.FC<EncryptionIconProps> = ({ type, size = 'md
 │ chillgroup-username  │ 'agusti' (només per UI display)   │
 │ chillgroup-server    │ 'uuid-ultim-servidor'             │
 │ chillgroup-deviceId  │ UUID generat localment            │
+│ chillgroup-local-vault-meta │ Metadata del vault local    │
 └──────────────────────┴───────────────────────────────────┘
 ```
 
@@ -491,6 +492,7 @@ export const EncryptionIcon: React.FC<EncryptionIconProps> = ({ type, size = 'md
 - `chillgroup-deviceId` és un UUID generat localment (un per navegador)
 - `chillgroup-theme` es canvia amb el selector de tema
 - **JWT NO es guarda a localStorage** — es guarda a `Cookie: HttpOnly` o `sessionStorage`
+- `chillgroup-local-vault-meta` guarda només metadata criptogràfica (salt/verifier), no claus de canal
 
 ### IndexedDB (Dades Sensibles — Claus Criptogràfiques)
 
@@ -510,9 +512,16 @@ export const EncryptionIcon: React.FC<EncryptionIconProps> = ({ type, size = 'md
 │                      │ - acquiredAt: number              │
 ├──────────────────────┼───────────────────────────────────┤
 │ channelKeysBytes     │ channelId (UUID)                  │
-│                      │ - keyBytes: Uint8Array (32 bytes) │
+│                      │ - keyBytes: Uint8Array | null      │
+│                      │ - keyCiphertext: string | null     │
 │                      │ - type: 'symmetric' | 'asymmetric'│
 │                      │ - expiresAt: number | null        │
+├──────────────────────┼───────────────────────────────────┤
+│ channelKeysByVersion │ compoundId channelId::version      │
+│                      │ - keyBytes: Uint8Array | null      │
+│                      │ - keyCiphertext: string | null     │
+│                      │ - keyVersion, keyVersionId         │
+│                      │ - type, acquiredAt, expiresAt      │
 ├──────────────────────┼───────────────────────────────────┤
 │ devicePublicKeys     │ deviceId (UUID)                   │
 │                      │ - publicKey: Uint8Array (1568b)   │
@@ -549,7 +558,8 @@ interface KeyPairRecord {
 ```typescript
 interface CachedChannelKey {
   channelId: string           // UUID del canal
-  keyBytes: Uint8Array        // Clau AES-256 (32 bytes)
+  keyBytes: Uint8Array | null // Legacy en clar (compatibilitat)
+  keyCiphertext: string | null // Valor xifrat en repòs (vault local)
   type: 'symmetric' | 'asymmetric'
   acquiredAt: number          // Quan es va obtenir
   expiresAt: number | null    // NULL = no expira
@@ -560,8 +570,30 @@ interface CachedChannelKey {
 - Cache de rendiment — la font de veritat és el servidor
 - Per a canals **simètrics**: es demana al servidor i es desa aquí
 - Per a canals **asimètrics**: es desencripta amb Kyber i es desa aquí
+- Amb vault local actiu, el valor persistent és `keyCiphertext` (xifrat AES-GCM)
 - S'expira si el canal té TTL (coincideix amb TTL del canal)
 - Si no es troba a IndexedDB → es demana al servidor
+
+#### `channelKeysByVersion` — Claus per Versió
+
+```typescript
+interface VersionedChannelKeyRecord {
+  compoundId: string          // "channelId::keyVersion"
+  channelId: string
+  keyVersion: number
+  keyVersionId: string | null
+  keyBytes: Uint8Array | null
+  keyCiphertext: string | null
+  type: 'symmetric' | 'asymmetric'
+  acquiredAt: number
+  expiresAt: number | null
+}
+```
+
+**Regles:**
+- Store principal per lectura/escriptura de claus de canal
+- Manté historial per `keyVersion`
+- En migració, converteix entrades legacy en clar cap a `keyCiphertext`
 
 #### `channelKeys` — Claus de Canal Web Crypto
 
@@ -607,6 +639,33 @@ interface LiveKitSessionKeyRecord {
 - Generada per cada session de veu
 - Si el canal és E2EE, la session key es distribueix via canal de text
 - Es guarda a IndexedDB per reutilitzar en reconexions
+
+### Flux Login + Desbloqueig de Dispositiu
+
+1. L'usuari inicia sessió amb `username + contrasenya`.
+2. Si el client detecta vault local:
+  1. mostra pantalla "Desbloqueja el dispositiu",
+  2. sense desbloqueig no es poden usar claus locals.
+3. Si no hi ha vault local:
+  1. mostra pantalla de configuració de clau local,
+  2. crea metadata del vault i activa xifrat en repòs.
+
+### Logout: backup i neteja desacoblats
+
+El modal de logout permet combinacions independents:
+
+1. fer backup (xifrat o no),
+2. esborrar dades locals o conservar-les xifrades.
+
+Conservar dades locals implica desbloqueig local obligatori en el proper inici.
+
+### Canvi de clau local
+
+El panell de canvi de contrasenya inclou una segona secció per canviar la clau local:
+
+1. valida clau local actual,
+2. defineix clau local nova,
+3. re-xifra claus de canal locals amb la nova clau.
 
 ## Hook: `useChillGroup` — Estat Global
 
@@ -964,8 +1023,8 @@ export const MessageList: React.FC<MessageListProps> = ({
 
 2. OBTENCIO DE CLAU (si E2EE)
    └─> useChannelKey.ts: getChannelKey(channelId)
-   └─> IndexedDB? → retorna directament
-   └─> No → API GET /channels/:id/keys → desencripta → guarda a IndexedDB
+  └─> IndexedDB (xifrada en repòs) + vault desbloquejat? → retorna directament
+  └─> No → API GET /channels/:id/keys → desencripta → guarda a IndexedDB (xifrada en repòs)
 
 3. ENCRYPTACIO (si canal necessita)
    └─> crypto.ts: encryptMessage(channelKey, text)
@@ -985,7 +1044,7 @@ export const MessageList: React.FC<MessageListProps> = ({
    └─> useSocketIO hook rep "message"
    └─> useMessages hook afegeix a messages[]
    └─> MessageList es renderitza amb missatge nou
-   └─> Si E2EE → desencripta amb channelKey de IndexedDB
+  └─> Si E2EE → desencripta amb channelKey recuperada des de IndexedDB (requereix vault local desbloquejat)
 ```
 
 ## Flux de Connexió a Veu

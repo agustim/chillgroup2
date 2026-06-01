@@ -30,6 +30,20 @@
   --vp-home-hero-image-background-image: radial-gradient(circle at 30% 30%, rgba(20, 184, 166, 0.20), transparent 45%), radial-gradient(circle at 70% 30%, rgba(245, 158, 11, 0.18), transparent 45%);
 }
 
+html.dark,
+html.dark body,
+html.dark .Layout,
+html.dark .VPContent,
+html.dark .VPDoc,
+html.dark .VPDoc .container,
+html.dark .VPDoc .content,
+html.dark .VPNav,
+html.dark .VPNavBar,
+html.dark .VPSidebar,
+html.dark .VPPage {
+  background-color: var(--vp-c-bg);
+}
+
 .VPNavBar .title,
 .VPHomeHero .name,
 .VPDoc h1,

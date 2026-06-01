@@ -52,13 +52,14 @@
 
 Registrar un nou usuari. Genera automàticament un device ID.
 
-**Nota:** Si el servidor té `OPEN_REGISTER=false`, aquest endpoint retorna **403 Forbidden**. En aquest cas, sol sols els administradors poden crear usuaris via `POST /api/admin/users`.
+**Nota:** Si el servidor té `OPEN_REGISTER=false`, aquest endpoint retorna **403 Forbidden** excepte si es proporciona `admin_invitation_code` vàlid (one-shot).
 
 **Request:**
 ```json
 {
   "username": "agusti",           // string, 3-50 chars, alfanumèric + _
-  "password": "secretpassword"    // string, mínim 8 chars
+  "password": "secretpassword",   // string, mínim 8 chars
+  "admin_invitation_code": "CODI-UNIC-ADMIN" // opcional, promociona aquest registre a admin (1 sol ús)
 }
 ```
 
@@ -166,7 +167,8 @@ Si la invitació està vinculada a un servidor (`serverId`/`server_id`), l'usuar
 {
   "code": "abc123-def456-ghi789",         // Codi d'invitació
   "username": "newuser",                  // string, 3-50 chars
-  "password": "secretpassword"           // string, mínim 8 chars
+  "password": "secretpassword",           // string, mínim 8 chars
+  "admin_invitation_code": "CODI-UNIC-ADMIN" // opcional, promociona aquest registre a admin (1 sol ús)
 }
 ```
 
