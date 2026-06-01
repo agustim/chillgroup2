@@ -51,7 +51,7 @@ chillgroup/
 │       ├── hooks/
 │       ├── lib/
 │       └── pages/
-└── docker-compose.yml      # PostgreSQL + LiveKit + Dockerfile
+└── docker-compose.yml      # PostgreSQL + LiveKit + RustFS + Dockerfile
 ```
 
 ## Actualitzacions Operatives (Maig 2026)
@@ -755,11 +755,20 @@ test('can send encrypted message in asymmetric channel', async ({ page }) => {
 
 ## Docker Compose
 
-El `docker-compose.yml` de l'arrel aixeca tres serveis:
+El `docker-compose.yml` de l'arrel aixeca cinc serveis:
 
 - `postgres`: PostgreSQL 16 amb el volum `pgdata`
 - `livekit`: LiveKit en mode `--dev`
+- `rustfs`: servidor S3-compatible per adjunts (volum `rustfsdata`)
+- `rustfs-init`: servei one-shot que crea el bucket `chillgroup-attachments`
 - `app`: backend Rust compilat des de `Dockerfile` amb `build.sh --mode embedded`
+
+Les variables dels serveis Docker es carreguen des de `.env.compose`.
+
+Ports per defecte del S3 local:
+
+- API S3: `http://localhost:9000`
+- Consola RustFS: `http://localhost:9001`
 
 Arrencada recomanada:
 

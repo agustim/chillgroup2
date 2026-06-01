@@ -602,4 +602,40 @@ LiveKit suporta E2EE nativa amb **session keys** independents del xat. La distri
 | Signatures de bundles | ❌ | ❌ | ✅ |
 | Quantum-resistant | ❌ | Parcialment (transport) | ✅ ML-KEM-1024 |
 | Complexitat client | Baixa | Baixa | Alta |
+
+---
+
+## Adjunts Xifrats (S3)
+
+### Objectiu
+
+Garantir que qualsevol fitxer adjunt es desi a object storage en format xifrat i que el servidor no pugui obtenir el plaintext.
+
+### Model criptogràfic
+
+1. Per cada adjunt, el client genera una clau efímera de fitxer (`file_key`).
+2. El fitxer es xifra localment abans de pujar-se (preferentment en streaming/chunks).
+3. `file_key` es protegeix (wrapped) amb la clau de canal de la versió activa.
+4. A backend només s'envien ciphertext + metadades + `wrapped_file_key`.
+
+### Versioning de claus per adjunt
+
+Els adjunts hereten la mateixa semàntica de versionat que els missatges:
+
+1. Cada adjunt guarda `key_version_id` i `key_version`.
+2. Per desxifrar, el client ha de carregar exactament aquella versió.
+3. Si no la té localment, ha de demanar-la al backend amb `key_version_id`.
+
+Això permet que adjunts històrics continuin sent recuperables després d'una rotació de clau.
+
+### Integritat i chunks
+
+1. El client puja ciphertext per chunks.
+2. El backend guarda `chunk_size_bytes`, `chunk_count` i hash final (`ciphertext_sha256`).
+3. En descàrrega, el client valida integritat abans (o durant) el desxifrat.
+
+### Notes operatives
+
+1. No es pot executar antivirus sobre plaintext al servidor sense trencar zero-knowledge.
+2. Les miniatures només són possibles si el client les genera i puja com adjunt separat relacionat.
 | Gestió de dispositius | — | Opcional | Necessari |

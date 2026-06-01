@@ -1753,6 +1753,9 @@ Enviar un missatge a un canal.
 {
   "encryptedPayload": "base64-encrypted-text",
   "iv": "base64-12-byte-nonce",
+  "attachmentIds": [
+    "550e8400-e29b-41d4-a716-4466554400f1"
+  ],
   "expiresAt": null                // "2026-05-13T11:00:00Z" | null
 }
 ```
@@ -1848,6 +1851,15 @@ Recuperar un missatge concret pel seu ID.
     "senderDeviceId": "550e8400-e29b-41d4-a716-446655440001",
     "encryptedPayload": "base64-encrypted-text",
     "iv": "base64-iv",
+    "attachments": [
+      {
+        "attachmentId": "550e8400-e29b-41d4-a716-4466554400f1",
+        "fileName": "contracte.pdf",
+        "mimeType": "application/pdf",
+        "sizeBytes": 184223,
+        "createdAt": "2026-05-13T10:29:54Z"
+      }
+    ],
     "timestamp": "2026-05-13T10:30:00Z",
     "expiresAt": null,
     "editedAt": null,
@@ -1907,6 +1919,158 @@ torna a entrar a un canal.
   }
 }
 ```
+
+---
+
+## Adjunts (S3-compatible, xifrats client-side)
+
+### POST `/api/channels/:channelId/attachments/init`
+
+Iniciar un upload multipart per un adjunt. El backend valida permisos i retorna `attachmentId` i `uploadId` S3.
+
+**Headers:** `Authorization: Bearer <JWT>`
+**Path Params:** `{ "channelId": "string" }`
+**Request Body:**
+```json
+{
+  "fileName": "contracte.pdf",
+  "mimeType": "application/pdf",
+  "sizeBytes": 184223,
+  "createdAt": "2026-05-13T10:29:54Z",
+  "chunkSizeBytes": 5242880,
+  "chunkCount": 1
+}
+```
+
+**Response 201 Created:**
+```json
+{
+  "success": true,
+  "data": {
+    "attachmentId": "550e8400-e29b-41d4-a716-4466554400f1",
+    "uploadId": "s3-multipart-upload-id",
+    "objectKey": "channels/550e8400-e29b-41d4-a716-446655440020/attachments/550e8400-e29b-41d4-a716-4466554400f1.bin",
+    "chunkSizeBytes": 5242880,
+    "chunkCount": 1
+  }
+}
+```
+
+---
+
+### POST `/api/channels/:channelId/attachments/:attachmentId/sign-part`
+
+Obtenir URL signada per pujar un chunk concret al multipart upload.
+
+**Headers:** `Authorization: Bearer <JWT>`
+**Path Params:**
+- `channelId`
+- `attachmentId`
+
+**Request Body:**
+```json
+{
+  "uploadId": "s3-multipart-upload-id",
+  "partNumber": 1
+}
+```
+
+**Response 200 OK:**
+```json
+{
+  "success": true,
+  "data": {
+    "partNumber": 1,
+    "uploadUrl": "https://s3-compatible.local/...signed...",
+    "requiredHeaders": {
+      "content-type": "application/octet-stream"
+    }
+  }
+}
+```
+
+---
+
+### POST `/api/channels/:channelId/attachments/:attachmentId/complete`
+
+Tancar l'upload multipart i persistir metadades criptogràfiques de l'adjunt.
+
+**Headers:** `Authorization: Bearer <JWT>`
+**Path Params:**
+- `channelId`
+- `attachmentId`
+
+**Request Body:**
+```json
+{
+  "uploadId": "s3-multipart-upload-id",
+  "parts": [
+    {
+      "partNumber": 1,
+      "etag": "\"6805f2cfc46c0f04559748bb039d69ae\""
+    }
+  ],
+  "crypto": {
+    "algorithm": "aes-256-gcm",
+    "fileIv": "base64-12-byte-nonce",
+    "wrappedFileKey": "base64-wrapped-file-key",
+    "keyVersionId": "550e8400-e29b-41d4-a716-446655440030",
+    "keyVersion": 2,
+    "ciphertextSha256": "hex-sha256-ciphertext"
+  }
+}
+```
+
+**Response 200 OK:**
+```json
+{
+  "success": true,
+  "data": {
+    "attachmentId": "550e8400-e29b-41d4-a716-4466554400f1",
+    "status": "ready"
+  }
+}
+```
+
+---
+
+### GET `/api/channels/:channelId/attachments/:attachmentId/download`
+
+Obtenir URL signada de descàrrega i metadades necessàries per desxifrar al client.
+
+**Headers:** `Authorization: Bearer <JWT>`
+**Path Params:**
+- `channelId`
+- `attachmentId`
+
+**Response 200 OK:**
+```json
+{
+  "success": true,
+  "data": {
+    "attachmentId": "550e8400-e29b-41d4-a716-4466554400f1",
+    "fileName": "contracte.pdf",
+    "mimeType": "application/pdf",
+    "sizeBytes": 184223,
+    "createdAt": "2026-05-13T10:29:54Z",
+    "downloadUrl": "https://s3-compatible.local/...signed...",
+    "crypto": {
+      "algorithm": "aes-256-gcm",
+      "fileIv": "base64-12-byte-nonce",
+      "wrappedFileKey": "base64-wrapped-file-key",
+      "keyVersionId": "550e8400-e29b-41d4-a716-446655440030",
+      "keyVersion": 2,
+      "chunkSizeBytes": 5242880,
+      "chunkCount": 1,
+      "ciphertextSha256": "hex-sha256-ciphertext"
+    }
+  }
+}
+```
+
+**Nota de versioning:**
+
+Igual que amb els missatges, si el client no disposa de la clau de `keyVersionId`, l'ha de recuperar explícitament abans de desxifrar l'adjunt.
 
 ---
 
@@ -2161,6 +2325,10 @@ Generar un token d'accés a LiveKit per a un canal de veu.
 | GET | `/api/messages/:id` | Sí | Recuperar missatge concret |
 | DELETE | `/api/messages/:id` | Sí | Eliminar missatge |
 | GET | `/api/channels/:id/messages/check-new` | Sí | Check missatges nous |
+| POST | `/api/channels/:channelId/attachments/init` | Sí | Iniciar upload multipart d'adjunt |
+| POST | `/api/channels/:channelId/attachments/:attachmentId/sign-part` | Sí | Signar pujada d'un chunk |
+| POST | `/api/channels/:channelId/attachments/:attachmentId/complete` | Sí | Completar upload i guardar metadades crypto |
+| GET | `/api/channels/:channelId/attachments/:attachmentId/download` | Sí | Obtenir URL signada de descàrrega |
 | POST | `/api/direct-messages` | Sí | Enviar DM |
 | GET | `/api/direct-messages/list` | Sí | Llistar DMs |
 | POST | `/api/dm/channels/:id/keys/rotate` | Sí | Rotar clau DM |
