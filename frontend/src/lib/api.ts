@@ -295,11 +295,80 @@ export interface Message {
   senderDeviceId: string
   encryptedPayload: string
   iv: string
+  attachmentIds?: string[]
   keyVersion?: number | null
   timestamp: string
   expiresAt: string | null
   editedAt: string | null
   deletedAt: string | null
+}
+
+export interface AttachmentInitRequest {
+  fileName: string
+  mimeType: string
+  sizeBytes: number
+  chunkSizeBytes: number
+  chunkCount: number
+  createdAt?: string
+}
+
+export interface AttachmentInitResponse {
+  attachmentId: string
+  uploadId: string
+  objectKey: string
+  chunkSizeBytes: number
+  chunkCount: number
+}
+
+export interface AttachmentSignPartResponse {
+  partNumber: number
+  uploadUrl: string
+}
+
+export interface AttachmentCompletePart {
+  partNumber: number
+  etag: string
+}
+
+export interface AttachmentCompleteCrypto {
+  algorithm: string
+  fileIv: string
+  wrappedFileKey: string
+  keyVersionId: string
+  keyVersion: number
+  ciphertextSha256: string
+}
+
+export interface AttachmentCompleteRequest {
+  uploadId: string
+  parts: AttachmentCompletePart[]
+  crypto: AttachmentCompleteCrypto
+}
+
+export interface AttachmentCompleteResponse {
+  attachmentId: string
+  status: string
+}
+
+export interface AttachmentDownloadCrypto {
+  algorithm: string
+  fileIv: string
+  wrappedFileKey: string
+  keyVersionId: string
+  keyVersion: number
+  chunkSizeBytes: number
+  chunkCount: number
+  ciphertextSha256: string
+}
+
+export interface AttachmentDownloadResponse {
+  attachmentId: string
+  fileName: string
+  mimeType: string
+  sizeBytes: number
+  createdAt: string
+  downloadUrl: string
+  crypto: AttachmentDownloadCrypto
 }
 
 export interface PaginatedMessages {
@@ -662,7 +731,8 @@ export async function messagesSend(
   iv: string,
   keyVersion?: number,
   expiresAt?: string,
-  scope?: 'server' | 'dm'
+  scope?: 'server' | 'dm',
+  attachmentIds?: string[]
 ) {
   const path = scope === 'dm' ? `/api/dm/channels/${channelId}/messages` : `/api/channels/${channelId}/messages`
   const result = await apiRequest<any>('POST', path, {
@@ -670,12 +740,79 @@ export async function messagesSend(
     iv,
     key_version: keyVersion,
     expires_at: expiresAt,
+    attachment_ids: attachmentIds,
   })
   if (!result.success || !result.data) return result
   return {
     success: true as const,
     data: mapMessageToTypes(result.data),
   }
+}
+
+export async function attachmentInit(
+  channelId: string,
+  payload: AttachmentInitRequest,
+): Promise<ApiResult<AttachmentInitResponse>> {
+  return apiRequest<AttachmentInitResponse>('POST', `/api/channels/${channelId}/attachments/init`, {
+    file_name: payload.fileName,
+    mime_type: payload.mimeType,
+    size_bytes: payload.sizeBytes,
+    chunk_size_bytes: payload.chunkSizeBytes,
+    chunk_count: payload.chunkCount,
+    created_at: payload.createdAt,
+  })
+}
+
+export async function attachmentSignPart(
+  channelId: string,
+  attachmentId: string,
+  uploadId: string,
+  partNumber: number,
+): Promise<ApiResult<AttachmentSignPartResponse>> {
+  return apiRequest<AttachmentSignPartResponse>(
+    'POST',
+    `/api/channels/${channelId}/attachments/${attachmentId}/sign-part`,
+    {
+      upload_id: uploadId,
+      part_number: partNumber,
+    },
+  )
+}
+
+export async function attachmentComplete(
+  channelId: string,
+  attachmentId: string,
+  payload: AttachmentCompleteRequest,
+): Promise<ApiResult<AttachmentCompleteResponse>> {
+  return apiRequest<AttachmentCompleteResponse>(
+    'POST',
+    `/api/channels/${channelId}/attachments/${attachmentId}/complete`,
+    {
+      upload_id: payload.uploadId,
+      parts: payload.parts.map((part) => ({
+        part_number: part.partNumber,
+        etag: part.etag,
+      })),
+      crypto: {
+        algorithm: payload.crypto.algorithm,
+        file_iv: payload.crypto.fileIv,
+        wrapped_file_key: payload.crypto.wrappedFileKey,
+        key_version_id: payload.crypto.keyVersionId,
+        key_version: payload.crypto.keyVersion,
+        ciphertext_sha256: payload.crypto.ciphertextSha256,
+      },
+    },
+  )
+}
+
+export async function attachmentGetDownload(
+  channelId: string,
+  attachmentId: string,
+): Promise<ApiResult<AttachmentDownloadResponse>> {
+  return apiRequest<AttachmentDownloadResponse>(
+    'GET',
+    `/api/channels/${channelId}/attachments/${attachmentId}/download`,
+  )
 }
 
 export async function messagesEdit(messageId: string, encryptedPayload: string, iv: string) {
@@ -857,6 +994,7 @@ function mapMessageToTypes(msg: any): Message {
     senderDeviceId: msg.sender_device_id ?? msg.senderDeviceId,
     encryptedPayload: msg.encrypted_payload ?? msg.encryptedPayload,
     iv: msg.iv,
+    attachmentIds: msg.attachment_ids ?? msg.attachmentIds ?? [],
     keyVersion: msg.key_version ?? msg.keyVersion ?? null,
     timestamp: msg.timestamp,
     expiresAt: msg.expires_at ?? msg.expiresAt ?? null,

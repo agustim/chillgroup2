@@ -3,9 +3,22 @@ import ReactMarkdown from 'react-markdown'
 import remarkBreaks from 'remark-breaks'
 import remarkGfm from 'remark-gfm'
 import { EncryptionType, Message } from '../../types'
-import { messagesList } from '../../lib/api'
+import { attachmentGetDownload, messagesList } from '../../lib/api'
+import { downloadAndDecryptAttachment } from '../../lib/attachments'
 import { decryptMessagesForChannel } from '../../lib/channel-crypto'
 import { logger } from '../../lib/logger'
+
+interface AttachmentView {
+  attachmentId: string
+  fileName: string
+  downloadUrl: string
+  sizeBytes: number
+  mimeType: string
+  crypto: {
+    wrappedFileKey: string
+    fileIv: string
+  }
+}
 
 interface MessageListProps {
   channelId: string
@@ -26,6 +39,7 @@ export function MessageList({
 }: MessageListProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [decryptedPayloads, setDecryptedPayloads] = useState<Record<string, string>>({})
+  const [attachmentById, setAttachmentById] = useState<Record<string, AttachmentView>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -50,6 +64,28 @@ export function MessageList({
       </ReactMarkdown>
     </div>
   )
+
+  const formatSize = (sizeBytes: number) => {
+    if (sizeBytes < 1024) return `${sizeBytes} B`
+    if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`
+    return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`
+  }
+
+  const handleAttachmentDownload = async (attachment: AttachmentView) => {
+    try {
+      await downloadAndDecryptAttachment({
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+        downloadUrl: attachment.downloadUrl,
+        crypto: {
+          wrappedFileKey: attachment.crypto.wrappedFileKey,
+          fileIv: attachment.crypto.fileIv,
+        },
+      })
+    } catch (error) {
+      logger.error('[MessageList] Error descarregant adjunt:', error)
+    }
+  }
 
   // Mantenir la ref actualitzada amb el valor actual de expiringMessageIds
   useEffect(() => {
@@ -91,6 +127,10 @@ export function MessageList({
   useEffect(() => {
     loadMessages()
   }, [channelId, scope, encryptionType, refreshKey])
+
+  useEffect(() => {
+    setAttachmentById({})
+  }, [channelId])
 
   // Quan arriben missatges expirats, esperem la durada de l'animació i els retirem de l'estat local
   useEffect(() => {
@@ -145,6 +185,60 @@ export function MessageList({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView?.({ behavior: 'smooth' })
   }, [combined])
+
+  useEffect(() => {
+    const attachmentIds = Array.from(
+      new Set(
+        combined.flatMap((msg) => msg.attachmentIds ?? []),
+      ),
+    )
+
+    const missingIds = attachmentIds.filter((attachmentId) => !attachmentById[attachmentId])
+    if (missingIds.length === 0) return
+
+    let cancelled = false
+
+    Promise.all(
+      missingIds.map(async (attachmentId) => {
+        const response = await attachmentGetDownload(channelId, attachmentId)
+        if (!response.success) {
+          return null
+        }
+
+        return {
+          attachmentId,
+          fileName: response.data.fileName,
+          downloadUrl: response.data.downloadUrl,
+          sizeBytes: response.data.sizeBytes,
+          mimeType: response.data.mimeType,
+          crypto: {
+            wrappedFileKey: response.data.crypto.wrappedFileKey,
+            fileIv: response.data.crypto.fileIv,
+          },
+        } satisfies AttachmentView
+      }),
+    )
+      .then((items) => {
+        if (cancelled) return
+        const validItems = items.filter((item): item is AttachmentView => item !== null)
+        if (validItems.length === 0) return
+
+        setAttachmentById((previous) => {
+          const next = { ...previous }
+          validItems.forEach((item) => {
+            next[item.attachmentId] = item
+          })
+          return next
+        })
+      })
+      .catch(() => {
+        // Ignore per-message attachment metadata failures.
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [attachmentById, channelId, combined])
 
   // Early returns SEMPRE després de tots els hooks
   if (loading) {
@@ -202,6 +296,38 @@ export function MessageList({
                 <p className="deleted-message">Missatge eliminat</p>
               ) : (
                 renderMarkdownMessage(decryptedPayloads[msg.messageId] ?? msg.encryptedPayload)
+              )}
+
+              {(msg.attachmentIds?.length ?? 0) > 0 && (
+                <div className="message-attachment-list">
+                  {msg.attachmentIds?.map((attachmentId) => {
+                    const attachment = attachmentById[attachmentId]
+
+                    if (!attachment) {
+                      return (
+                        <span key={attachmentId} className="message-attachment-item loading">
+                          Adjunt carregant...
+                        </span>
+                      )
+                    }
+
+                    return (
+                      <a
+                        key={attachmentId}
+                        href={attachment.downloadUrl}
+                        className="message-attachment-item"
+                        download={attachment.fileName}
+                        title={attachment.fileName}
+                        onClick={(event) => {
+                          event.preventDefault()
+                          void handleAttachmentDownload(attachment)
+                        }}
+                      >
+                        📎 {attachment.fileName} ({formatSize(attachment.sizeBytes)})
+                      </a>
+                    )
+                  })}
+                </div>
               )}
             </div>
             <div className="message-timestamp">

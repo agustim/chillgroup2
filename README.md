@@ -92,6 +92,27 @@ Config de Docker Compose (recomanat per equip):
 `docker-compose.yml` carrega primer `.env.compose` i després `.env.compose.local`.
 Si una variable existeix als dos fitxers, preval el valor de `.env.compose.local`.
 
+Configuració recomanada per adjunts S3 en local:
+
+- `S3_ENDPOINT=http://rustfs:9000` (endpoint intern que veu el contenidor `app`)
+- `S3_PUBLIC_ENDPOINT=http://localhost:9000` (endpoint públic que veu el navegador)
+- `SERVER_PROXY_S3=false` (per defecte: frontend puja/baixa directament contra RustFS amb URL signada)
+
+Mode alternatiu de proxy per backend:
+
+- `SERVER_PROXY_S3=true`: el frontend puja/baixa fitxers passant pel backend (`/api/.../upload-part` i `/api/.../download-proxy`), i el backend reenvia a RustFS.
+- Aquest mode és útil quan el navegador no pot resoldre l'host de RustFS o hi ha restriccions de xarxa/CORS.
+
+Taula de decisió ràpida:
+
+| Escenari | Valor recomanat | Motiu |
+|----------|------------------|-------|
+| Entorn local estàndard (browser veu `localhost:9000`) | `SERVER_PROXY_S3=false` | Menys càrrega al backend i flux directe amb URLs signades |
+| El navegador no resol l'host S3 (p. ex. `rustfs`) | `SERVER_PROXY_S3=true` | El backend fa de pont i evita problemes DNS al client |
+| Restriccions CORS o polítiques de xarxa entre browser i S3 | `SERVER_PROXY_S3=true` | El trànsit d'upload/download passa pel backend autenticat |
+| Vols rendiment màxim en transferència de fitxers | `SERVER_PROXY_S3=false` | Evita un salt extra frontend -> backend -> S3 |
+| Vols centralitzar control/auditoria de transferències | `SERVER_PROXY_S3=true` | El backend intermedia totes les pujades i descàrregues |
+
 Si vols arrencar la pila completa amb la imatge construïda a partir de `build.sh`:
 
 ```bash

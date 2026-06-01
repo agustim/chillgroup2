@@ -14,6 +14,8 @@ pub struct Message {
     pub sender_device_id: Uuid,
     pub encrypted_payload: String, // Base64 AES-GCM
     pub iv: String,                // Base64 nonce
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachment_ids: Vec<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub key_version: Option<i32>,
     pub timestamp: DateTime<Utc>,

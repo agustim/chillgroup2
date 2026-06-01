@@ -544,6 +544,31 @@ describe('API Client', () => {
       }
     })
 
+    it('envia attachment_ids quan hi ha adjunts', async () => {
+      setupMocks({
+        success: true,
+        data: {
+          messageId: 'msg-2',
+          channelId: 'ch-1',
+          senderUserId: 'user-1',
+          senderUsername: 'testuser',
+          senderDeviceId: 'dev-1',
+          encryptedPayload: 'encrypted-data',
+          iv: 'iv-data',
+          timestamp: '2026-01-01T00:00:00Z',
+          expiresAt: null,
+          editedAt: null,
+          deletedAt: null,
+        },
+      })
+
+      const result = await messagesSend('ch-1', 'encrypted-payload', 'iv-value', undefined, undefined, 'server', ['att-1'])
+      expect(result.success).toBe(true)
+
+      const requestBody = JSON.parse(String(mockFetch.mock.calls[0]?.[1]?.body ?? '{}')) as { attachment_ids?: string[] }
+      expect(requestBody.attachment_ids).toEqual(['att-1'])
+    })
+
     it('edita un missatge', async () => {
       setupMocks({
         success: true,

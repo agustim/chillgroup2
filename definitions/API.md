@@ -1989,6 +1989,10 @@ Obtenir URL signada per pujar un chunk concret al multipart upload.
 }
 ```
 
+**Nota (`SERVER_PROXY_S3=true`):**
+
+En mode proxy, `uploadUrl` pot ser una ruta del backend (`/api/channels/:channelId/attachments/:attachmentId/upload-part?uploadId=...&partNumber=...`) en lloc d'una URL signada directa de RustFS.
+
 ---
 
 ### POST `/api/channels/:channelId/attachments/:attachmentId/complete`
@@ -2069,6 +2073,10 @@ Obtenir URL signada de descàrrega i metadades necessàries per desxifrar al cli
   }
 }
 ```
+
+**Nota (`SERVER_PROXY_S3=true`):**
+
+En mode proxy, `downloadUrl` pot ser una ruta del backend (`/api/channels/:channelId/attachments/:attachmentId/download-proxy`) en lloc d'una URL signada directa de RustFS.
 
 **Nota de versioning:**
 

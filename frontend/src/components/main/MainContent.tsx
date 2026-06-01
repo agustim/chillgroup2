@@ -2,12 +2,18 @@ import React, { useState, useCallback } from 'react'
 import { Channel, Message, VoiceConnection } from '../../types'
 import { messagesSend } from '../../lib/api'
 import { encryptChannelMessage, ensureChannelKey, distributeChannelKey } from '../../lib/channel-crypto'
+import { uploadEncryptedAttachment } from '../../lib/attachments'
 import { MessageList } from './MessageList'
 import { VoiceArea } from './VoiceArea'
 import { MessageInput } from './MessageInput'
 import { ChannelHeader } from './ChannelHeader'
 import { useSocketIO } from '../../hooks/useSocketIO'
 import { logger } from '../../lib/logger'
+
+interface ComposerAttachment {
+  id: string
+  file: File
+}
 
 interface MainContentProps {
   channel: Channel | null
@@ -44,6 +50,8 @@ export function MainContent({
   const [refreshKey, setRefreshKey] = useState(0)
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
+  const [uploadingAttachmentNames, setUploadingAttachmentNames] = useState<string[]>([])
+  const [pendingAttachments, setPendingAttachments] = useState<ComposerAttachment[]>([])
   const [socketMessages, setSocketMessages] = useState<Message[]>([])
   const [expiringMessageIds, setExpiringMessageIds] = useState<Set<string>>(new Set())
 
@@ -136,9 +144,34 @@ export function MainContent({
     }
   }, [channel?.channelId, channel?.encryptionType, channel?.keyVersion, channel?.keyVersionId, currentDeviceId])
 
+  const handleAddAttachments = useCallback((files: FileList | null) => {
+    if (!files || files.length === 0) return
+
+    setPendingAttachments((previous) => {
+      const existingKey = new Set(previous.map((item) => `${item.file.name}:${item.file.size}:${item.file.lastModified}`))
+      const next = [...previous]
+
+      Array.from(files).forEach((file) => {
+        const fingerprint = `${file.name}:${file.size}:${file.lastModified}`
+        if (existingKey.has(fingerprint)) return
+        next.push({
+          id: crypto.randomUUID(),
+          file,
+        })
+        existingKey.add(fingerprint)
+      })
+
+      return next
+    })
+  }, [])
+
+  const handleRemoveAttachment = useCallback((attachmentId: string) => {
+    setPendingAttachments((previous) => previous.filter((item) => item.id !== attachmentId))
+  }, [])
+
   const handleSendMessage = async () => {
     const trimmedMessage = message.trim()
-    if (!trimmedMessage || sending || !channel || channel.type === 'voice') {
+    if ((!trimmedMessage && pendingAttachments.length === 0) || sending || !channel || channel.type === 'voice') {
       return
     }
 
@@ -152,23 +185,48 @@ export function MainContent({
         trimmedMessage,
         currentDeviceId ?? undefined
       )
+
+      const attachmentIds: string[] = []
+      if (pendingAttachments.length > 0) {
+        const { getLatestChannelKey } = await import('../../lib/storage')
+        const latest = await getLatestChannelKey(channel.channelId)
+        const keyVersionId = channel.keyVersionId ?? latest?.keyVersionId ?? crypto.randomUUID()
+        const resolvedKeyVersion = channel.keyVersion ?? latest?.keyVersion ?? keyVersion ?? 1
+
+        for (const attachment of pendingAttachments) {
+          setUploadingAttachmentNames([attachment.file.name])
+
+          const uploaded = await uploadEncryptedAttachment({
+            channelId: channel.channelId,
+            file: attachment.file,
+            keyVersionId,
+            keyVersion: resolvedKeyVersion,
+          })
+          attachmentIds.push(uploaded.attachmentId)
+        }
+      }
+
       const response = await messagesSend(
         channel.channelId,
         encryptedPayload,
         iv,
         keyVersion ?? undefined,
         undefined,
-        channel.scope
+        channel.scope,
+        attachmentIds,
       )
       if (response.success) {
         setMessage('')
+        setPendingAttachments([])
         setRefreshKey((current) => current + 1)
       } else {
         setSendError(response.error.message || "No s'ha pogut enviar el missatge")
       }
-    } catch {
-      setSendError('Error en enviar el missatge')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Error en enviar el missatge'
+      setSendError(message)
     } finally {
+      setUploadingAttachmentNames([])
       setSending(false)
     }
   }
@@ -246,9 +304,22 @@ export function MainContent({
               onChange={setMessage}
               onKeyDown={handleKeyDown}
               onSubmit={handleSendMessage}
+              onAddAttachments={handleAddAttachments}
+              onRemoveAttachment={handleRemoveAttachment}
+              pendingAttachments={pendingAttachments.map((item) => ({
+                id: item.id,
+                name: item.file.name,
+                size: item.file.size,
+              }))}
               placeholder={`Missatjar a #${channel.name}`}
               encryptionType={channel.encryptionType}
+              isBusy={sending}
             />
+            {uploadingAttachmentNames.length > 0 && (
+              <div className="message-send-info">
+                Pujant adjunts: {uploadingAttachmentNames.join(', ')}
+              </div>
+            )}
           </div>
         </div>
       )}

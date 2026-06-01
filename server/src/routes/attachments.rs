@@ -1,12 +1,15 @@
 use axum::{
+    body::Bytes,
     extract::{Path, State},
-    http::StatusCode,
-    routing::{get, post},
+    http::{header, StatusCode},
+    response::IntoResponse,
+    routing::{get, post, put},
     Json, Router,
 };
 use aws_credential_types::{provider::SharedCredentialsProvider, Credentials};
 use aws_sdk_s3::{
     config::{Builder as S3ConfigBuilder, Region},
+    primitives::ByteStream,
     presigning::PresigningConfig,
     types::{CompletedMultipartUpload, CompletedPart},
     Client as S3Client,
@@ -24,6 +27,12 @@ use crate::{
 
 fn s3_endpoint() -> String {
     std::env::var("S3_ENDPOINT").unwrap_or_else(|_| "http://localhost:9000".to_string())
+}
+
+fn s3_public_endpoint() -> String {
+    std::env::var("S3_PUBLIC_ENDPOINT")
+        .or_else(|_| std::env::var("S3_ENDPOINT"))
+        .unwrap_or_else(|_| "http://localhost:9000".to_string())
 }
 
 fn s3_region() -> String {
@@ -49,7 +58,14 @@ fn s3_force_path_style() -> bool {
         .unwrap_or(true)
 }
 
-fn build_s3_client() -> S3Client {
+fn server_proxy_s3() -> bool {
+    std::env::var("SERVER_PROXY_S3")
+        .ok()
+        .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "true" | "1" | "yes" | "on"))
+        .unwrap_or(false)
+}
+
+fn build_s3_client_with_endpoint(endpoint: String) -> S3Client {
     let creds = Credentials::new(
         s3_access_key_id(),
         s3_secret_access_key(),
@@ -61,15 +77,27 @@ fn build_s3_client() -> S3Client {
     let conf = S3ConfigBuilder::new()
         .region(Region::new(s3_region()))
         .credentials_provider(SharedCredentialsProvider::new(creds))
-        .endpoint_url(s3_endpoint())
+        .endpoint_url(endpoint)
         .force_path_style(s3_force_path_style())
         .build();
 
     S3Client::from_conf(conf)
 }
 
+fn build_s3_client() -> S3Client {
+    build_s3_client_with_endpoint(s3_endpoint())
+}
+
+fn build_s3_presign_client() -> S3Client {
+    build_s3_client_with_endpoint(s3_public_endpoint())
+}
+
 fn presigning_config() -> Result<PresigningConfig, AppError> {
     PresigningConfig::expires_in(Duration::from_secs(900)).map_err(|_| AppError::InternalError)
+}
+
+fn attachment_is_downloadable(status: &str) -> bool {
+    matches!(status, "ready" | "linked")
 }
 
 #[derive(Debug, Deserialize)]
@@ -116,6 +144,19 @@ pub struct SignPartResponse {
     pub part_number: i32,
     #[serde(rename = "uploadUrl")]
     pub upload_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ProxyUploadPartQuery {
+    #[serde(alias = "uploadId")]
+    pub upload_id: String,
+    #[serde(alias = "partNumber")]
+    pub part_number: i32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProxyUploadPartResponse {
+    pub etag: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -289,24 +330,84 @@ pub async fn sign_part(
         return Err(AppError::BadRequest);
     }
 
-    let s3 = build_s3_client();
-    let cfg = presigning_config()?;
-    let presigned = s3
-        .upload_part()
-        .bucket(s3_bucket())
-        .key(&attachment.object_key)
-        .upload_id(&req.upload_id)
-        .part_number(req.part_number)
-        .presigned(cfg)
-        .await
-        .map_err(|_| AppError::InternalError)?;
+    let upload_url = if server_proxy_s3() {
+        format!(
+            "/api/channels/{}/attachments/{}/upload-part?uploadId={}&partNumber={}",
+            channel_id, attachment_id, req.upload_id, req.part_number
+        )
+    } else {
+        let s3 = build_s3_presign_client();
+        let cfg = presigning_config()?;
+        let presigned = s3
+            .upload_part()
+            .bucket(s3_bucket())
+            .key(&attachment.object_key)
+            .upload_id(&req.upload_id)
+            .part_number(req.part_number)
+            .presigned(cfg)
+            .await
+            .map_err(|_| AppError::InternalError)?;
 
-    let upload_url = presigned.uri().to_string();
+        presigned.uri().to_string()
+    };
 
     Ok(Json(SignPartResponse {
         part_number: req.part_number,
         upload_url,
     }))
+}
+
+pub async fn upload_part_proxy(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path((channel_id, attachment_id)): Path<(Uuid, Uuid)>,
+    axum::extract::Query(query): axum::extract::Query<ProxyUploadPartQuery>,
+    body: Bytes,
+) -> Result<impl IntoResponse, AppError> {
+    if !server_proxy_s3() {
+        return Err(AppError::BadRequest);
+    }
+
+    let permission_level = state
+        .db
+        .get_channel_permission_level(channel_id, claims.user_id)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .unwrap_or(0);
+    if permission_level < CHANNEL_PERMISSION_WRITE {
+        return Err(AppError::Forbidden);
+    }
+
+    let attachment = state
+        .db
+        .get_attachment_by_id(channel_id, attachment_id)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .ok_or(AppError::AttachmentNotFound)?;
+
+    if attachment.upload_id != query.upload_id || attachment.status != "initiated" {
+        return Err(AppError::BadRequest);
+    }
+
+    let s3 = build_s3_client();
+    let output = s3
+        .upload_part()
+        .bucket(s3_bucket())
+        .key(&attachment.object_key)
+        .upload_id(&query.upload_id)
+        .part_number(query.part_number)
+        .body(ByteStream::from(body.to_vec()))
+        .send()
+        .await
+        .map_err(|_| AppError::InternalError)?;
+
+    let etag = output.e_tag().ok_or(AppError::InternalError)?.to_string();
+
+    Ok((
+        StatusCode::OK,
+        [(header::ETAG, etag.clone())],
+        Json(ProxyUploadPartResponse { etag }),
+    ))
 }
 
 pub async fn complete_attachment(
@@ -407,21 +508,28 @@ pub async fn download_attachment(
         .map_err(AppError::DatabaseError)?
         .ok_or(AppError::AttachmentNotFound)?;
 
-    if attachment.status != "ready" {
+    if !attachment_is_downloadable(&attachment.status) {
         return Err(AppError::BadRequest);
     }
 
-    let s3 = build_s3_client();
-    let cfg = presigning_config()?;
-    let presigned = s3
-        .get_object()
-        .bucket(s3_bucket())
-        .key(&attachment.object_key)
-        .presigned(cfg)
-        .await
-        .map_err(|_| AppError::InternalError)?;
+    let download_url = if server_proxy_s3() {
+        format!(
+            "/api/channels/{}/attachments/{}/download-proxy",
+            channel_id, attachment_id
+        )
+    } else {
+        let s3 = build_s3_presign_client();
+        let cfg = presigning_config()?;
+        let presigned = s3
+            .get_object()
+            .bucket(s3_bucket())
+            .key(&attachment.object_key)
+            .presigned(cfg)
+            .await
+            .map_err(|_| AppError::InternalError)?;
 
-    let download_url = presigned.uri().to_string();
+        presigned.uri().to_string()
+    };
 
     Ok(Json(DownloadAttachmentResponse {
         attachment_id: attachment.id,
@@ -443,6 +551,60 @@ pub async fn download_attachment(
     }))
 }
 
+pub async fn download_attachment_proxy(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path((channel_id, attachment_id)): Path<(Uuid, Uuid)>,
+) -> Result<impl IntoResponse, AppError> {
+    if !server_proxy_s3() {
+        return Err(AppError::BadRequest);
+    }
+
+    let permission_level = state
+        .db
+        .get_channel_permission_level(channel_id, claims.user_id)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .unwrap_or(0);
+    if permission_level < CHANNEL_PERMISSION_READ {
+        return Err(AppError::Forbidden);
+    }
+
+    let attachment = state
+        .db
+        .get_attachment_by_id(channel_id, attachment_id)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .ok_or(AppError::AttachmentNotFound)?;
+
+    if !attachment_is_downloadable(&attachment.status) {
+        return Err(AppError::BadRequest);
+    }
+
+    let s3 = build_s3_client();
+    let output = s3
+        .get_object()
+        .bucket(s3_bucket())
+        .key(&attachment.object_key)
+        .send()
+        .await
+        .map_err(|_| AppError::InternalError)?;
+
+    let content_type = output
+        .content_type()
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| attachment.mime_type.clone());
+
+    let body = output
+        .body
+        .collect()
+        .await
+        .map_err(|_| AppError::InternalError)?
+        .into_bytes();
+
+    Ok(([(header::CONTENT_TYPE, content_type)], body))
+}
+
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route(
@@ -458,8 +620,16 @@ pub fn router(state: AppState) -> Router {
             post(complete_attachment),
         )
         .route(
+            "/api/channels/{channel_id}/attachments/{attachment_id}/upload-part",
+            put(upload_part_proxy),
+        )
+        .route(
             "/api/channels/{channel_id}/attachments/{attachment_id}/download",
             get(download_attachment),
+        )
+        .route(
+            "/api/channels/{channel_id}/attachments/{attachment_id}/download-proxy",
+            get(download_attachment_proxy),
         )
         .with_state(state)
 }
@@ -706,5 +876,80 @@ mod tests {
         .await;
 
         assert!(matches!(result, Err(AppError::BadRequest)));
+    }
+
+    #[tokio::test]
+    async fn download_attachment_allows_linked_status() {
+        let state = make_state().await;
+        let (owner_id, _server_id, channel_id) =
+            setup_server_channel(&state, "att_download_linked_owner", "att-download-linked").await;
+
+        let attachment_id = Uuid::new_v4();
+        let message_id = Uuid::new_v4();
+        let key_version_id = Uuid::new_v4();
+        state
+            .db
+            .create_attachment_init(
+                attachment_id,
+                channel_id,
+                owner_id,
+                Uuid::new_v4(),
+                "f.bin",
+                "application/octet-stream",
+                32,
+                Utc::now(),
+                "channels/test/attachments/test.bin",
+                "upload-id",
+                16,
+                2,
+            )
+            .await
+            .expect("create initiated attachment");
+
+        state
+            .db
+            .complete_attachment(
+                attachment_id,
+                "aes-256-gcm",
+                "iv",
+                "wrapped",
+                key_version_id,
+                1,
+                "deadbeef",
+            )
+            .await
+            .expect("complete attachment");
+
+        state
+            .db
+            .create_message(
+                message_id,
+                channel_id,
+                owner_id,
+                "att_download_linked_owner",
+                Uuid::new_v4(),
+                "payload",
+                "iv",
+                Some(1),
+                None,
+                Utc::now(),
+            )
+            .await
+            .expect("create message");
+
+        state
+            .db
+            .attach_message_attachments(message_id, channel_id, owner_id, &[attachment_id])
+            .await
+            .expect("link attachment to message");
+
+        let result = download_attachment(
+            State(state),
+            Extension(claims_for(owner_id, "att_download_linked_owner")),
+            Path((channel_id, attachment_id)),
+        )
+        .await;
+
+        assert!(result.is_ok(), "linked attachments should remain downloadable");
     }
 }

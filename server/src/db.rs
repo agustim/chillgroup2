@@ -4112,6 +4112,34 @@ impl DatabasePool {
         Ok(())
     }
 
+    async fn get_message_attachment_ids(
+        &self,
+        message_id: Uuid,
+    ) -> Result<Vec<Uuid>, sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let rows = sqlx::query(
+                    "SELECT attachment_id FROM message_attachments WHERE message_id = $1 ORDER BY attachment_id ASC",
+                )
+                .bind(message_id)
+                .fetch_all(pool)
+                .await?;
+
+                Ok(rows.into_iter().map(|row| row.get(0)).collect())
+            }
+            DatabasePool::Sqlite(pool) => {
+                let rows = sqlx::query(
+                    "SELECT attachment_id FROM message_attachments WHERE message_id = ? ORDER BY attachment_id ASC",
+                )
+                .bind(message_id)
+                .fetch_all(pool)
+                .await?;
+
+                Ok(rows.into_iter().map(|row| row.get(0)).collect())
+            }
+        }
+    }
+
     pub async fn get_message(&self, message_id: Uuid) -> Result<Option<Message>, sqlx::Error> {
         let now = chrono::Utc::now().to_rfc3339();
         match self {
@@ -4125,15 +4153,18 @@ impl DatabasePool {
                     .bind(&now)
                     .fetch_optional(pool)
                     .await?;
-                row.map(|row| {
-                    Ok(Message {
-                        id: row.get(0),
+                if let Some(row) = row {
+                    let id: Uuid = row.get(0);
+                    let attachment_ids = self.get_message_attachment_ids(id).await?;
+                    Ok(Some(Message {
+                        id,
                         channel_id: row.get(1),
                         sender_user_id: row.get(2),
                         sender_username: row.get(3),
                         sender_device_id: row.get(4),
                         encrypted_payload: row.get(5),
                         iv: row.get(6),
+                        attachment_ids,
                         key_version: row.get(7),
                         timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(8))
                             .map(|d| d.with_timezone(&Utc))
@@ -4141,9 +4172,10 @@ impl DatabasePool {
                         expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
                         edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
                         deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(11)),
-                    })
-                })
-                .transpose()
+                    }))
+                } else {
+                    Ok(None)
+                }
             }
             DatabasePool::Sqlite(pool) => {
                 let query = "SELECT id, channel_id, sender_user_id, sender_username, sender_device_id, \
@@ -4155,15 +4187,18 @@ impl DatabasePool {
                     .bind(&now)
                     .fetch_optional(pool)
                     .await?;
-                row.map(|row| {
-                    Ok(Message {
-                        id: row.get(0),
+                if let Some(row) = row {
+                    let id: Uuid = row.get(0);
+                    let attachment_ids = self.get_message_attachment_ids(id).await?;
+                    Ok(Some(Message {
+                        id,
                         channel_id: row.get(1),
                         sender_user_id: row.get(2),
                         sender_username: row.get(3),
                         sender_device_id: row.get(4),
                         encrypted_payload: row.get(5),
                         iv: row.get(6),
+                        attachment_ids,
                         key_version: row.get(7),
                         timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(8))
                             .map(|d| d.with_timezone(&Utc))
@@ -4171,9 +4206,10 @@ impl DatabasePool {
                         expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
                         edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
                         deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(11)),
-                    })
-                })
-                .transpose()
+                    }))
+                } else {
+                    Ok(None)
+                }
             }
         }
     }
@@ -4239,14 +4275,17 @@ impl DatabasePool {
 
                 let rows = q.fetch_all(pool).await?;
                 for row in rows {
+                    let id: Uuid = row.get(0);
+                    let attachment_ids = self.get_message_attachment_ids(id).await?;
                     msgs.push(Message {
-                        id: row.get(0),
+                        id,
                         channel_id: row.get(1),
                         sender_user_id: row.get(2),
                         sender_username: row.get(3),
                         sender_device_id: row.get(4),
                         encrypted_payload: row.get(5),
                         iv: row.get(6),
+                        attachment_ids,
                         key_version: row.get(7),
                         timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(8))
                             .map(|d| d.with_timezone(&Utc))
@@ -4299,14 +4338,17 @@ impl DatabasePool {
 
                 let rows = q.fetch_all(pool).await?;
                 for row in rows {
+                    let id: Uuid = row.get(0);
+                    let attachment_ids = self.get_message_attachment_ids(id).await?;
                     msgs.push(Message {
-                        id: row.get(0),
+                        id,
                         channel_id: row.get(1),
                         sender_user_id: row.get(2),
                         sender_username: row.get(3),
                         sender_device_id: row.get(4),
                         encrypted_payload: row.get(5),
                         iv: row.get(6),
+                        attachment_ids,
                         key_version: row.get(7),
                         timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(8))
                             .map(|d| d.with_timezone(&Utc))
@@ -4348,6 +4390,7 @@ impl DatabasePool {
                     .bind(message_id)
                     .fetch_one(pool)
                     .await?;
+                let attachment_ids = self.get_message_attachment_ids(message_id).await?;
                 Ok(Message {
                     id: row.get(0),
                     channel_id: row.get(1),
@@ -4356,6 +4399,7 @@ impl DatabasePool {
                     sender_device_id: row.get(4),
                     encrypted_payload: row.get(5),
                     iv: row.get(6),
+                    attachment_ids,
                     key_version: row.get(7),
                     timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(8))
                         .map(|d| d.with_timezone(&Utc))
@@ -4374,6 +4418,7 @@ impl DatabasePool {
                     .bind(message_id)
                     .fetch_one(pool)
                     .await?;
+                let attachment_ids = self.get_message_attachment_ids(message_id).await?;
                 Ok(Message {
                     id: row.get(0),
                     channel_id: row.get(1),
@@ -4382,6 +4427,7 @@ impl DatabasePool {
                     sender_device_id: row.get(4),
                     encrypted_payload: row.get(5),
                     iv: row.get(6),
+                    attachment_ids,
                     key_version: row.get(7),
                     timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(8))
                         .map(|d| d.with_timezone(&Utc))

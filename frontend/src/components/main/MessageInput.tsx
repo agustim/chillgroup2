@@ -2,13 +2,29 @@ import React from 'react'
 import { EncryptionType } from '../../types'
 import { Button } from '../shared/Button'
 
+interface PendingAttachmentItem {
+  id: string
+  name: string
+  size: number
+}
+
 interface MessageInputProps {
   value: string
   onChange: (value: string) => void
   onKeyDown?: (e: React.KeyboardEvent) => void
   onSubmit?: () => void
+  onAddAttachments?: (files: FileList | null) => void
+  onRemoveAttachment?: (attachmentId: string) => void
+  pendingAttachments?: PendingAttachmentItem[]
   placeholder?: string
   encryptionType: EncryptionType
+  isBusy?: boolean
+}
+
+function formatFileSize(size: number): string {
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
 export function MessageInput({
@@ -16,13 +32,30 @@ export function MessageInput({
   onChange,
   onKeyDown,
   onSubmit,
+  onAddAttachments,
+  onRemoveAttachment,
+  pendingAttachments = [],
   placeholder,
   encryptionType,
+  isBusy = false,
 }: MessageInputProps) {
+  const fileInputRef = React.useRef<HTMLInputElement>(null)
+
   const handleSubmit = () => {
-    if (onSubmit && value.trim()) {
+    if (isBusy) return
+    if (onSubmit && (value.trim() || pendingAttachments.length > 0)) {
       onSubmit()
     }
+  }
+
+  const handlePickFiles = () => {
+    if (isBusy) return
+    fileInputRef.current?.click()
+  }
+
+  const handleFilesChanged = (e: React.ChangeEvent<HTMLInputElement>) => {
+    onAddAttachments?.(e.target.files)
+    e.target.value = ''
   }
 
   const cryptoIndicator = {
@@ -33,6 +66,46 @@ export function MessageInput({
 
   return (
     <div className="message-input">
+      {pendingAttachments.length > 0 && (
+        <div className="message-attachments-preview">
+          {pendingAttachments.map((attachment) => (
+            <div key={attachment.id} className="message-attachment-chip">
+              <span className="message-attachment-chip-name" title={attachment.name}>
+                {attachment.name}
+              </span>
+              <span className="message-attachment-chip-size">{formatFileSize(attachment.size)}</span>
+              <button
+                type="button"
+                className="message-attachment-chip-remove"
+                onClick={() => onRemoveAttachment?.(attachment.id)}
+                disabled={isBusy}
+                aria-label={`Eliminar ${attachment.name}`}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="message-input-actions">
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={handlePickFiles}
+          disabled={isBusy}
+          className="attach-button"
+        >
+          📎
+        </Button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="message-file-input"
+          onChange={handleFilesChanged}
+        />
+
       <div className="message-input-content">
         <input
           type="text"
@@ -43,6 +116,7 @@ export function MessageInput({
           onSubmit={handleSubmit}
           placeholder={placeholder || 'Escriu un missatge...'}
           autoComplete="off"
+          disabled={isBusy}
         />
         {cryptoIndicator && (
           <span className="input-crypto-indicator" title={`Encriptació ${encryptionType}`}>
@@ -54,11 +128,12 @@ export function MessageInput({
         variant="primary"
         size="sm"
         onClick={handleSubmit}
-        disabled={!value.trim()}
+        disabled={isBusy || (!value.trim() && pendingAttachments.length === 0)}
         className="send-button"
       >
         📤
       </Button>
+      </div>
     </div>
   )
 }

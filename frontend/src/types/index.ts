@@ -101,6 +101,7 @@ export interface Message {
   senderDeviceId: string
   encryptedPayload: string
   iv: string
+  attachmentIds?: string[]
   keyVersion?: number | null
   timestamp: string
   expiresAt: string | null

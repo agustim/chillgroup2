@@ -780,6 +780,16 @@ Ports per defecte del S3 local:
 - API S3: `http://localhost:9000`
 - Consola RustFS: `http://localhost:9001`
 
+Variables d'entorn rellevants per adjunts:
+
+- `S3_ENDPOINT`: endpoint intern per backend->RustFS (en compose: `http://rustfs:9000`)
+- `S3_PUBLIC_ENDPOINT`: endpoint públic per URLs signades que usa el navegador (en local: `http://localhost:9000`)
+- `SERVER_PROXY_S3` (`false` per defecte):
+    - `false`: mode directe, el client usa URLs signades contra RustFS
+    - `true`: mode proxy, el client usa endpoints del backend i aquest reenvi a RustFS
+
+El mode `SERVER_PROXY_S3=true` és útil si el navegador no pot resoldre l'host intern Docker (`rustfs`) o hi ha limitacions de CORS/rede.
+
 Arrencada recomanada:
 
 ```bash
