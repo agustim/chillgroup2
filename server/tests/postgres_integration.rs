@@ -271,3 +271,42 @@ async fn postgres_expired_message_cleanup_roundtrip() {
     assert_eq!(deleted.len(), 1);
     assert_eq!(deleted[0].0, message_id);
 }
+
+#[tokio::test]
+async fn postgres_dm_channel_creation_roundtrip() {
+    let pool = test_pool().await;
+    let db = DatabasePool::Postgres(pool);
+    let suffix = Uuid::new_v4().simple().to_string();
+
+    let user_a = db
+        .create_user_with_role(&format!("dm-a-{suffix}"), "password-hash", "user")
+        .await
+        .expect("create first dm user");
+    let user_b = db
+        .create_user_with_role(&format!("dm-b-{suffix}"), "password-hash", "user")
+        .await
+        .expect("create second dm user");
+
+    let dm_channel_id = Uuid::new_v4();
+    db.create_dm_channel(dm_channel_id, user_a, user_b, Some(120))
+        .await
+        .expect("create dm channel");
+
+    let found_channel = db
+        .find_dm_channel_by_users(user_a, user_b)
+        .await
+        .expect("find dm channel by users");
+
+    assert_eq!(found_channel, Some(dm_channel_id));
+
+    let channel = db
+        .get_channel(dm_channel_id)
+        .await
+        .expect("load dm channel")
+        .expect("dm channel should exist");
+
+    assert_eq!(channel.channel_type, ChannelType::Text);
+    assert_eq!(channel.encryption_type, EncryptionType::Asymmetric);
+    assert_eq!(channel.message_ttl, Some(120));
+    assert!(channel.is_private);
+}

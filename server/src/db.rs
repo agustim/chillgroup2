@@ -3240,15 +3240,14 @@ impl DatabasePool {
         match self {
             DatabasePool::Postgres(pool) => {
                 sqlx::query(
-                    "INSERT INTO channels (id, server_id, name, type, encryption_type, scope, dm_user_a_id, dm_user_b_id, message_ttl, is_private, created_at)
-                     VALUES ($1, NULL, $2, 'text', 'asymmetric', 'dm', $3, $4, $5, true, $6)",
+                    "INSERT INTO channels (id, server_id, name, channel_type, encryption_type, scope, dm_user_a_id, dm_user_b_id, message_ttl, is_private, created_at)
+                     VALUES ($1, NULL, $2, 'text', 'asymmetric', 'dm', $3, $4, $5, true, NOW())",
                 )
                 .bind(channel_id)
                 .bind(name)
                 .bind(dm_user_a_id)
                 .bind(dm_user_b_id)
                 .bind(message_ttl)
-                .bind(now)
                 .execute(pool)
                 .await?;
             }
