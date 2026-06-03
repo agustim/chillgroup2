@@ -11,3 +11,4 @@ pub mod friends;
 pub mod admin;
 pub mod plans;
 pub mod attachments;
+pub mod server_invitations;

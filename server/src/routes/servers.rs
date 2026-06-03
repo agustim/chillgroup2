@@ -3,7 +3,7 @@
 #![allow(dead_code)]
 
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::StatusCode,
     Json,
     routing::{delete, get, put},
@@ -63,6 +63,18 @@ pub struct RemoveMemberResponse {
 pub struct DeleteServerResponse {
     pub server_id: Uuid,
     pub deleted: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LeaveServerResponse {
+    pub server_id: Uuid,
+    pub left: bool,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct LeaveServerParams {
+    #[serde(default)]
+    pub force: bool,
 }
 
 async fn ensure_server_permission(
@@ -300,39 +312,37 @@ pub async fn invite_server_member(
         return Err(AppError::MemberExists);
     }
 
+    // Crear invitació pendent — l'usuari l'ha d'acceptar explícitament
+    let invitation_id = Uuid::new_v4();
     state
         .db
-        .add_server_member(server_id, invited_user_id, "member")
+        .create_server_invitation(invitation_id, server_id, claims.user_id, invited_user_id)
         .await
         .map_err(AppError::DatabaseError)?;
 
-    let user_servers_updated_event = serde_json::json!({
+    let server_name = state
+        .db
+        .get_server_full_info(server_id, claims.user_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|s| s.name)
+        .unwrap_or_default();
+
+    let invitation_event = serde_json::json!({
+        "invitationId": invitation_id,
         "serverId": server_id,
-        "reason": "server-invited",
+        "serverName": server_name,
+        "inviterUsername": claims.username,
     });
     let invited_user_room = format!("user:{}", invited_user_id);
     if let Err(e) = state
         .io
         .to(invited_user_room)
-        .emit("user-servers-updated", &user_servers_updated_event)
+        .emit("server-invitation", &invitation_event)
         .await
     {
-        tracing::warn!("Error enviant user-servers-updated: {:?}", e);
-    }
-
-    let server_members_updated_event = serde_json::json!({
-        "serverId": server_id,
-        "reason": "member-added",
-        "userId": invited_user_id,
-    });
-    let server_room = format!("server:{}", server_id);
-    if let Err(e) = state
-        .io
-        .to(server_room)
-        .emit("server-members-updated", &server_members_updated_event)
-        .await
-    {
-        tracing::warn!("Error enviant server-members-updated: {:?}", e);
+        tracing::warn!("Error enviant server-invitation: {:?}", e);
     }
 
     Ok((
@@ -415,11 +425,55 @@ pub async fn remove_server_member(
     }))
 }
 
+pub async fn leave_server(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path(server_id): Path<Uuid>,
+    Query(params): Query<LeaveServerParams>,
+) -> Result<Json<LeaveServerResponse>, AppError> {
+    info!("Endpoint leave_server cridat: server_id={}, user_id={}, force={}", server_id, claims.user_id, params.force);
+
+    let role = state
+        .db
+        .is_server_member(server_id, claims.user_id)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .ok_or(AppError::MemberNotFound)?;
+
+    if role == "owner" {
+        return Err(AppError::OwnerCannotLeave);
+    }
+
+    if role == "admin" && !params.force {
+        let admin_count = state
+            .db
+            .count_server_admins(server_id)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
+        if admin_count <= 1 {
+            return Err(AppError::ServerLastAdmin);
+        }
+    }
+
+    state
+        .db
+        .remove_server_member(server_id, claims.user_id)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+    Ok(Json(LeaveServerResponse {
+        server_id,
+        left: true,
+    }))
+}
+
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/servers", get(list_servers).post(create_server))
         .route("/api/servers/{server_id}", get(get_server).put(update_server).delete(delete_server))
         .route("/api/servers/{server_id}/members", get(list_server_members).post(invite_server_member))
+        .route("/api/servers/{server_id}/members/me", delete(leave_server))
         .route("/api/servers/{server_id}/members/{user_id}/role", put(update_member_role))
         .route("/api/servers/{server_id}/members/{user_id}", delete(remove_server_member))
         .with_state(state)
@@ -459,6 +513,7 @@ mod tests {
             backend_debug: LogLevel::Info,
             server_master_key: [7u8; 32],
             static_dir: None,
+            max_file_size_bytes: 100 * 1024 * 1024,
         };
 
         let db = connect_db(&config).await.expect("sqlite test db should initialize");
@@ -1357,6 +1412,7 @@ mod tests {
             .await
             .expect("server should be created");
 
+        // L'admin global envia la invitació (pendent) i la verifiquem
         let invite_result = invite_server_member(
             State(state.clone()),
             axum::Extension(claims_for_admin(global_admin_id, "global_admin_non_member_manage_members")),
@@ -1366,9 +1422,16 @@ mod tests {
             }),
         )
         .await
-        .expect("global admin should invite member without membership");
+        .expect("global admin should send invitation without membership");
 
         assert_eq!(invite_result.0, StatusCode::CREATED);
+
+        // Afegim l'usuari directament (simula acceptació) per poder testar la gestió de rols
+        state
+            .db
+            .add_server_member(server_id, invited_id, "member")
+            .await
+            .expect("should add invited user as member after accept");
 
         let promoted = update_member_role(
             State(state.clone()),
@@ -1401,5 +1464,137 @@ mod tests {
             .await
             .expect("membership query should work");
         assert!(still_member.is_none(), "invited user should be removed");
+    }
+
+    #[tokio::test]
+    async fn leave_server_member_succeeds() {
+        let state = make_state().await;
+        let owner_id = state.db.create_user_with_role("leave_owner_1", "hash", "user").await.unwrap();
+        let member_id = state.db.create_user_with_role("leave_member_1", "hash", "user").await.unwrap();
+        let server_id = Uuid::new_v4();
+        state.db.create_server_with_owner(server_id, "leave-server-1", None, owner_id).await.unwrap();
+        state.db.add_server_member(server_id, member_id, "member").await.unwrap();
+
+        let result = leave_server(
+            State(state.clone()),
+            axum::Extension(claims_for(member_id, "leave_member_1")),
+            Path(server_id),
+            Query(LeaveServerParams { force: false }),
+        )
+        .await;
+
+        assert!(result.is_ok(), "member should be able to leave");
+        assert!(result.unwrap().0.left);
+        let still_member = state.db.is_server_member(server_id, member_id).await.unwrap();
+        assert!(still_member.is_none(), "member should no longer be in server");
+    }
+
+    #[tokio::test]
+    async fn leave_server_owner_is_blocked() {
+        let state = make_state().await;
+        let owner_id = state.db.create_user_with_role("leave_owner_2", "hash", "user").await.unwrap();
+        let server_id = Uuid::new_v4();
+        state.db.create_server_with_owner(server_id, "leave-server-2", None, owner_id).await.unwrap();
+
+        let result = leave_server(
+            State(state),
+            axum::Extension(claims_for(owner_id, "leave_owner_2")),
+            Path(server_id),
+            Query(LeaveServerParams { force: false }),
+        )
+        .await;
+
+        let err = result.expect_err("owner should not be able to leave");
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn leave_server_last_admin_blocked_without_force() {
+        let state = make_state().await;
+        let owner_id = state.db.create_user_with_role("leave_owner_3", "hash", "user").await.unwrap();
+        let admin_id = state.db.create_user_with_role("leave_admin_3", "hash", "user").await.unwrap();
+        let server_id = Uuid::new_v4();
+        state.db.create_server_with_owner(server_id, "leave-server-3", None, owner_id).await.unwrap();
+        state.db.add_server_member(server_id, admin_id, "admin").await.unwrap();
+
+        let result = leave_server(
+            State(state),
+            axum::Extension(claims_for(admin_id, "leave_admin_3")),
+            Path(server_id),
+            Query(LeaveServerParams { force: false }),
+        )
+        .await;
+
+        let err = result.expect_err("last admin should be warned without force");
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn leave_server_last_admin_allowed_with_force() {
+        let state = make_state().await;
+        let owner_id = state.db.create_user_with_role("leave_owner_4", "hash", "user").await.unwrap();
+        let admin_id = state.db.create_user_with_role("leave_admin_4", "hash", "user").await.unwrap();
+        let server_id = Uuid::new_v4();
+        state.db.create_server_with_owner(server_id, "leave-server-4", None, owner_id).await.unwrap();
+        state.db.add_server_member(server_id, admin_id, "admin").await.unwrap();
+
+        let result = leave_server(
+            State(state.clone()),
+            axum::Extension(claims_for(admin_id, "leave_admin_4")),
+            Path(server_id),
+            Query(LeaveServerParams { force: true }),
+        )
+        .await;
+
+        assert!(result.is_ok(), "last admin should be able to leave with force=true");
+        let still_member = state.db.is_server_member(server_id, admin_id).await.unwrap();
+        assert!(still_member.is_none(), "admin should no longer be in server");
+    }
+
+    #[tokio::test]
+    async fn leave_server_admin_with_other_admin_succeeds() {
+        let state = make_state().await;
+        let owner_id = state.db.create_user_with_role("leave_owner_5", "hash", "user").await.unwrap();
+        let admin1_id = state.db.create_user_with_role("leave_admin_5a", "hash", "user").await.unwrap();
+        let admin2_id = state.db.create_user_with_role("leave_admin_5b", "hash", "user").await.unwrap();
+        let server_id = Uuid::new_v4();
+        state.db.create_server_with_owner(server_id, "leave-server-5", None, owner_id).await.unwrap();
+        state.db.add_server_member(server_id, admin1_id, "admin").await.unwrap();
+        state.db.add_server_member(server_id, admin2_id, "admin").await.unwrap();
+
+        let result = leave_server(
+            State(state.clone()),
+            axum::Extension(claims_for(admin1_id, "leave_admin_5a")),
+            Path(server_id),
+            Query(LeaveServerParams { force: false }),
+        )
+        .await;
+
+        assert!(result.is_ok(), "admin with another admin present should be able to leave");
+        let still_member = state.db.is_server_member(server_id, admin1_id).await.unwrap();
+        assert!(still_member.is_none());
+    }
+
+    #[tokio::test]
+    async fn leave_server_non_member_returns_not_found() {
+        let state = make_state().await;
+        let owner_id = state.db.create_user_with_role("leave_owner_6", "hash", "user").await.unwrap();
+        let stranger_id = state.db.create_user_with_role("leave_stranger_6", "hash", "user").await.unwrap();
+        let server_id = Uuid::new_v4();
+        state.db.create_server_with_owner(server_id, "leave-server-6", None, owner_id).await.unwrap();
+
+        let result = leave_server(
+            State(state),
+            axum::Extension(claims_for(stranger_id, "leave_stranger_6")),
+            Path(server_id),
+            Query(LeaveServerParams { force: false }),
+        )
+        .await;
+
+        let err = result.expect_err("non-member should get not found");
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 }

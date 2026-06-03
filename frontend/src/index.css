@@ -1603,6 +1603,15 @@ body {
   color: var(--text-primary);
 }
 
+.server-menu-item--danger {
+  color: var(--color-error, #f04747);
+}
+
+.server-menu-item--danger:hover {
+  background: rgba(240, 71, 71, 0.1);
+  color: var(--color-error, #f04747);
+}
+
 /* ── Create Channel Buttons ───────────────────── */
 
 .create-channel-btn {

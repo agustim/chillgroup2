@@ -412,6 +412,22 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
         "#,
         r#"CREATE INDEX IF NOT EXISTS idx_channel_read_state_user ON channel_read_state(user_id)"#,
         r#"CREATE INDEX IF NOT EXISTS idx_channel_read_state_channel ON channel_read_state(channel_id)"#,
+
+        // Server invitations (flux d'acceptació)
+        r#"
+        CREATE TABLE IF NOT EXISTS server_invitations (
+            id TEXT PRIMARY KEY,
+            server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+            inviter_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            invitee_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            status TEXT NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending', 'accepted', 'declined')),
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            expires_at DATETIME
+        )
+        "#,
+        r#"CREATE INDEX IF NOT EXISTS idx_server_invitations_invitee ON server_invitations(invitee_id, status)"#,
+        r#"CREATE INDEX IF NOT EXISTS idx_server_invitations_server ON server_invitations(server_id, status)"#,
     ];
 
     for query in queries {
@@ -2729,6 +2745,26 @@ impl DatabasePool {
         Ok(())
     }
 
+    pub async fn count_server_admins(&self, server_id: Uuid) -> Result<i64, sqlx::Error> {
+        let count = match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query("SELECT COUNT(*) FROM server_members WHERE server_id = $1 AND role = 'admin'")
+                    .bind(server_id)
+                    .fetch_one(pool)
+                    .await?;
+                row.get::<i64, _>(0)
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query("SELECT COUNT(*) FROM server_members WHERE server_id = ? AND role = 'admin'")
+                    .bind(server_id)
+                    .fetch_one(pool)
+                    .await?;
+                row.get::<i64, _>(0)
+            }
+        };
+        Ok(count)
+    }
+
     pub async fn remove_server_member(&self, server_id: Uuid, user_id: Uuid) -> Result<bool, sqlx::Error> {
         match self {
             DatabasePool::Postgres(pool) => {
@@ -2746,6 +2782,139 @@ impl DatabasePool {
                     .execute(pool)
                     .await?;
                 Ok(result.rows_affected() > 0)
+            }
+        }
+    }
+
+    pub async fn create_server_invitation(
+        &self,
+        invitation_id: Uuid,
+        server_id: Uuid,
+        inviter_id: Uuid,
+        invitee_id: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "INSERT INTO server_invitations (id, server_id, inviter_id, invitee_id) \
+                     VALUES ($1, $2, $3, $4) \
+                     ON CONFLICT DO NOTHING"
+                )
+                .bind(invitation_id)
+                .bind(server_id)
+                .bind(inviter_id)
+                .bind(invitee_id)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "INSERT OR IGNORE INTO server_invitations (id, server_id, inviter_id, invitee_id) \
+                     VALUES (?, ?, ?, ?)"
+                )
+                .bind(invitation_id)
+                .bind(server_id)
+                .bind(inviter_id)
+                .bind(invitee_id)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn get_server_invitation(
+        &self,
+        invitation_id: Uuid,
+    ) -> Result<Option<(Uuid, Uuid, Uuid, Uuid, String)>, sqlx::Error> {
+        // Returns: (id, server_id, inviter_id, invitee_id, status)
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(
+                    "SELECT id, server_id, inviter_id, invitee_id, status \
+                     FROM server_invitations WHERE id = $1"
+                )
+                .bind(invitation_id)
+                .fetch_optional(pool)
+                .await?;
+                Ok(row.map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4))))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query(
+                    "SELECT id, server_id, inviter_id, invitee_id, status \
+                     FROM server_invitations WHERE id = ?"
+                )
+                .bind(invitation_id)
+                .fetch_optional(pool)
+                .await?;
+                Ok(row.map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4))))
+            }
+        }
+    }
+
+    pub async fn update_server_invitation_status(
+        &self,
+        invitation_id: Uuid,
+        status: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let rows = match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "UPDATE server_invitations SET status = $1 WHERE id = $2 AND status = 'pending'"
+                )
+                .bind(status)
+                .bind(invitation_id)
+                .execute(pool)
+                .await?
+                .rows_affected()
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "UPDATE server_invitations SET status = ? WHERE id = ? AND status = 'pending'"
+                )
+                .bind(status)
+                .bind(invitation_id)
+                .execute(pool)
+                .await?
+                .rows_affected()
+            }
+        };
+        Ok(rows > 0)
+    }
+
+    pub async fn list_pending_server_invitations_for_user(
+        &self,
+        invitee_id: Uuid,
+    ) -> Result<Vec<(Uuid, Uuid, String, Uuid, String)>, sqlx::Error> {
+        // Returns: (invitation_id, server_id, server_name, inviter_id, inviter_username)
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let rows = sqlx::query(
+                    "SELECT si.id, si.server_id, s.name, si.inviter_id, u.username \
+                     FROM server_invitations si \
+                     JOIN servers s ON s.id = si.server_id \
+                     JOIN users u ON u.id = si.inviter_id \
+                     WHERE si.invitee_id = $1 AND si.status = 'pending' \
+                     ORDER BY si.created_at DESC"
+                )
+                .bind(invitee_id)
+                .fetch_all(pool)
+                .await?;
+                Ok(rows.into_iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4))).collect())
+            }
+            DatabasePool::Sqlite(pool) => {
+                let rows = sqlx::query(
+                    "SELECT si.id, si.server_id, s.name, si.inviter_id, u.username \
+                     FROM server_invitations si \
+                     JOIN servers s ON s.id = si.server_id \
+                     JOIN users u ON u.id = si.inviter_id \
+                     WHERE si.invitee_id = ? AND si.status = 'pending' \
+                     ORDER BY si.created_at DESC"
+                )
+                .bind(invitee_id)
+                .fetch_all(pool)
+                .await?;
+                Ok(rows.into_iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4))).collect())
             }
         }
     }

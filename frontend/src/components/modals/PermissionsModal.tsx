@@ -239,7 +239,7 @@ function PermissionsContent({
   )
 }
 
-export function PermissionsModal({ isOpen, onClose, server, channels, currentDeviceId }: PermissionsModalProps) {
+function PermissionsModal({ isOpen, onClose, server, channels, currentDeviceId }: PermissionsModalProps) {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Permisos i accessos">
       <PermissionsContent

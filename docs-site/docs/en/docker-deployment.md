@@ -2,7 +2,57 @@
 
 This guide explains how to run ChillGroup locally or on a server using Docker Compose.
 
-## Prerequisites
+The project ships two Compose files:
+
+| File | When to use |
+|------|-------------|
+| `docker-compose.yml` | Production or final build testing |
+| `docker-compose.dev.yml` | Daily development with hot-reload |
+
+## Development mode (recommended for contributors)
+
+### Prerequisites
+
+- Docker 24+
+- Docker Compose (`docker compose` plugin)
+- Linux (`backend` and `frontend` services use `network_mode: host`)
+
+### Start
+
+```bash
+docker compose -f docker-compose.dev.yml up
+```
+
+This starts:
+
+- `postgres` (PostgreSQL 16) — port `5432`
+- `livekit` (voice service) — port `7880`
+- `rustfs` (S3-compatible storage) — ports `9000` / `9001`
+- `rustfs-init` and `rustfs-cors-init` (one-shot init services)
+- `backend` — `cargo watch` with hot-reload — port `8080`
+- `frontend` — Vite dev server — port `5173`
+
+Access the app at: `http://localhost:5173`
+
+The first run compiles `cargo-watch` (takes a few minutes). Subsequent starts reuse the `cargo-tools` volume cache.
+
+### Stop
+
+```bash
+docker compose -f docker-compose.dev.yml down
+```
+
+To also remove the build and module caches:
+
+```bash
+docker compose -f docker-compose.dev.yml down -v
+```
+
+---
+
+## Production mode
+
+### Prerequisites
 
 - Docker 24+
 - Docker Compose (`docker compose` plugin)
@@ -10,7 +60,7 @@ This guide explains how to run ChillGroup locally or on a server using Docker Co
 - Free port 5432 (PostgreSQL)
 - Free port 7880 (LiveKit)
 
-## Quick start
+### Quick start
 
 From the project root:
 
@@ -22,6 +72,7 @@ This starts:
 
 - `postgres` (PostgreSQL 16)
 - `livekit` (voice service)
+- `rustfs` (S3-compatible storage for attachments)
 - `app` (Rust backend with embedded frontend)
 
 ## Run in background

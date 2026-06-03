@@ -352,7 +352,7 @@ export async function getDeviceKeySummary(deviceId: string): Promise<{
   }
 }
 
-export async function getSymmetricChannelKeyCount(): Promise<number> {
+async function getSymmetricChannelKeyCount(): Promise<number> {
   const keys = await listChannelKeys()
   return keys.filter((k) => k.type === 'symmetric').length
 }
@@ -475,7 +475,7 @@ export async function importAsymmetricChannelKeys(bundleText: string): Promise<n
   return imported
 }
 
-export async function getChannelKeyPreview(channelId: string): Promise<string | null> {
+async function getChannelKeyPreview(channelId: string): Promise<string | null> {
   const key = await getChannelKey(channelId)
   if (!key) {
     return null

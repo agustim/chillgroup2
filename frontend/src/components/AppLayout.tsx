@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { Button } from './shared/Button'
 import { useAuth } from '../contexts/AuthContext'
 import { ServerBar } from './sidebar/ServerBar'
 import { ChannelList } from './sidebar/ChannelList'
@@ -14,6 +15,7 @@ import { ChangePasswordPanel } from './modals/ChangePasswordModal'
 import { FriendsPanel } from './modals/FriendsModal'
 import { AdminUsersPanel } from './main/AdminUsersPanel'
 import { LogoutBackupModal } from './modals/LogoutBackupModal'
+import { ServerInvitationsModal } from './modals/ServerInvitationsModal'
 import { useLiveKit } from '../hooks/useLiveKit'
 import { Channel, FriendPresence, Server, ServerFullInfo, VoiceParticipant } from '../types'
 import { disconnectSocket, getSocket } from '../lib/socket'
@@ -26,7 +28,8 @@ import {
   friendsRemove,
   dmChannelOpen,
   dmChannelsList,
-  serverInviteMember,
+  serverCreateInvitation,
+  serverLeave,
   serverUpdateMemberRole,
   serverRemoveMember,
   serversCreate,
@@ -53,7 +56,7 @@ interface AppLayoutProps {
 }
 
 type PanelType = 'none' | 'serverConfig' | 'channelConfig' | 'devices' | 'adminUsers' | 'permissions' | 'friends' | 'createServer' | 'changePassword' | 'channelKeys' | 'createTextChannel' | 'createVoiceChannel'
-type ServerMenuAction = 'config' | 'invite' | 'createText' | 'createVoice' | null
+type ServerMenuAction = 'config' | 'invite' | 'createText' | 'createVoice' | 'leave' | null
 
 function formatDmRepairFeedback(result: {
   discoveredDevices: string[]
@@ -106,6 +109,10 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   
   // Modal states
   const [showInviteServer, setShowInviteServer] = useState(false)
+  const [leaveServerConfirm, setLeaveServerConfirm] = useState<{ serverId: string; serverName: string; isLastAdmin: boolean } | null>(null)
+  const [leaveServerBusy, setLeaveServerBusy] = useState(false)
+  const [showServerInvitations, setShowServerInvitations] = useState(false)
+  const [pendingInvitationCount, setPendingInvitationCount] = useState(0)
   const [pendingServerConfigOpenId, setPendingServerConfigOpenId] = useState<string | null>(null)
   const [serverConfigInviteUsername, setServerConfigInviteUsername] = useState('')
   const [pendingMemberRemovalId, setPendingMemberRemovalId] = useState<string | null>(null)
@@ -397,8 +404,13 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
       }, 250)
     }
 
+    const handleServerInvitation = () => {
+      setPendingInvitationCount((n) => n + 1)
+    }
+
     socket.on('user-servers-updated', handleUserServersUpdated)
     socket.on('server-channels-updated', handleServerChannelsUpdated)
+    socket.on('server-invitation', handleServerInvitation)
 
     return () => {
       if (serversRefreshTimer !== null) {
@@ -409,6 +421,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
       }
       socket.off('user-servers-updated', handleUserServersUpdated)
       socket.off('server-channels-updated', handleServerChannelsUpdated)
+      socket.off('server-invitation', handleServerInvitation)
     }
   }, [selectedServer])
 
@@ -1019,34 +1032,11 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
 
   const handleInviteServerSubmit = async (username: string) => {
     if (!selectedServer) return
-    const result = await serverInviteMember(selectedServer, username)
+    const result = await serverCreateInvitation(selectedServer, username)
     if (result.success) {
-      setFeedback(`Invitació enviada a ${username}`)
-      await fetchServerDetails(selectedServer)
-
-      // Redistribuir claus de canals asimètrics on tenim clau local.
-      // Evita deixar el nou membre sense bundle si no estàvem en el canal concret.
-      if (channels.some((channel) => channel.encryptionType === 'asymmetric')) {
-        const { getLatestChannelKey, getChannelKey } = await import('../lib/storage')
-        await Promise.allSettled(
-          channels
-            .filter((channel) => channel.encryptionType === 'asymmetric')
-            .map(async (channel) => {
-              const latestKey = await getLatestChannelKey(channel.channelId)
-              const channelKey = latestKey?.keyBytes ?? await getChannelKey(channel.channelId)
-              if (!channelKey) return
-              await distributeChannelKey(
-                channel.channelId,
-                channelKey,
-                latestKey?.keyVersion ?? channel.keyVersion ?? 1,
-                latestKey?.keyVersionId ?? channel.keyVersionId ?? null,
-                currentDeviceId ?? undefined,
-              )
-            })
-        )
-      }
+      setFeedback(`Invitació enviada a ${username}. Haurà d'acceptar-la per unir-se al servidor.`)
     } else {
-      setFeedback(result.error.message)
+      setFeedback((result as any).error?.message ?? 'Error enviant la invitació')
     }
   }
 
@@ -1308,6 +1298,37 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
       case 'createVoice':
         setPanel('createVoiceChannel')
         break
+      case 'leave': {
+        const server = servers.find((s) => s.serverId === selectedServer)
+        if (!server) break
+        setLeaveServerConfirm({ serverId: server.serverId, serverName: server.name, isLastAdmin: false })
+        break
+      }
+    }
+  }
+
+  const handleLeaveServerConfirm = async (force: boolean) => {
+    if (!leaveServerConfirm) return
+    setLeaveServerBusy(true)
+    const result = await serverLeave(leaveServerConfirm.serverId, force)
+    setLeaveServerBusy(false)
+
+    if (!result.success) {
+      if ((result as any).error?.code === 2009) {
+        setLeaveServerConfirm({ ...leaveServerConfirm, isLastAdmin: true })
+        return
+      }
+      setFeedback((result as any).error?.message ?? 'Error en sortir del servidor')
+      setLeaveServerConfirm(null)
+      return
+    }
+
+    setLeaveServerConfirm(null)
+    setServers((prev) => prev.filter((s) => s.serverId !== leaveServerConfirm.serverId))
+    if (selectedServer === leaveServerConfirm.serverId) {
+      setSelectedServer(null)
+      setChannels([])
+      setSelectedChannel(null)
     }
   }
 
@@ -1668,6 +1689,8 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           onManageDevices={handleManageDevices}
           onManageChannelKeys={handleManageChannelKeys}
           onManageFriends={handleManageFriends}
+          onShowInvitations={() => setShowServerInvitations(true)}
+          pendingInvitationCount={pendingInvitationCount}
           onChangePassword={handleChangePassword}
           onManagePermissions={handleManagePermissions}
           onManageAdminUsers={handleManageAdminUsers}
@@ -2113,12 +2136,65 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
           />
         )}
 
+        {showServerInvitations && (
+          <ServerInvitationsModal
+            onClose={() => { setShowServerInvitations(false); setPendingInvitationCount(0) }}
+            onAccepted={() => {
+              setShowServerInvitations(false)
+              setPendingInvitationCount(0)
+              void (async () => {
+                const result = await serversList()
+                if (result.success) setServers(result.data)
+              })()
+            }}
+          />
+        )}
+
         {showLogoutModal && (
           <LogoutBackupModal
             username={username}
             onConfirm={handleLogoutConfirm}
             onCancel={() => setShowLogoutModal(false)}
           />
+        )}
+
+        {leaveServerConfirm && (
+          <div className="modal-overlay" onClick={() => !leaveServerBusy && setLeaveServerConfirm(null)}>
+            <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2 className="modal-title">Sortir del servidor</h2>
+              </div>
+              <div className="modal-body">
+                {leaveServerConfirm.isLastAdmin ? (
+                  <p style={{ color: 'var(--text-secondary)', margin: 0 }}>
+                    Ets l'últim administrador de <strong>{leaveServerConfirm.serverName}</strong>.
+                    Si surts, el servidor es quedarà sense admins. Vols continuar igualment?
+                  </p>
+                ) : (
+                  <p style={{ color: 'var(--text-secondary)', margin: 0 }}>
+                    Estàs segur que vols sortir de <strong>{leaveServerConfirm.serverName}</strong>?
+                    Hauràs de ser convidat de nou per tornar-hi.
+                  </p>
+                )}
+              </div>
+              <div className="modal-form-actions">
+                <Button
+                  variant="secondary"
+                  onClick={() => setLeaveServerConfirm(null)}
+                  disabled={leaveServerBusy}
+                >
+                  Cancel·lar
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={() => void handleLeaveServerConfirm(leaveServerConfirm.isLastAdmin)}
+                  disabled={leaveServerBusy}
+                >
+                  {leaveServerBusy ? 'Sortint...' : 'Sortir del servidor'}
+                </Button>
+              </div>
+            </div>
+          </div>
         )}
 
       </div>

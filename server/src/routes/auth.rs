@@ -616,6 +616,7 @@ mod tests {
             backend_debug: LogLevel::Info,
             server_master_key: [7u8; 32],
             static_dir: None,
+            max_file_size_bytes: 100 * 1024 * 1024,
         };
 
         let db = connect_db(&config).await.expect("sqlite test db should initialize");

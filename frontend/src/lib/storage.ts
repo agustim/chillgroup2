@@ -430,7 +430,7 @@ async function decodeChannelKeyFromStorage(record: {
 /**
  * Guardar una clau de canal versionada.
  */
-export async function storeChannelKeyVersion(
+async function storeChannelKeyVersion(
   channelId: string,
   keyVersion: number,
   keyBytes: Uint8Array,
@@ -552,7 +552,7 @@ export async function getLatestChannelKey(channelId: string): Promise<{
 /**
  * Llistar versions disponibles d'un canal.
  */
-export async function listChannelKeyVersions(channelId: string): Promise<number[]> {
+async function listChannelKeyVersions(channelId: string): Promise<number[]> {
   const db = await getDB()
   return new Promise((resolve, reject) => {
     const tx = db.transaction('channelKeysByVersion', 'readonly')
@@ -775,7 +775,7 @@ export async function deleteChannelKey(channelId: string): Promise<void> {
 /**
  * Netejar claus expirades.
  */
-export async function cleanupExpiredKeys(): Promise<number> {
+async function cleanupExpiredKeys(): Promise<number> {
   const db = await getDB()
   const now = Date.now()
   return new Promise((resolve, reject) => {

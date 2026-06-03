@@ -57,6 +57,6 @@ export const logger = {
   error: (...args: unknown[]) => write('error', args),
 }
 
-export function getFrontendDebugLevel(): LogLevel {
+function getFrontendDebugLevel(): LogLevel {
   return currentLevel
 }

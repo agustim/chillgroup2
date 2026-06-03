@@ -19,11 +19,11 @@ const ServerMenuContext = createContext<MenuContextType>({
   setMenuPosition: () => {},
 })
 
-export function useServerMenuContext() {
+function useServerMenuContext() {
   return useContext(ServerMenuContext)
 }
 
-type ServerMenuAction = 'config' | 'invite' | 'createText' | 'createVoice' | null
+type ServerMenuAction = 'config' | 'invite' | 'createText' | 'createVoice' | 'leave' | null
 
 interface ServerBarProps {
   servers: Server[]
@@ -166,6 +166,11 @@ export function ServerBar({
           <button className="server-menu-item" onClick={() => handleMenuAction('createVoice')}>
             🔊 Crear canal de veu
           </button>
+          {servers.find((s) => s.serverId === openMenuServerId)?.myRole !== 'owner' && (
+            <button className="server-menu-item server-menu-item--danger" onClick={() => handleMenuAction('leave')}>
+              🚪 Sortir del servidor
+            </button>
+          )}
         </div>
       )}
     </div>

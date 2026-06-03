@@ -476,7 +476,7 @@ export async function encryptChannelMessage(
   return { encryptedPayload: encrypted, iv, keyVersion }
 }
 
-export async function decryptChannelMessage(
+async function decryptChannelMessage(
   channelId: string,
   encryptionType: EncryptionType,
   encryptedPayload: string,

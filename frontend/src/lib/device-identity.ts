@@ -43,7 +43,7 @@ export function getStoredDeviceId(): string | null {
   return getCookie(DEVICE_ID_COOKIE_NAME)
 }
 
-export function clearStoredDeviceId(): void {
+function clearStoredDeviceId(): void {
   try {
     localStorage.removeItem(DEVICE_ID_STORAGE_KEY)
   } catch {

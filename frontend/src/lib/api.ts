@@ -659,7 +659,7 @@ export async function serversGet(serverId: string): Promise<ApiResult<ServerFull
   return { success: true, data: mapServerFullInfo(result.data) }
 }
 
-export async function serversUpdate(serverId: string, name?: string, iconUrl?: string | null): Promise<ApiResult<ServerFullInfo>> {
+async function serversUpdate(serverId: string, name?: string, iconUrl?: string | null): Promise<ApiResult<ServerFullInfo>> {
   const payload: Record<string, unknown> = {}
   if (name !== undefined) payload.name = name
   if (iconUrl !== undefined) payload.icon_url = iconUrl
@@ -669,7 +669,7 @@ export async function serversUpdate(serverId: string, name?: string, iconUrl?: s
   return { success: true, data: mapServerFullInfo(result.data) }
 }
 
-export async function serversUpdateLiveKit(
+async function serversUpdateLiveKit(
   serverId: string,
   livekitHost: string | null,
   livekitApiKey: string | null,
@@ -688,7 +688,7 @@ export async function serversDelete(serverId: string) {
   return apiRequest<{ deleted: boolean }>('DELETE', `/api/servers/${serverId}`)
 }
 
-export async function serverMembersList(serverId: string) {
+async function serverMembersList(serverId: string) {
   return apiRequest<ServerMember[]>('GET', `/api/servers/${serverId}/members`)
 }
 
@@ -706,6 +706,37 @@ export async function serverUpdateMemberRole(serverId: string, userId: string, r
 
 export async function serverRemoveMember(serverId: string, userId: string) {
   return apiRequest<{ userId: string; removed: boolean }>('DELETE', `/api/servers/${serverId}/members/${userId}`)
+}
+
+export async function serverLeave(serverId: string, force = false) {
+  const query = force ? '?force=true' : ''
+  return apiRequest<{ serverId: string; left: boolean }>('DELETE', `/api/servers/${serverId}/members/me${query}`)
+}
+
+export interface PendingServerInvitation {
+  invitationId: string
+  serverId: string
+  serverName: string
+  inviterId: string
+  inviterUsername: string
+}
+
+export async function serverInvitationsList() {
+  return apiRequest<PendingServerInvitation[]>('GET', '/api/user/me/server-invitations')
+}
+
+export async function serverInvitationAccept(serverId: string, invitationId: string) {
+  return apiRequest<{ invitationId: string; status: string }>('POST', `/api/servers/${serverId}/invitations/${invitationId}/accept`)
+}
+
+export async function serverInvitationDecline(serverId: string, invitationId: string) {
+  return apiRequest<{ invitationId: string; status: string }>('POST', `/api/servers/${serverId}/invitations/${invitationId}/decline`)
+}
+
+export async function serverCreateInvitation(serverId: string, username: string) {
+  return apiRequest<{ invitationId: string; serverId: string; inviteeUsername: string; status: string }>(
+    'POST', `/api/servers/${serverId}/invitations`, { username }
+  )
 }
 
 export async function messagesList(channelId: string, limit = 50, before?: string, scope?: 'server' | 'dm') {
@@ -898,7 +929,7 @@ export async function dmChannelsList(): Promise<ApiResult<DmChannelListItem[]>> 
   }
 }
 
-export async function dmMessagesList(channelId: string, limit = 50, before?: string): Promise<ApiResult<PaginatedMessages>> {
+async function dmMessagesList(channelId: string, limit = 50, before?: string): Promise<ApiResult<PaginatedMessages>> {
   const params = new URLSearchParams({ limit: String(limit) })
   if (before) params.set('before', before)
   const result = await apiRequest<PaginatedMessages>('GET', `/api/dm/channels/${channelId}/messages?${params}`)
@@ -1529,7 +1560,7 @@ export async function invitationsList(): Promise<ApiResult<InvitationListItem[]>
   return { success: true, data: data.map(mapInvitationListItem) }
 }
 
-export async function plansList(): Promise<ApiResult<PlanTierInfo[]>> {
+async function plansList(): Promise<ApiResult<PlanTierInfo[]>> {
   const result = await apiRequest<any>('GET', '/api/plans')
   if (!result.success) return result
   const data = Array.isArray(result.data) ? result.data : (result.data?.data ?? [])
@@ -1591,7 +1622,7 @@ export interface LiveKitTokenResponse {
   url: string
 }
 
-export async function livekitGetToken(
+async function livekitGetToken(
   channelId: string,
   participantName: string,
 ): Promise<ApiResult<LiveKitTokenResponse>> {

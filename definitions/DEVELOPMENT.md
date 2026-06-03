@@ -755,7 +755,11 @@ test('can send encrypted message in asymmetric channel', async ({ page }) => {
 
 ## Docker Compose
 
-El `docker-compose.yml` de l'arrel aixeca sis serveis:
+El projecte disposa de dos fitxers Compose a l'arrel:
+
+### `docker-compose.yml` — Producció
+
+Aixeca sis serveis amb la imatge compilada:
 
 - `postgres`: PostgreSQL 16 amb el volum `pgdata`
 - `livekit`: LiveKit en mode `--dev`
@@ -763,6 +767,51 @@ El `docker-compose.yml` de l'arrel aixeca sis serveis:
 - `rustfs-init`: servei one-shot que crea el bucket `chillgroup-attachments`
 - `rustfs-cors-init`: servei one-shot que aplica la política CORS del bucket per suportar mode directe (`SERVER_PROXY_S3=false`)
 - `app`: backend Rust compilat des de `Dockerfile` amb `build.sh --mode embedded`
+
+```bash
+docker compose up --build
+```
+
+### `docker-compose.dev.yml` — Desenvolupament (hot-reload)
+
+Afegeix dos serveis addicionals per treballar amb el codi font directament:
+
+- `backend`: imatge `rust:1-bookworm` que munta el codi font i corre `cargo watch -x 'run -p chillgroup-server'`. El codi es recompila automàticament en cada canvi. Port `8080`.
+- `frontend`: imatge `node:20-bookworm-slim` que munta el codi font i corre `pnpm dev` (Vite). Port `5173`.
+
+Tots dos serveis usen `network_mode: host` perquè el proxy de Vite apunta a `http://localhost:8080` (hardcoded al `vite.config.ts`).
+
+Les variables `DATABASE_URL`, `S3_ENDPOINT` i `LIVEKIT_HOST` del backend s'overriden a `localhost` (en comptes dels noms de servei Docker) perquè el contenidor corre amb host network.
+
+El CORS de RustFS s'aplica amb els orígens `http://localhost:5173` i `http://localhost:8080` (en lloc dels del `docker-compose.yml`), perquè en dev el navegador carrega l'app des de Vite a `:5173`.
+
+```bash
+docker compose -f docker-compose.dev.yml up
+```
+
+Ports disponibles un cop arrencat:
+
+| Port | Servei |
+|------|--------|
+| `5173` | Frontend (Vite dev server) |
+| `8080` | Backend (chillgroup-server) |
+| `7880` | LiveKit |
+| `9000` | RustFS S3 API |
+| `9001` | RustFS consola web |
+| `5432` | PostgreSQL |
+
+**Primera arrencada**: `cargo-watch` es compila des de zero (uns minuts). El resultat queda al volum `cargo-tools` i les arrencades posteriors el reutilitzen directament.
+
+**Volums de caché del dev compose**:
+
+| Volum | Contingut |
+|-------|-----------|
+| `cargo-tools` | binari `cargo-watch` compilat |
+| `cargo-registry` | crates descarregats de crates.io |
+| `cargo-git` | dependències git |
+| `target-cache` | artefactes de compilació Rust |
+| `pnpm-store` | store de pnpm |
+| `frontend-modules` | `node_modules` del frontend |
 
 Les variables dels serveis Docker es carreguen en aquest ordre:
 
@@ -838,7 +887,19 @@ cd server && cargo run -- --generate-env-example ../.env && cd ..
 
 ## Com Executar
 
-### Desenvolupament
+### Desenvolupament (hot-reload recomanat)
+
+```bash
+# 1. Preparar .env.compose (còpia de l'exemple si no existeix)
+cp .env.compose.example .env.compose
+
+# 2. Arrencar tot amb hot-reload
+docker compose -f docker-compose.dev.yml up
+```
+
+Frontend disponible a `http://localhost:5173`, backend a `http://localhost:8080`.
+
+### Desenvolupament (mode producció local)
 
 ```bash
 # 1. Generar un .env d'exemple si encara no el tens

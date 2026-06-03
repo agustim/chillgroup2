@@ -22,6 +22,8 @@ interface ChannelListProps {
   onManageDevices?: () => void
   onManageChannelKeys?: () => void
   onManageFriends?: () => void
+  onShowInvitations?: () => void
+  pendingInvitationCount?: number
   onChangePassword?: () => void
   onManagePermissions?: () => void
   onManageAdminUsers?: () => void
@@ -57,6 +59,8 @@ export function ChannelList({
   onManageDevices,
   onManageChannelKeys,
   onManageFriends,
+  onShowInvitations,
+  pendingInvitationCount = 0,
   onChangePassword,
   onManagePermissions,
   onManageAdminUsers,
@@ -154,6 +158,12 @@ export function ChannelList({
               <button onClick={() => { setIsUserMenuOpen(false); onManageDevices?.() }}>📱 Gestió de dispositius</button>
               <button onClick={() => { setIsUserMenuOpen(false); onManageChannelKeys?.() }}>🔑 Gestió claus-canals</button>
               <button onClick={() => { setIsUserMenuOpen(false); onManageFriends?.() }}>👥 Gestió d'amics</button>
+              <button onClick={() => { setIsUserMenuOpen(false); onShowInvitations?.() }} style={{ position: 'relative' }}>
+                📨 Invitacions de servidor
+                {pendingInvitationCount > 0 && (
+                  <span className="channel-unread-badge" style={{ marginLeft: 6 }}>{pendingInvitationCount}</span>
+                )}
+              </button>
               <button onClick={() => { setIsUserMenuOpen(false); onChangePassword?.() }}>🔒 Canviar password</button>
               <button onClick={() => { setIsUserMenuOpen(false); onManagePermissions?.() }}>🛡️ Permisos</button>
               {canManageAdminUsers && (

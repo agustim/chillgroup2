@@ -69,7 +69,7 @@ export async function decryptMessage(
 /**
  * Importar una clau des de bytes.
  */
-export async function importKey(keyBytes: Uint8Array): Promise<CryptoKey> {
+async function importKey(keyBytes: Uint8Array): Promise<CryptoKey> {
   return await crypto.subtle.importKey(
     'raw',
     keyBytes.buffer as ArrayBuffer,
@@ -82,7 +82,7 @@ export async function importKey(keyBytes: Uint8Array): Promise<CryptoKey> {
 /**
  * Exportar una clau a bytes.
  */
-export async function exportKey(key: CryptoKey): Promise<Uint8Array> {
+async function exportKey(key: CryptoKey): Promise<Uint8Array> {
   const raw = await crypto.subtle.exportKey('raw', key)
   return new Uint8Array(raw)
 }

@@ -252,6 +252,11 @@ pub async fn init_attachment(
         return Err(AppError::BadRequest);
     }
 
+    let max_bytes = state.config.max_file_size_bytes;
+    if max_bytes > 0 && req.size_bytes as u64 > max_bytes {
+        return Err(AppError::FileTooLarge { max_mb: max_bytes / (1024 * 1024) });
+    }
+
     let attachment_id = Uuid::new_v4();
     let object_key = format!("channels/{}/attachments/{}.bin", channel_id, attachment_id);
     let created_at = req
@@ -666,6 +671,7 @@ mod tests {
             backend_debug: LogLevel::Info,
             server_master_key: [7u8; 32],
             static_dir: None,
+            max_file_size_bytes: 100 * 1024 * 1024,
         };
 
         let db = connect_db(&config)
@@ -951,5 +957,125 @@ mod tests {
         .await;
 
         assert!(result.is_ok(), "linked attachments should remain downloadable");
+    }
+
+    fn make_state_with_max_file_size(db: crate::db::DatabasePool, io: socketioxide::SocketIo, max_bytes: u64) -> AppState {
+        let config = Config {
+            server_host: "127.0.0.1".to_string(),
+            server_port: 8080,
+            database_url: "sqlite::memory:".to_string(),
+            open_register: true,
+            admin_user: None,
+            admin_password: None,
+            ttl_cleanup_interval_minutes: 5,
+            livekit_host: "http://localhost:7880".to_string(),
+            livekit_api_key: "test-key".to_string(),
+            livekit_api_secret: "test-secret".to_string(),
+            jwt_secret: "test-secret".to_string(),
+            jwt_expiration_days: 7,
+            backend_debug: LogLevel::Info,
+            server_master_key: [7u8; 32],
+            static_dir: None,
+            max_file_size_bytes: max_bytes,
+        };
+        AppState {
+            db,
+            config,
+            io,
+            user_presence: Arc::new(RwLock::new(UserPresenceState {
+                online_sockets: HashMap::<Uuid, HashSet<String>>::new(),
+            })),
+        }
+    }
+
+    #[tokio::test]
+    async fn init_attachment_file_too_large_returns_413() {
+        let base = make_state().await;
+        let db = base.db.clone();
+        let (_layer, io) = socketioxide::SocketIo::new_layer();
+        let state = make_state_with_max_file_size(db, io, 1024); // limit: 1 KB
+
+        let (owner_id, _server_id, channel_id) =
+            setup_server_channel(&state, "att_max_owner_1", "att-max-1").await;
+
+        let result = init_attachment(
+            State(state),
+            Extension(claims_for(owner_id, "att_max_owner_1")),
+            Path(channel_id),
+            Json(InitAttachmentRequest {
+                file_name: "big.bin".to_string(),
+                mime_type: "application/octet-stream".to_string(),
+                size_bytes: 2048, // 2 KB > limit
+                created_at: None,
+                chunk_size_bytes: 2048,
+                chunk_count: 1,
+            }),
+        )
+        .await;
+
+        let err = result.expect_err("file exceeding limit should be rejected");
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
+    async fn init_attachment_within_limit_passes_validation() {
+        let base = make_state().await;
+        let db = base.db.clone();
+        let (_layer, io) = socketioxide::SocketIo::new_layer();
+        // 0 = sense límit → mai bloqueja
+        let state = make_state_with_max_file_size(db, io, 0);
+
+        let (owner_id, _server_id, channel_id) =
+            setup_server_channel(&state, "att_max_owner_2", "att-max-2").await;
+
+        let result = init_attachment(
+            State(state),
+            Extension(claims_for(owner_id, "att_max_owner_2")),
+            Path(channel_id),
+            Json(InitAttachmentRequest {
+                file_name: "any.bin".to_string(),
+                mime_type: "application/octet-stream".to_string(),
+                size_bytes: 999_999_999,
+                created_at: None,
+                chunk_size_bytes: 5 * 1024 * 1024,
+                chunk_count: 200,
+            }),
+        )
+        .await;
+
+        // Sense límit, la validació passa. Fallarà per S3 unavailable en test,
+        // però no per FileTooLarge.
+        let is_file_too_large = matches!(result, Err(AppError::FileTooLarge { .. }));
+        assert!(!is_file_too_large, "unlimited (max=0) should never return FileTooLarge");
+    }
+
+    #[tokio::test]
+    async fn init_attachment_exactly_at_limit_is_allowed() {
+        let base = make_state().await;
+        let db = base.db.clone();
+        let (_layer, io) = socketioxide::SocketIo::new_layer();
+        let state = make_state_with_max_file_size(db, io, 1024); // limit: 1 KB
+
+        let (owner_id, _server_id, channel_id) =
+            setup_server_channel(&state, "att_max_owner_3", "att-max-3").await;
+
+        let result = init_attachment(
+            State(state),
+            Extension(claims_for(owner_id, "att_max_owner_3")),
+            Path(channel_id),
+            Json(InitAttachmentRequest {
+                file_name: "exact.bin".to_string(),
+                mime_type: "application/octet-stream".to_string(),
+                size_bytes: 1024, // exactament al límit
+                created_at: None,
+                chunk_size_bytes: 1024,
+                chunk_count: 1,
+            }),
+        )
+        .await;
+
+        let is_file_too_large = matches!(result, Err(AppError::FileTooLarge { .. }));
+        assert!(!is_file_too_large, "file exactly at limit should not return FileTooLarge");
     }
 }

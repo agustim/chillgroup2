@@ -2,7 +2,57 @@
 
 Aquesta guia explica com aixecar ChillGroup en local o servidor fent servir Docker Compose.
 
-## Prerequisits
+El projecte te dos fitxers Compose:
+
+| Fitxer | Quan usar-lo |
+|--------|-------------|
+| `docker-compose.yml` | Producció o testeig de la build final |
+| `docker-compose.dev.yml` | Desenvolupament diari amb hot-reload |
+
+## Mode desenvolupament (recomanat per contribuir)
+
+### Prerequisits
+
+- Docker 24+
+- Docker Compose (plugin `docker compose`)
+- Linux (els serveis `backend` i `frontend` fan servir `network_mode: host`)
+
+### Arrencada
+
+```bash
+docker compose -f docker-compose.dev.yml up
+```
+
+Aixo aixeca:
+
+- `postgres` (PostgreSQL 16) — port `5432`
+- `livekit` (servei de veu) — port `7880`
+- `rustfs` (S3 compatible) — ports `9000` / `9001`
+- `rustfs-init` i `rustfs-cors-init` (serveis one-shot d'inicialitzacio)
+- `backend` — `cargo watch` amb hot-reload — port `8080`
+- `frontend` — Vite dev server — port `5173`
+
+Accedeix a l'app a: `http://localhost:5173`
+
+La primera arrencada compila `cargo-watch` (uns minuts). Les seguents reutilitzen el volum `cargo-tools`.
+
+### Aturar
+
+```bash
+docker compose -f docker-compose.dev.yml down
+```
+
+Per eliminar tambe els volums de cache (Rust i node_modules):
+
+```bash
+docker compose -f docker-compose.dev.yml down -v
+```
+
+---
+
+## Mode produccio
+
+### Prerequisits
 
 - Docker 24+
 - Docker Compose (plugin `docker compose`)
@@ -10,7 +60,7 @@ Aquesta guia explica com aixecar ChillGroup en local o servidor fent servir Dock
 - Port 5432 lliure (PostgreSQL)
 - Port 7880 lliure (LiveKit)
 
-## Arrencada rapida
+### Arrencada rapida
 
 Des de l'arrel del projecte:
 
@@ -22,6 +72,7 @@ Aixo aixeca:
 
 - `postgres` (PostgreSQL 16)
 - `livekit` (servei de veu)
+- `rustfs` (S3 compatible per adjunts)
 - `app` (backend Rust amb frontend incrustat)
 
 ## Execucio en segon pla

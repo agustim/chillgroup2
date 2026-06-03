@@ -68,6 +68,10 @@ pub enum AppError {
     MemberExists,
     #[error("Membre no trobat")]
     MemberNotFound,
+    #[error("L'owner no pot sortir del servidor. Elimina el servidor o transfereix l'ownership")]
+    OwnerCannotLeave,
+    #[error("Ets l'últim admin d'aquest servidor. Utilitza ?force=true per confirmar la sortida")]
+    ServerLastAdmin,
     // Plans (2600-2699)
     #[error("Plan no trobat")]
     PlanNotFound,
@@ -97,6 +101,8 @@ pub enum AppError {
     MessageNotFound,
     #[error("Adjunt no trobat")]
     AttachmentNotFound,
+    #[error("El fitxer supera la mida màxima permesa ({max_mb} MB)")]
+    FileTooLarge { max_mb: u64 },
     #[error("Només el remitent pot editar aquest missatge")]
     NotMessageSender,
     #[error("No es pot editar un missatge més enllà de 5 minuts")]
@@ -207,6 +213,12 @@ impl IntoResponse for AppError {
             AppError::MemberNotFound => (
                 StatusCode::NOT_FOUND, 2007, "Membre no trobat".to_string(), None,
             ),
+            AppError::OwnerCannotLeave => (
+                StatusCode::FORBIDDEN, 2008, "L'owner no pot sortir del servidor. Elimina'l o transfereix l'ownership".to_string(), None,
+            ),
+            AppError::ServerLastAdmin => (
+                StatusCode::CONFLICT, 2009, "Ets l'últim admin d'aquest servidor. Utilitza ?force=true per confirmar la sortida".to_string(), None,
+            ),
             AppError::PlanNotFound => (
                 StatusCode::NOT_FOUND, 2601, "Plan no trobat".to_string(), None,
             ),
@@ -246,6 +258,11 @@ impl IntoResponse for AppError {
             ),
             AppError::AttachmentNotFound => (
                 StatusCode::NOT_FOUND, 4003, "Adjunt no trobat".to_string(), None,
+            ),
+            AppError::FileTooLarge { max_mb } => (
+                StatusCode::PAYLOAD_TOO_LARGE, 4004,
+                format!("El fitxer supera la mida màxima de {max_mb} MB"),
+                None,
             ),
             AppError::PublicKeyNotFound => (
                 StatusCode::BAD_REQUEST, 5001, "Aquest dispositiu no té una clau pública registrada".to_string(), None,

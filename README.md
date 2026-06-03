@@ -83,13 +83,20 @@ OPEN_REGISTER=true
 
 ### 3. Arrencada amb Docker
 
-Config de Docker Compose (recomanat per equip):
+El projecte té dos fitxers Compose:
+
+| Fitxer | Ús |
+|--------|----|
+| `docker-compose.yml` | **Producció** — compila imatge Docker i serveix tot des del binari |
+| `docker-compose.dev.yml` | **Desenvolupament** — frontend Vite + backend `cargo watch` amb hot-reload |
+
+Config d'entorn (recomanat per equip):
 
 1. Fitxer base compartit: `.env.compose`
 2. Overrides locals (no versionats): `.env.compose.local`
 3. Plantilla de referència: `.env.compose.example`
 
-`docker-compose.yml` carrega primer `.env.compose` i després `.env.compose.local`.
+`docker-compose.yml` i `docker-compose.dev.yml` carreguen primer `.env.compose` i després `.env.compose.local`.
 Si una variable existeix als dos fitxers, preval el valor de `.env.compose.local`.
 
 Configuració recomanada per adjunts S3 en local:
@@ -113,7 +120,15 @@ Taula de decisió ràpida:
 | Vols rendiment màxim en transferència de fitxers | `SERVER_PROXY_S3=false` | Evita un salt extra frontend -> backend -> S3 |
 | Vols centralitzar control/auditoria de transferències | `SERVER_PROXY_S3=true` | El backend intermedia totes les pujades i descàrregues |
 
-Si vols arrencar la pila completa amb la imatge construïda a partir de `build.sh`:
+**Mode desenvolupament (recomanat per contribuir):**
+
+```bash
+docker compose -f docker-compose.dev.yml up
+```
+
+Aixeca PostgreSQL, LiveKit, RustFS, el backend amb `cargo watch` (port 8080) i el frontend amb `pnpm dev` (port 5173). La primera arrencada compila `cargo-watch`; les següents reutilitzen la caché del volum.
+
+**Mode producció** (imatge construïda des de `build.sh`):
 
 ```bash
 cd server
@@ -122,7 +137,7 @@ cd ..
 docker compose up --build
 ```
 
-Això aixeca PostgreSQL, LiveKit i el backend Rust amb el frontend integrat.
+Aixeca PostgreSQL, LiveKit, RustFS i el backend Rust amb el frontend incrustat al binari.
 
 ### 4. Arrancar el backend manualment
 

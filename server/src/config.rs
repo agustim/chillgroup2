@@ -58,6 +58,8 @@ pub struct Config {
     pub jwt_expiration_days: u32,
     pub server_master_key: [u8; 32],
     pub static_dir: Option<String>,
+    /// Mida màxima permesa per fitxer en bytes. 0 = sense límit. Per defecte: 104857600 (100 MB).
+    pub max_file_size_bytes: u64,
 }
 
 fn decode_hex_key_32(value: &str) -> Result<[u8; 32], String> {
@@ -163,6 +165,10 @@ impl Config {
                 .unwrap_or(7),
             server_master_key: decode_hex_key_32(&get_var("SERVER_MASTER_KEY")?)?,
             static_dir: env::var("STATIC_DIR").ok().filter(|s| !s.trim().is_empty()),
+            max_file_size_bytes: env::var("MAX_FILE_SIZE")
+                .ok()
+                .and_then(|v| v.trim().parse::<u64>().ok())
+                .unwrap_or(100 * 1024 * 1024), // 100 MB per defecte
         }, loaded_env_path))
     }
 
