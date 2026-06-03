@@ -3,6 +3,7 @@ import { ml_dsa87 } from '@noble/post-quantum/ml-dsa.js'
 
 import {
   deleteChannelKey,
+  deleteDeviceSecretKeys,
   deleteNamedKeypair,
   getAllChannelKeys,
   getChannelKey,
@@ -318,6 +319,7 @@ export async function exportDeviceKeypair(deviceId: string): Promise<string> {
 
 export async function deleteDeviceKeypair(deviceId: string): Promise<void> {
   await deleteNamedKeypair(deviceId)
+  await deleteDeviceSecretKeys(deviceId)
 }
 
 export async function listDeviceKeypairs(): Promise<NamedKeypairItem[]> {

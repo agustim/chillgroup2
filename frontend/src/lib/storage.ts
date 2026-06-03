@@ -360,6 +360,16 @@ export async function listNamedKeypairs(): Promise<NamedKeypairSummary[]> {
   })
 }
 
+export async function deleteDeviceSecretKeys(deviceId: string): Promise<void> {
+  const db = await getDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('keypairs', 'readwrite')
+    tx.objectStore('keypairs').delete(deviceId)
+    tx.oncomplete = () => { db.close(); resolve() }
+    tx.onerror = () => { db.close(); reject(tx.error) }
+  })
+}
+
 /**
  * Eliminar un keypair nominal.
  */

@@ -1,0 +1,9 @@
+# Stack mínim per a desenvolupament local: LiveKit + RustFS (S3) sense Postgres ni app.
+#
+# Ús:
+#   docker compose -f docker-compose.minimal.yml up -d
+#
+# Criteri de fet: pot fer uploads a bucket S3 i connexions LiveKit sense app ni Postgres.
+
+include:
+  - path: docker-compose.services.yml
