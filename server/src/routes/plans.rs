@@ -22,6 +22,8 @@ pub struct PlanItem {
     pub max_members_per_server: i32,
     pub api_calls_per_minute: i32,
     pub messages_per_day: i32,
+    pub max_storage_bytes: i64,
+    pub max_transfer_bytes_monthly: i64,
 }
 
 pub async fn list_plans(
@@ -46,6 +48,8 @@ pub async fn list_plans(
             max_members_per_server,
             api_calls_per_minute,
             messages_per_day,
+            max_storage_bytes,
+            max_transfer_bytes_monthly,
         )| PlanItem {
             id,
             name,
@@ -57,6 +61,8 @@ pub async fn list_plans(
             max_members_per_server,
             api_calls_per_minute,
             messages_per_day,
+            max_storage_bytes,
+            max_transfer_bytes_monthly,
         })
         .collect();
 

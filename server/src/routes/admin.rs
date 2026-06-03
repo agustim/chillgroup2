@@ -105,6 +105,8 @@ pub struct AdminPlanItem {
     pub max_members_per_server: i32,
     pub api_calls_per_minute: i32,
     pub messages_per_day: i32,
+    pub max_storage_bytes: i64,
+    pub max_transfer_bytes_monthly: i64,
     pub is_system: bool,
 }
 
@@ -184,6 +186,8 @@ fn to_admin_plan_item(
     max_members_per_server: i32,
     api_calls_per_minute: i32,
     messages_per_day: i32,
+    max_storage_bytes: i64,
+    max_transfer_bytes_monthly: i64,
 ) -> AdminPlanItem {
     let is_system = is_system_plan_name(&name);
     AdminPlanItem {
@@ -197,6 +201,8 @@ fn to_admin_plan_item(
         max_members_per_server,
         api_calls_per_minute,
         messages_per_day,
+        max_storage_bytes,
+        max_transfer_bytes_monthly,
         is_system,
     }
 }
@@ -229,6 +235,8 @@ pub async fn list_admin_plans(
                 max_members_per_server,
                 api_calls_per_minute,
                 messages_per_day,
+                max_storage_bytes,
+                max_transfer_bytes_monthly,
             )| {
                 to_admin_plan_item(
                     id,
@@ -241,6 +249,8 @@ pub async fn list_admin_plans(
                     max_members_per_server,
                     api_calls_per_minute,
                     messages_per_day,
+                    max_storage_bytes,
+                    max_transfer_bytes_monthly,
                 )
             },
         )
@@ -782,6 +792,8 @@ pub async fn get_user_limits(
         max_members,
         api_calls_per_minute,
         messages_per_day,
+        _max_storage_bytes,
+        _max_transfer_bytes_monthly,
     ) = state
         .db
         .get_user_plan_limits(user_id)

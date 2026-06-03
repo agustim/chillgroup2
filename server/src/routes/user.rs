@@ -160,6 +160,8 @@ pub struct TierLimits {
     pub max_members_per_server: i32,
     pub api_calls_per_minute: i32,
     pub messages_per_day: i32,
+    pub max_storage_bytes: i64,
+    pub max_transfer_bytes_monthly: i64,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -181,6 +183,8 @@ pub struct UserUsageSummary {
     pub total_members_across_servers: i64,
     pub messages_today: i64,
     pub api_calls_this_minute: i64,
+    pub stored_bytes: i64,
+    pub transfer_bytes_this_month: i64,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -220,6 +224,8 @@ pub async fn get_user_limits(
         max_members,
         api_calls_per_minute,
         messages_per_day,
+        max_storage_bytes,
+        max_transfer_bytes_monthly,
     ) = state
         .db
         .get_user_plan_limits(claims.user_id)
@@ -293,6 +299,13 @@ pub async fn get_user_limits(
         (i64::from(api_calls_per_minute) - api_calls_this_minute).max(0)
     };
 
+    let year_month = chrono::Utc::now().format("%Y-%m").to_string();
+    let (stored_bytes, transfer_bytes_this_month) = state
+        .db
+        .get_user_storage_usage(claims.user_id, &year_month)
+        .await
+        .unwrap_or((0, 0));
+
     Ok(Json(serde_json::json!({
         "success": true,
         "data": {
@@ -308,6 +321,8 @@ pub async fn get_user_limits(
                     max_members_per_server: max_members,
                     api_calls_per_minute,
                     messages_per_day,
+                    max_storage_bytes,
+                    max_transfer_bytes_monthly,
                 }
             },
             "usage": UserUsageSummary {
@@ -317,6 +332,8 @@ pub async fn get_user_limits(
                 total_members_across_servers,
                 messages_today,
                 api_calls_this_minute,
+                stored_bytes,
+                transfer_bytes_this_month,
             },
             "permissions": UserPermissionsSummary {
                 can_create_server,

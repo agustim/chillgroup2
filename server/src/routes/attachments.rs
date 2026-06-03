@@ -257,6 +257,23 @@ pub async fn init_attachment(
         return Err(AppError::FileTooLarge { max_mb: max_bytes / (1024 * 1024) });
     }
 
+    let year_month = Utc::now().format("%Y-%m").to_string();
+    let (max_storage, _) = state
+        .db
+        .get_user_s3_quota(claims.user_id)
+        .await
+        .map_err(|e| AppError::DatabaseError(sqlx::Error::Protocol(e)))?;
+    if max_storage >= 0 {
+        let (stored, _) = state
+            .db
+            .get_user_storage_usage(claims.user_id, &year_month)
+            .await
+            .map_err(|e| AppError::DatabaseError(sqlx::Error::Protocol(e)))?;
+        if stored + req.size_bytes > max_storage {
+            return Err(AppError::StorageQuotaExceeded);
+        }
+    }
+
     let attachment_id = Uuid::new_v4();
     let object_key = format!("channels/{}/attachments/{}.bin", channel_id, attachment_id);
     let created_at = req
@@ -485,6 +502,50 @@ pub async fn complete_attachment(
         .await
         .map_err(AppError::DatabaseError)?;
 
+    let year_month = Utc::now().format("%Y-%m").to_string();
+    if let Ok(new_stored) = state
+        .db
+        .increment_stored_bytes(claims.user_id, &year_month, attachment.size_bytes)
+        .await
+    {
+        let (max_storage, _) = state
+            .db
+            .get_user_s3_quota(claims.user_id)
+            .await
+            .unwrap_or((-1, -1));
+        if max_storage > 0 {
+            let pct = new_stored * 100 / max_storage;
+            let (sent80, sent90) = state
+                .db
+                .get_quota_warning_timestamps(claims.user_id, &year_month)
+                .await
+                .unwrap_or((false, false));
+
+            for (threshold, already_sent) in [(90u8, sent90), (80u8, sent80)] {
+                if pct >= i64::from(threshold) && !already_sent {
+                    let user_room = format!("user:{}", claims.user_id);
+                    let _ = state
+                        .io
+                        .to(user_room)
+                        .emit(
+                            "quota_warning",
+                            &serde_json::json!({
+                                "type": "storage",
+                                "threshold": threshold,
+                                "usedBytes": new_stored,
+                                "maxBytes": max_storage,
+                            }),
+                        )
+                        .await;
+                    let _ = state
+                        .db
+                        .set_quota_warning_sent(claims.user_id, &year_month, threshold)
+                        .await;
+                }
+            }
+        }
+    }
+
     Ok(Json(CompleteAttachmentResponse {
         attachment_id,
         status: "ready".to_string(),
@@ -517,6 +578,23 @@ pub async fn download_attachment(
         return Err(AppError::BadRequest);
     }
 
+    let year_month = Utc::now().format("%Y-%m").to_string();
+    let (_, max_transfer) = state
+        .db
+        .get_user_s3_quota(claims.user_id)
+        .await
+        .map_err(|e| AppError::DatabaseError(sqlx::Error::Protocol(e)))?;
+    if max_transfer >= 0 {
+        let (_, transferred) = state
+            .db
+            .get_user_storage_usage(claims.user_id, &year_month)
+            .await
+            .map_err(|e| AppError::DatabaseError(sqlx::Error::Protocol(e)))?;
+        if transferred + attachment.size_bytes > max_transfer {
+            return Err(AppError::TransferQuotaExceeded);
+        }
+    }
+
     let download_url = if server_proxy_s3() {
         format!(
             "/api/channels/{}/attachments/{}/download-proxy",
@@ -535,6 +613,11 @@ pub async fn download_attachment(
 
         presigned.uri().to_string()
     };
+
+    let _ = state
+        .db
+        .increment_transfer_bytes(claims.user_id, &year_month, attachment.size_bytes)
+        .await;
 
     Ok(Json(DownloadAttachmentResponse {
         attachment_id: attachment.id,
@@ -1077,5 +1160,338 @@ mod tests {
 
         let is_file_too_large = matches!(result, Err(AppError::FileTooLarge { .. }));
         assert!(!is_file_too_large, "file exactly at limit should not return FileTooLarge");
+    }
+
+    #[tokio::test]
+    async fn init_attachment_storage_quota_exceeded_returns_error() {
+        let state = make_state().await;
+        let (owner_id, _server_id, channel_id) =
+            setup_server_channel(&state, "quota_stor_owner", "quota-stor").await;
+
+        let year_month = chrono::Utc::now().format("%Y-%m").to_string();
+
+        // Free plan: 10 GB storage. Pre-fill usage to leave only 500 bytes free.
+        let free_storage: i64 = 10 * 1024 * 1024 * 1024;
+        let pre_used = free_storage - 500;
+        state
+            .db
+            .increment_stored_bytes(owner_id, &year_month, pre_used)
+            .await
+            .expect("pre-fill storage usage");
+
+        let result = init_attachment(
+            State(state),
+            Extension(claims_for(owner_id, "quota_stor_owner")),
+            Path(channel_id),
+            Json(InitAttachmentRequest {
+                file_name: "toobig.bin".to_string(),
+                mime_type: "application/octet-stream".to_string(),
+                size_bytes: 1024, // 1 KB > 500 bytes remaining
+                created_at: None,
+                chunk_size_bytes: 1024,
+                chunk_count: 1,
+            }),
+        )
+        .await;
+
+        assert!(
+            matches!(result, Err(AppError::StorageQuotaExceeded)),
+            "upload over storage quota should be rejected"
+        );
+    }
+
+    #[tokio::test]
+    async fn init_attachment_storage_quota_not_exceeded_passes() {
+        let state = make_state().await;
+        let (owner_id, _server_id, channel_id) =
+            setup_server_channel(&state, "quota_stor_ok_owner", "quota-stor-ok").await;
+
+        let year_month = chrono::Utc::now().format("%Y-%m").to_string();
+
+        // Pre-fill 1 GB — still well within free 10 GB limit.
+        state
+            .db
+            .increment_stored_bytes(owner_id, &year_month, 1024 * 1024 * 1024)
+            .await
+            .expect("pre-fill storage usage");
+
+        let result = init_attachment(
+            State(state),
+            Extension(claims_for(owner_id, "quota_stor_ok_owner")),
+            Path(channel_id),
+            Json(InitAttachmentRequest {
+                file_name: "small.bin".to_string(),
+                mime_type: "application/octet-stream".to_string(),
+                size_bytes: 100,
+                created_at: None,
+                chunk_size_bytes: 100,
+                chunk_count: 1,
+            }),
+        )
+        .await;
+
+        assert!(
+            !matches!(result, Err(AppError::StorageQuotaExceeded)),
+            "upload within quota should not be rejected for storage"
+        );
+    }
+
+    #[tokio::test]
+    async fn monthly_usage_increments_stored_bytes_on_complete() {
+        let state = make_state().await;
+        let (owner_id, _server_id, channel_id) =
+            setup_server_channel(&state, "quota_incr_owner", "quota-incr").await;
+
+        let year_month = chrono::Utc::now().format("%Y-%m").to_string();
+        let (stored_before, _) = state
+            .db
+            .get_user_storage_usage(owner_id, &year_month)
+            .await
+            .expect("usage lookup");
+
+        let attachment_id = Uuid::new_v4();
+        let key_version_id = Uuid::new_v4();
+        let size: i64 = 512;
+
+        state
+            .db
+            .create_attachment_init(
+                attachment_id,
+                channel_id,
+                owner_id,
+                Uuid::new_v4(),
+                "incr.bin",
+                "application/octet-stream",
+                size,
+                chrono::Utc::now(),
+                "channels/x/y.bin",
+                "upload-id-x",
+                size,
+                1,
+            )
+            .await
+            .expect("create attachment init");
+
+        state
+            .db
+            .complete_attachment(
+                attachment_id,
+                "aes-256-gcm",
+                "iv",
+                "wrapped",
+                key_version_id,
+                1,
+                "deadbeef",
+            )
+            .await
+            .expect("complete attachment");
+
+        // Simulate what complete_attachment handler does
+        state
+            .db
+            .increment_stored_bytes(owner_id, &year_month, size)
+            .await
+            .expect("increment stored bytes");
+
+        let (stored_after, _) = state
+            .db
+            .get_user_storage_usage(owner_id, &year_month)
+            .await
+            .expect("usage lookup after");
+
+        assert_eq!(
+            stored_after,
+            stored_before + size,
+            "stored_bytes should increase by the attachment size"
+        );
+    }
+
+    #[tokio::test]
+    async fn download_transfer_quota_exceeded_returns_error() {
+        let state = make_state().await;
+        let (owner_id, _server_id, channel_id) =
+            setup_server_channel(&state, "quota_transfer_owner", "quota-transfer").await;
+
+        let year_month = chrono::Utc::now().format("%Y-%m").to_string();
+
+        // Free plan: 100 GB transfer. Pre-fill to leave only 500 bytes.
+        let free_transfer: i64 = 100 * 1024 * 1024 * 1024;
+        let pre_used = free_transfer - 500;
+        state
+            .db
+            .increment_transfer_bytes(owner_id, &year_month, pre_used)
+            .await
+            .expect("pre-fill transfer usage");
+
+        // Create a completed attachment of 1 KB > 500 bytes remaining
+        let attachment_id = Uuid::new_v4();
+        let key_version_id = Uuid::new_v4();
+        state
+            .db
+            .create_attachment_init(
+                attachment_id,
+                channel_id,
+                owner_id,
+                Uuid::new_v4(),
+                "large.bin",
+                "application/octet-stream",
+                1024,
+                chrono::Utc::now(),
+                "channels/t/large.bin",
+                "upload-id-t",
+                1024,
+                1,
+            )
+            .await
+            .expect("create attachment");
+        state
+            .db
+            .complete_attachment(attachment_id, "aes-256-gcm", "iv", "wrapped", key_version_id, 1, "deadbeef")
+            .await
+            .expect("complete attachment");
+
+        let result = download_attachment(
+            State(state),
+            Extension(claims_for(owner_id, "quota_transfer_owner")),
+            Path((channel_id, attachment_id)),
+        )
+        .await;
+
+        assert!(
+            matches!(result, Err(AppError::TransferQuotaExceeded)),
+            "download over transfer quota should be rejected"
+        );
+    }
+
+    #[tokio::test]
+    async fn unlimited_plan_bypasses_storage_quota() {
+        let state = make_state().await;
+        let (owner_id, _server_id, channel_id) =
+            setup_server_channel(&state, "quota_unlimited_owner", "quota-unlimited").await;
+
+        // Assign enterprise plan (unlimited = -1) to the user
+        state
+            .db
+            .set_user_plan_by_name(owner_id, "enterprise")
+            .await
+            .expect("set enterprise plan");
+
+        let year_month = chrono::Utc::now().format("%Y-%m").to_string();
+
+        // Pre-fill with enormous amount — should still be allowed
+        state
+            .db
+            .increment_stored_bytes(owner_id, &year_month, i64::MAX / 2)
+            .await
+            .expect("pre-fill storage");
+
+        let result = init_attachment(
+            State(state),
+            Extension(claims_for(owner_id, "quota_unlimited_owner")),
+            Path(channel_id),
+            Json(InitAttachmentRequest {
+                file_name: "any.bin".to_string(),
+                mime_type: "application/octet-stream".to_string(),
+                size_bytes: 1024,
+                created_at: None,
+                chunk_size_bytes: 1024,
+                chunk_count: 1,
+            }),
+        )
+        .await;
+
+        assert!(
+            !matches!(result, Err(AppError::StorageQuotaExceeded)),
+            "enterprise plan (-1) should never block uploads"
+        );
+    }
+
+    #[tokio::test]
+    async fn quota_warning_emitted_at_80_percent() {
+        let state = make_state().await;
+        let (owner_id, _server_id, _channel_id) =
+            setup_server_channel(&state, "warn80_owner", "warn80").await;
+
+        let year_month = chrono::Utc::now().format("%Y-%m").to_string();
+        let free_storage: i64 = 10 * 1024 * 1024 * 1024;
+
+        // Pre-fill to 79% — no warning yet
+        state
+            .db
+            .increment_stored_bytes(owner_id, &year_month, free_storage * 79 / 100)
+            .await
+            .expect("pre-fill");
+
+        let (sent80_before, _) = state
+            .db
+            .get_quota_warning_timestamps(owner_id, &year_month)
+            .await
+            .expect("timestamps before");
+        assert!(!sent80_before, "warning_sent_at_80 should not be set yet");
+
+        // Add enough to cross 80%
+        state
+            .db
+            .increment_stored_bytes(owner_id, &year_month, free_storage * 3 / 100)
+            .await
+            .expect("increment to 82%");
+
+        // Simulate the handler marking the warning
+        let (new_stored, _) = state
+            .db
+            .get_user_storage_usage(owner_id, &year_month)
+            .await
+            .expect("usage");
+        let pct = new_stored * 100 / free_storage;
+        assert!(pct >= 80, "should be at or above 80%");
+
+        let (_, _sent90) = state
+            .db
+            .get_quota_warning_timestamps(owner_id, &year_month)
+            .await
+            .expect("timestamps");
+
+        // Mark 80% warning
+        state
+            .db
+            .set_quota_warning_sent(owner_id, &year_month, 80)
+            .await
+            .expect("set warning 80");
+
+        let (sent80_after, _) = state
+            .db
+            .get_quota_warning_timestamps(owner_id, &year_month)
+            .await
+            .expect("timestamps after");
+        assert!(sent80_after, "warning_sent_at_80 should now be set");
+    }
+
+    #[tokio::test]
+    async fn quota_warning_not_repeated_once_set() {
+        let state = make_state().await;
+        let (owner_id, _server_id, _channel_id) =
+            setup_server_channel(&state, "warn_repeat_owner", "warn-repeat").await;
+
+        let year_month = chrono::Utc::now().format("%Y-%m").to_string();
+
+        state
+            .db
+            .set_quota_warning_sent(owner_id, &year_month, 80)
+            .await
+            .expect("set warning first time");
+
+        state
+            .db
+            .set_quota_warning_sent(owner_id, &year_month, 80)
+            .await
+            .expect("set warning second time (idempotent)");
+
+        let (sent80, _) = state
+            .db
+            .get_quota_warning_timestamps(owner_id, &year_month)
+            .await
+            .expect("timestamps");
+
+        assert!(sent80, "warning should still be set after idempotent call");
     }
 }

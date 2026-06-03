@@ -568,15 +568,32 @@ pub struct ListDirectMessagesQuery {
     pub before: Option<Uuid>,
 }
 
-/// Llistar converses directes de l'usuari.
+/// Llistar converses directes de l'usuari (ruta legacy /api/conversations).
 pub async fn list_conversations(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
 ) -> Result<Json<Vec<DirectMessageConversation>>, AppError> {
     info!("Endpoint list_conversations cridat: user_id={}", claims.user_id);
 
-    // TODO: Full implementation with proper DM channel support
-    Ok(Json(vec![]))
+    let channels = state
+        .db
+        .list_dm_channels_for_user(claims.user_id)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+    let conversations = channels
+        .into_iter()
+        .map(|c| DirectMessageConversation {
+            other_user_id: c.peer_user_id,
+            other_user_username: c.peer_username,
+            other_user_avatar: None,
+            last_message_at: c.last_message_at.unwrap_or_else(Utc::now),
+            unread_count: 0,
+            last_message_preview: None,
+        })
+        .collect();
+
+    Ok(Json(conversations))
 }
 
 #[derive(Debug, Serialize)]

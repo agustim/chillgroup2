@@ -16,3 +16,5 @@ build/
 *.swo
 *.zip
 *.tar.gz
+.pnpm-store/
+memory/

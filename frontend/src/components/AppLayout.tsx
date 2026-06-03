@@ -102,6 +102,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const [serverMemberPresenceById, setServerMemberPresenceById] = useState<Record<string, boolean>>({})
   const [panel, setPanel] = useState<PanelType>('none')
   const [feedback, setFeedback] = useState<string | null>(null)
+  const [quotaWarning, setQuotaWarning] = useState<string | null>(null)
   const [dmKeyActionBusy, setDmKeyActionBusy] = useState(false)
   const [canCreateServer, setCanCreateServer] = useState(true)
   const [canCreateTextChannel, setCanCreateTextChannel] = useState(true)
@@ -408,9 +409,16 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
       setPendingInvitationCount((n) => n + 1)
     }
 
+    const handleQuotaWarning = (data: { type: string; threshold: number; usedBytes: number; maxBytes: number }) => {
+      const pct = Math.round((data.usedBytes / data.maxBytes) * 100)
+      const typeLabel = data.type === 'storage' ? 'emmagatzematge' : data.type
+      setQuotaWarning(`Avís: has usat el ${pct}% de la quota de ${typeLabel} del teu pla.`)
+    }
+
     socket.on('user-servers-updated', handleUserServersUpdated)
     socket.on('server-channels-updated', handleServerChannelsUpdated)
     socket.on('server-invitation', handleServerInvitation)
+    socket.on('quota_warning', handleQuotaWarning)
 
     return () => {
       if (serversRefreshTimer !== null) {
@@ -422,6 +430,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
       socket.off('user-servers-updated', handleUserServersUpdated)
       socket.off('server-channels-updated', handleServerChannelsUpdated)
       socket.off('server-invitation', handleServerInvitation)
+      socket.off('quota_warning', handleQuotaWarning)
     }
   }, [selectedServer])
 
@@ -1727,6 +1736,12 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
 
         {feedback && <div className="feedback-banner">{feedback}</div>}
         {liveKitError && <div className="feedback-banner" style={{ backgroundColor: '#ff4444' }}>{liveKitError}</div>}
+        {quotaWarning && (
+          <div className="feedback-banner feedback-banner--warning" style={{ backgroundColor: '#f59e0b', color: '#1f2937' }}>
+            {quotaWarning}
+            <button onClick={() => setQuotaWarning(null)} style={{ marginLeft: 8, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
+          </div>
+        )}
 
         {panel === 'createServer' ? (
           <div className="panel admin-users-panel">

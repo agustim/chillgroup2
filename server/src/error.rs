@@ -103,6 +103,10 @@ pub enum AppError {
     AttachmentNotFound,
     #[error("El fitxer supera la mida màxima permesa ({max_mb} MB)")]
     FileTooLarge { max_mb: u64 },
+    #[error("Has superat la quota d'emmagatzematge del teu pla")]
+    StorageQuotaExceeded,
+    #[error("Has superat la quota de transferència mensual del teu pla")]
+    TransferQuotaExceeded,
     #[error("Només el remitent pot editar aquest missatge")]
     NotMessageSender,
     #[error("No es pot editar un missatge més enllà de 5 minuts")]
@@ -123,6 +127,8 @@ pub enum AppError {
     #[error("Dispositiu revocat per E2EE")]
     DeviceRevokedE2EE,
     // LiveKit / Veu (6000-6099)
+    #[error("Has superat la quota de streaming mensual del teu pla")]
+    StreamingQuotaExceeded,
     #[error("Canal no és de veu")]
     ChannelNotVoice,
     #[error("No pertany al servidor")]
@@ -264,6 +270,16 @@ impl IntoResponse for AppError {
                 format!("El fitxer supera la mida màxima de {max_mb} MB"),
                 None,
             ),
+            AppError::StorageQuotaExceeded => (
+                StatusCode::TOO_MANY_REQUESTS, 4005,
+                "Has superat la quota d'emmagatzematge del teu pla".to_string(),
+                None,
+            ),
+            AppError::TransferQuotaExceeded => (
+                StatusCode::TOO_MANY_REQUESTS, 4006,
+                "Has superat la quota de transferència mensual del teu pla".to_string(),
+                None,
+            ),
             AppError::PublicKeyNotFound => (
                 StatusCode::BAD_REQUEST, 5001, "Aquest dispositiu no té una clau pública registrada".to_string(), None,
             ),
@@ -275,6 +291,11 @@ impl IntoResponse for AppError {
             ),
             AppError::EncapsulationFailed => (
                 StatusCode::BAD_REQUEST, 5004, "No s'ha pogut encapsular la clau del canal per aquest dispositiu".to_string(), None,
+            ),
+            AppError::StreamingQuotaExceeded => (
+                StatusCode::TOO_MANY_REQUESTS, 6001,
+                "Has superat la quota de streaming mensual del teu pla".to_string(),
+                None,
             ),
             AppError::LiveKitUnavailable => (
                 StatusCode::BAD_GATEWAY, 6003, "El servei de veu no està disponible ara mateix".to_string(), None,
