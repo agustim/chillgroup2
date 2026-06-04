@@ -1,5 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import { Button } from './shared/Button'
+import React, { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { ServerBar } from './sidebar/ServerBar'
 import { ChannelList } from './sidebar/ChannelList'
@@ -13,10 +12,15 @@ import { ChannelKeysPanel } from './modals/ChannelKeysModal'
 import { PermissionsPanel } from './modals/PermissionsModal'
 import { ChangePasswordPanel } from './modals/ChangePasswordModal'
 import { FriendsPanel } from './modals/FriendsModal'
-import { InviteUserSearch } from './shared/InviteUserSearch'
 import { AdminUsersPanel } from './main/AdminUsersPanel'
 import { LogoutBackupModal } from './modals/LogoutBackupModal'
 import { ServerInvitationsModal } from './modals/ServerInvitationsModal'
+import { PanelTab } from './shared/PanelTab'
+import { ServerConfigPanel } from './main/ServerConfigPanel'
+import { ChannelConfigPanel } from './main/ChannelConfigPanel'
+import { LeaveServerModal } from './modals/LeaveServerModal'
+import { usePresence } from '../hooks/usePresence'
+import { useChannelConfig } from '../hooks/useChannelConfig'
 import { useLiveKit } from '../hooks/useLiveKit'
 import { Channel, FriendPresence, Server, ServerFullInfo, VoiceParticipant } from '../types'
 import { disconnectSocket, getSocket } from '../lib/socket'
@@ -39,12 +43,7 @@ import {
   channelsCreate,
   channelsList,
   channelInvite,
-  channelGetPermissions,
-  channelGetExplicitPermissions,
-  channelSetExplicitPermission,
-  channelsUpdate,
   channelDelete,
-  usersSearch,
   dmChannelRotateKey,
   userLimitsGet,
 } from '../lib/api'
@@ -55,7 +54,7 @@ interface AppLayoutProps {
   onLogout?: () => void
 }
 
-type PanelType = 'none' | 'serverConfig' | 'channelConfig' | 'devices' | 'adminUsers' | 'permissions' | 'friends' | 'createServer' | 'changePassword' | 'channelKeys' | 'createTextChannel' | 'createVoiceChannel'
+export type PanelType = 'none' | 'serverConfig' | 'channelConfig' | 'devices' | 'adminUsers' | 'permissions' | 'friends' | 'createServer' | 'changePassword' | 'channelKeys' | 'createTextChannel' | 'createVoiceChannel'
 type ServerMenuAction = 'config' | 'invite' | 'createText' | 'createVoice' | 'leave' | null
 
 function formatDmRepairFeedback(result: {
@@ -97,9 +96,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const [voiceAsTextMode, setVoiceAsTextMode] = useState(false)
   const [voiceChannelId, setVoiceChannelId] = useState<string | null>(null)
   const [voiceChannelName, setVoiceChannelName] = useState<string>('')
-  const [voicePresenceByChannel, setVoicePresenceByChannel] = useState<Record<string, VoiceParticipant[]>>({})
   const [friends, setFriends] = useState<FriendPresence[]>([])
-  const [serverMemberPresenceById, setServerMemberPresenceById] = useState<Record<string, boolean>>({})
   const [panel, setPanel] = useState<PanelType>('none')
   const [feedback, setFeedback] = useState<string | null>(null)
   const [quotaWarning, setQuotaWarning] = useState<string | null>(null)
@@ -107,7 +104,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const [canCreateServer, setCanCreateServer] = useState(true)
   const [canCreateTextChannel, setCanCreateTextChannel] = useState(true)
   const [canCreateVoiceChannel, setCanCreateVoiceChannel] = useState(true)
-  
+
   // Modal states
   const [showInviteServer, setShowInviteServer] = useState(false)
   const [leaveServerConfirm, setLeaveServerConfirm] = useState<{ serverId: string; serverName: string; isLastAdmin: boolean } | null>(null)
@@ -115,27 +112,9 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const [showServerInvitations, setShowServerInvitations] = useState(false)
   const [pendingInvitationCount, setPendingInvitationCount] = useState(0)
   const [pendingServerConfigOpenId, setPendingServerConfigOpenId] = useState<string | null>(null)
-const [pendingMemberRemovalId, setPendingMemberRemovalId] = useState<string | null>(null)
-  const [channelConfigName, setChannelConfigName] = useState('')
-  const [channelConfigMessageTTL, setChannelConfigMessageTTL] = useState('')
-  const [channelConfigIsPrivate, setChannelConfigIsPrivate] = useState(false)
-const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Array<{
-    userId: string
-    username: string
-    permissionLevel: number
-    permission: 'none' | 'read' | 'write' | 'manage'
-  }>>([])
-  const [channelExplicitPermissionsLoading, setChannelExplicitPermissionsLoading] = useState(false)
-  const [canViewChannelExplicitPermissions, setCanViewChannelExplicitPermissions] = useState(false)
-  const [channelPermissionRows, setChannelPermissionRows] = useState<Array<{
-    userId: string
-    username: string
-    effectiveLevel: number
-    effectivePermission: 'none' | 'read' | 'write' | 'manage'
-    explicitLevel: number | null
-  }>>([])
-  const [updatingChannelPermissionUserId, setUpdatingChannelPermissionUserId] = useState<string | null>(null)
-  
+  const [pendingMemberRemovalId, setPendingMemberRemovalId] = useState<string | null>(null)
+  const [showLogoutModal, setShowLogoutModal] = useState(false)
+
   // LiveKit hook
   const {
     isConnected: liveKitConnected,
@@ -157,86 +136,10 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
     error: liveKitError,
   } = useLiveKit()
 
-  // Auto-dismiss feedback
-  useEffect(() => {
-    if (feedback) {
-      const isError = feedback.includes('ha fallat') || feedback.startsWith('Error:')
-      const timer = setTimeout(() => setFeedback(null), isError ? 12000 : 3000)
-      return () => clearTimeout(timer)
-    }
-  }, [feedback])
+  // Presence hook
+  const { voicePresenceByChannel, serverMemberPresenceById } = usePresence(selectedServer)
 
-  useEffect(() => {
-    if (!user || !currentDeviceId) {
-      return
-    }
-
-    let cancelled = false
-    hasLocalDeviceKeypair(currentDeviceId)
-      .then((hasKeypair) => {
-        if (!cancelled && !hasKeypair) {
-          setPanel('devices')
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setPanel('devices')
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [user, currentDeviceId])
-
-  useEffect(() => {
-    if (!selectedChannel || selectedChannel.encryptionType === 'none' || !currentDeviceId) return
-    syncChannelKeys(selectedChannel.channelId, selectedChannel.encryptionType as import('../types').EncryptionType, currentDeviceId).catch(() => {})
-  }, [selectedChannel?.channelId, currentDeviceId])
-
-  useEffect(() => {
-    let cancelled = false
-
-    const loadFriends = async () => {
-      const result = await friendsList()
-      if (!cancelled && result.success) {
-        setFriends(result.data)
-      }
-    }
-
-    void loadFriends()
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-
-    const loadUserLimits = async () => {
-      if (!user) {
-        setCanCreateServer(true)
-        setCanCreateTextChannel(true)
-        setCanCreateVoiceChannel(true)
-        return
-      }
-
-      const result = await userLimitsGet()
-      if (!cancelled && result.success) {
-        setCanCreateServer(result.data.permissions.canCreateServer)
-        setCanCreateTextChannel(result.data.permissions.canCreateTextChannel)
-        setCanCreateVoiceChannel(result.data.permissions.canCreateVoiceChannel)
-      }
-    }
-
-    void loadUserLimits()
-
-    return () => {
-      cancelled = true
-    }
-  }, [user?.userId])
-
+  // Computed values (used by useChannelConfig below)
   const selectedServerInfo = selectedServer ? servers.find((server) => server.serverId === selectedServer) : undefined
   const resolvedSelectedChannel = selectedChannel
     ? channels.find((channel) => channel.channelId === selectedChannel.channelId) ?? selectedChannel
@@ -247,117 +150,88 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
     serverDetails?.myRole === 'owner' ||
     serverDetails?.myRole === 'admin'
 
+  // Channel config hook
+  const {
+    channelConfigName,
+    setChannelConfigName,
+    channelConfigMessageTTL,
+    setChannelConfigMessageTTL,
+    channelConfigIsPrivate,
+    setChannelConfigIsPrivate,
+    channelExplicitPermissions,
+    channelExplicitPermissionsLoading,
+    canViewChannelExplicitPermissions,
+    channelPermissionRows,
+    updatingChannelPermissionUserId,
+    handleUpdateChannelExplicitPermission,
+    handleChannelConfigSave,
+  } = useChannelConfig({
+    isActive: panel === 'channelConfig',
+    channel: resolvedSelectedChannel,
+    selectedServer,
+    fetchChannels,
+    setSelectedChannel,
+    setFeedback,
+  })
+
+  // Auto-dismiss feedback
   useEffect(() => {
-    if (panel !== 'channelConfig' || !resolvedSelectedChannel) {
-      return
+    if (feedback) {
+      const isError = feedback.includes('ha fallat') || feedback.startsWith('Error:')
+      const timer = setTimeout(() => setFeedback(null), isError ? 12000 : 3000)
+      return () => clearTimeout(timer)
     }
-    setChannelConfigName(resolvedSelectedChannel.name)
-    setChannelConfigMessageTTL(
-      resolvedSelectedChannel.messageTTL === null || resolvedSelectedChannel.messageTTL === undefined
-        ? ''
-        : String(resolvedSelectedChannel.messageTTL)
-    )
-    setChannelConfigIsPrivate(!!resolvedSelectedChannel.isPrivate)
-  }, [panel, resolvedSelectedChannel?.channelId, resolvedSelectedChannel?.name, resolvedSelectedChannel?.messageTTL, resolvedSelectedChannel?.isPrivate])
+  }, [feedback])
 
   useEffect(() => {
-    if (panel !== 'channelConfig' || !resolvedSelectedChannel) {
-      setChannelExplicitPermissions([])
-      setCanViewChannelExplicitPermissions(false)
-      setChannelExplicitPermissionsLoading(false)
-      return
-    }
+    if (!user || !currentDeviceId) return
 
     let cancelled = false
-    const loadExplicitPermissions = async () => {
-      setChannelExplicitPermissionsLoading(true)
-      const result = await channelGetExplicitPermissions(resolvedSelectedChannel.channelId)
-      if (cancelled) return
+    hasLocalDeviceKeypair(currentDeviceId)
+      .then((hasKeypair) => {
+        if (!cancelled && !hasKeypair) setPanel('devices')
+      })
+      .catch(() => {
+        if (!cancelled) setPanel('devices')
+      })
 
-      if (result.success) {
-        setCanViewChannelExplicitPermissions(true)
-        setChannelExplicitPermissions(result.data)
-      } else {
-        setCanViewChannelExplicitPermissions(false)
-        setChannelExplicitPermissions([])
-      }
-
-      setChannelExplicitPermissionsLoading(false)
-    }
-
-    void loadExplicitPermissions()
-
-    return () => {
-      cancelled = true
-    }
-  }, [panel, resolvedSelectedChannel?.channelId])
+    return () => { cancelled = true }
+  }, [user, currentDeviceId])
 
   useEffect(() => {
-    if (panel !== 'channelConfig' || !resolvedSelectedChannel) {
-      setChannelPermissionRows([])
-      return
-    }
+    if (!selectedChannel || selectedChannel.encryptionType === 'none' || !currentDeviceId) return
+    syncChannelKeys(selectedChannel.channelId, selectedChannel.encryptionType as import('../types').EncryptionType, currentDeviceId).catch(() => {})
+  }, [selectedChannel?.channelId, currentDeviceId])
 
+  useEffect(() => {
     let cancelled = false
-    const loadChannelPermissions = async () => {
-      const [effectiveResult, explicitResult] = await Promise.all([
-        channelGetPermissions(resolvedSelectedChannel.channelId),
-        channelGetExplicitPermissions(resolvedSelectedChannel.channelId),
-      ])
+    const loadFriends = async () => {
+      const result = await friendsList()
+      if (!cancelled && result.success) setFriends(result.data)
+    }
+    void loadFriends()
+    return () => { cancelled = true }
+  }, [])
 
-      if (cancelled) return
-
-      if (!effectiveResult.success) {
-        setChannelPermissionRows([])
+  useEffect(() => {
+    let cancelled = false
+    const loadUserLimits = async () => {
+      if (!user) {
+        setCanCreateServer(true)
+        setCanCreateTextChannel(true)
+        setCanCreateVoiceChannel(true)
         return
       }
-
-      const explicitMap = new Map<string, number>()
-      if (explicitResult.success) {
-        for (const entry of explicitResult.data) {
-          explicitMap.set(entry.userId, entry.permissionLevel)
-        }
+      const result = await userLimitsGet()
+      if (!cancelled && result.success) {
+        setCanCreateServer(result.data.permissions.canCreateServer)
+        setCanCreateTextChannel(result.data.permissions.canCreateTextChannel)
+        setCanCreateVoiceChannel(result.data.permissions.canCreateVoiceChannel)
       }
-
-      setChannelPermissionRows(
-        effectiveResult.data.map((entry) => ({
-          userId: entry.userId,
-          username: entry.username,
-          effectiveLevel: entry.permissionLevel,
-          effectivePermission: entry.permission,
-          explicitLevel: explicitMap.get(entry.userId) ?? null,
-        }))
-      )
     }
-
-    void loadChannelPermissions()
-
-    return () => {
-      cancelled = true
-    }
-  }, [panel, resolvedSelectedChannel?.channelId, channelExplicitPermissions])
-
-  const handleUpdateChannelExplicitPermission = async (userId: string, value: string) => {
-    if (!resolvedSelectedChannel) return
-
-    setUpdatingChannelPermissionUserId(userId)
-    const nextLevel = value === 'inherited' ? null : Number(value)
-    const result = await channelSetExplicitPermission(resolvedSelectedChannel.channelId, userId, nextLevel)
-    setUpdatingChannelPermissionUserId(null)
-
-    if (!result.success) {
-      setFeedback(result.error.message)
-      return
-    }
-
-    const explicitResult = await channelGetExplicitPermissions(resolvedSelectedChannel.channelId)
-    if (!explicitResult.success) {
-      setFeedback(explicitResult.error.message)
-      return
-    }
-    setChannelExplicitPermissions(explicitResult.data)
-    setFeedback('Permís del canal actualitzat')
-  }
+    void loadUserLimits()
+    return () => { cancelled = true }
+  }, [user?.userId])
 
   useEffect(() => {
     const socket = getSocket()
@@ -369,11 +243,8 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
           : friend
       )))
     }
-
     socket.on('friend-presence-updated', handleFriendPresenceUpdated)
-    return () => {
-      socket.off('friend-presence-updated', handleFriendPresenceUpdated)
-    }
+    return () => { socket.off('friend-presence-updated', handleFriendPresenceUpdated) }
   }, [])
 
   useEffect(() => {
@@ -382,29 +253,17 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
     let channelsRefreshTimer: number | null = null
 
     const handleUserServersUpdated = async () => {
-      if (serversRefreshTimer !== null) {
-        window.clearTimeout(serversRefreshTimer)
-      }
-      serversRefreshTimer = window.setTimeout(() => {
-        void fetchServers()
-      }, 250)
+      if (serversRefreshTimer !== null) window.clearTimeout(serversRefreshTimer)
+      serversRefreshTimer = window.setTimeout(() => { void fetchServers() }, 250)
     }
 
     const handleServerChannelsUpdated = async (payload: { serverId?: string }) => {
-      if (!selectedServer || payload.serverId !== selectedServer) {
-        return
-      }
-      if (channelsRefreshTimer !== null) {
-        window.clearTimeout(channelsRefreshTimer)
-      }
-      channelsRefreshTimer = window.setTimeout(() => {
-        void fetchChannels(selectedServer)
-      }, 250)
+      if (!selectedServer || payload.serverId !== selectedServer) return
+      if (channelsRefreshTimer !== null) window.clearTimeout(channelsRefreshTimer)
+      channelsRefreshTimer = window.setTimeout(() => { void fetchChannels(selectedServer) }, 250)
     }
 
-    const handleServerInvitation = () => {
-      setPendingInvitationCount((n) => n + 1)
-    }
+    const handleServerInvitation = () => { setPendingInvitationCount((n) => n + 1) }
 
     const handleQuotaWarning = (data: { type: string; threshold: number; usedBytes: number; maxBytes: number }) => {
       const pct = Math.round((data.usedBytes / data.maxBytes) * 100)
@@ -418,18 +277,35 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
     socket.on('quota_warning', handleQuotaWarning)
 
     return () => {
-      if (serversRefreshTimer !== null) {
-        window.clearTimeout(serversRefreshTimer)
-      }
-      if (channelsRefreshTimer !== null) {
-        window.clearTimeout(channelsRefreshTimer)
-      }
+      if (serversRefreshTimer !== null) window.clearTimeout(serversRefreshTimer)
+      if (channelsRefreshTimer !== null) window.clearTimeout(channelsRefreshTimer)
       socket.off('user-servers-updated', handleUserServersUpdated)
       socket.off('server-channels-updated', handleServerChannelsUpdated)
       socket.off('server-invitation', handleServerInvitation)
       socket.off('quota_warning', handleQuotaWarning)
     }
   }, [selectedServer])
+
+  useEffect(() => {
+    if (!voiceChannelId) return
+    const socket = getSocket()
+    const localIsSpeaking = liveKitParticipants[0]?.isSpeaking ?? false
+    socket.emit('voice-state-updated', {
+      channelId: voiceChannelId,
+      isSuppressed: !!liveKitMuted,
+      isDeafened: !!liveKitDeafened,
+      isSpeaking: localIsSpeaking,
+    })
+  }, [voiceChannelId, liveKitMuted, liveKitDeafened, liveKitParticipants])
+
+  useEffect(() => {
+    if (!resolvedSelectedChannel || resolvedSelectedChannel.type !== 'text') return
+    setChannels((prev) =>
+      prev.map((c) =>
+        c.channelId === resolvedSelectedChannel.channelId ? { ...c, unreadCount: 0 } : c
+      )
+    )
+  }, [resolvedSelectedChannel?.channelId, resolvedSelectedChannel?.type])
 
   const fetchServers = async () => {
     const result = await serversList()
@@ -444,12 +320,10 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
   const fetchServerDetails = async (serverId: string) => {
     setFeedback(null)
     const result = await serversGet(serverId)
-    if (result.success) {
-      setServerDetails(result.data)
-    }
+    if (result.success) setServerDetails(result.data)
   }
 
-  const fetchChannels = async (serverId: string) => {
+  async function fetchChannels(serverId: string) {
     const [serverChannelsResult, dmChannelsResult] = await Promise.all([
       channelsList(serverId),
       dmChannelsList(),
@@ -497,9 +371,7 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
       const result = await serversList()
       if (result.success && result.data.length > 0) {
         setServers(result.data)
-        if (!selectedServer) {
-          setSelectedServer(result.data[0].serverId)
-        }
+        if (!selectedServer) setSelectedServer(result.data[0].serverId)
       }
     }
     checkServers()
@@ -522,131 +394,26 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
   }, [selectedServer, pendingServerConfigOpenId])
 
   useEffect(() => {
-    const socket = getSocket()
-
-    const handleVoicePresenceUpdated = (data: { channelId: string; users: VoiceParticipant[] }) => {
-      setVoicePresenceByChannel((prev) => ({
-        ...prev,
-        [data.channelId]: data.users ?? [],
-      }))
+    const handlePageClose = () => {
+      if (voiceChannelId) getSocket().emit('leave-voice-channel', { channelId: voiceChannelId })
     }
-
-    const handleVoicePresenceSnapshot = (data: {
-      serverId: string
-      channels: Array<{ channelId: string; users: VoiceParticipant[] }>
-    }) => {
-      if (!selectedServer || data.serverId !== selectedServer) {
-        return
-      }
-      const next: Record<string, VoiceParticipant[]> = {}
-      for (const channel of data.channels ?? []) {
-        next[channel.channelId] = channel.users ?? []
-      }
-      setVoicePresenceByChannel(next)
-    }
-
-    socket.on('voice-presence-updated', handleVoicePresenceUpdated)
-    socket.on('voice-presence-snapshot', handleVoicePresenceSnapshot)
-
+    window.addEventListener('beforeunload', handlePageClose)
+    window.addEventListener('pagehide', handlePageClose)
     return () => {
-      socket.off('voice-presence-updated', handleVoicePresenceUpdated)
-      socket.off('voice-presence-snapshot', handleVoicePresenceSnapshot)
+      window.removeEventListener('beforeunload', handlePageClose)
+      window.removeEventListener('pagehide', handlePageClose)
     }
-  }, [selectedServer])
-
-  useEffect(() => {
-    const socket = getSocket()
-
-    const handleServerMemberPresenceUpdated = (payload: { serverId: string; userId: string; status: string }) => {
-      if (!selectedServer || payload.serverId !== selectedServer) {
-        return
-      }
-      const isOnline = payload.status === 'online'
-      setServerMemberPresenceById((current) => ({
-        ...current,
-        [payload.userId]: isOnline,
-      }))
-    }
-
-    const handleServerMemberPresenceSnapshot = (payload: {
-      serverId: string
-      members: Array<{ userId: string; status: string }>
-    }) => {
-      if (!selectedServer || payload.serverId !== selectedServer) {
-        return
-      }
-      const next: Record<string, boolean> = {}
-      for (const member of payload.members ?? []) {
-        next[member.userId] = member.status === 'online'
-      }
-      setServerMemberPresenceById(next)
-    }
-
-    socket.on('server-member-presence-updated', handleServerMemberPresenceUpdated)
-    socket.on('server-member-presence-snapshot', handleServerMemberPresenceSnapshot)
-
-    return () => {
-      socket.off('server-member-presence-updated', handleServerMemberPresenceUpdated)
-      socket.off('server-member-presence-snapshot', handleServerMemberPresenceSnapshot)
-    }
-  }, [selectedServer])
-
-  useEffect(() => {
-    if (!selectedServer) {
-      setVoicePresenceByChannel({})
-      setServerMemberPresenceById({})
-      return
-    }
-    const socket = getSocket()
-    setVoicePresenceByChannel({})
-    setServerMemberPresenceById({})
-    socket.emit('join-server-presence', { serverId: selectedServer })
-    socket.emit('get-server-member-presence', { serverId: selectedServer })
-    socket.emit('get-voice-presence', { serverId: selectedServer })
-  }, [selectedServer])
-
-  useEffect(() => {
-    if (!voiceChannelId) {
-      return
-    }
-
-    const socket = getSocket()
-    const localIsSpeaking = liveKitParticipants[0]?.isSpeaking ?? false
-
-    socket.emit('voice-state-updated', {
-      channelId: voiceChannelId,
-      isSuppressed: !!liveKitMuted,
-      isDeafened: !!liveKitDeafened,
-      isSpeaking: localIsSpeaking,
-    })
-  }, [voiceChannelId, liveKitMuted, liveKitDeafened, liveKitParticipants])
-
-  useEffect(() => {
-    if (!resolvedSelectedChannel || resolvedSelectedChannel.type !== 'text') {
-      return
-    }
-    // Resetejar el badge de no llegits a la UI; el mark-as-read real el fa
-    // MessageList quan l'usuari arriba al final (amb el missatge ID correcte).
-    setChannels((prev) =>
-      prev.map((c) =>
-        c.channelId === resolvedSelectedChannel.channelId ? { ...c, unreadCount: 0 } : c
-      )
-    )
-  }, [resolvedSelectedChannel?.channelId, resolvedSelectedChannel?.type])
+  }, [voiceChannelId])
 
   const handleUnreadUpdated = (channelId: string, unreadCount: number) => {
     setChannels((prev) =>
       prev.map((channel) =>
-        channel.channelId === channelId
-          ? { ...channel, unreadCount }
-          : channel
+        channel.channelId === channelId ? { ...channel, unreadCount } : channel
       )
     )
   }
 
-  const handleSelectServer = (serverId: string) => {
-    setSelectedServer(serverId)
-  }
+  const handleSelectServer = (serverId: string) => { setSelectedServer(serverId) }
 
   const handleOpenTextChannel = (channel: Channel) => {
     setSelectedChannel(channel)
@@ -755,13 +522,8 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
       const keyVersionId = latest?.keyVersionId ?? channel.keyVersionId ?? null
       const keyVersion = latest?.keyVersion ?? channel.keyVersion ?? 1
 
-      if (!channelKey) {
-        throw new Error('No tens cap clau local per poder arreglar el DM')
-      }
-
-      if (!keyVersionId) {
-        throw new Error('Falta keyVersionId; no es pot signar la redistribució de claus')
-      }
+      if (!channelKey) throw new Error('No tens cap clau local per poder arreglar el DM')
+      if (!keyVersionId) throw new Error('Falta keyVersionId; no es pot signar la redistribució de claus')
 
       const distribution = await distributeChannelKey(
         channel.channelId,
@@ -770,7 +532,6 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
         keyVersionId,
         currentDeviceId,
       )
-
       setFeedback(formatDmRepairFeedback(distribution))
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No s\'ha pogut arreglar la clau del DM'
@@ -806,7 +567,6 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
         rotateResult.data.keyVersion,
         rotateResult.data.keyVersionId,
       )
-
       await distributeChannelKey(
         channel.channelId,
         channelKey,
@@ -817,14 +577,9 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
 
       setSelectedChannel((current) => (
         current && current.channelId === channel.channelId
-          ? {
-              ...current,
-              keyVersion: rotateResult.data.keyVersion,
-              keyVersionId: rotateResult.data.keyVersionId,
-            }
+          ? { ...current, keyVersion: rotateResult.data.keyVersion, keyVersionId: rotateResult.data.keyVersionId }
           : current
       ))
-
       setFeedback(`Clau del DM rotada a la versió ${rotateResult.data.keyVersion}`)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No s\'ha pogut rotar la clau del DM'
@@ -834,11 +589,9 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
     }
   }
 
-  // ── Voice connection logic (LiveKit real) ─────────────────────────────
   const handleVoiceChannelClick = async (channel: Channel) => {
     if (channel.type !== 'voice') return
 
-    // If clicking the same channel we're in → leave
     if (voiceChannelId === channel.channelId) {
       disconnectLiveKit()
       getSocket().emit('leave-voice-channel', { channelId: channel.channelId })
@@ -848,33 +601,22 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
       return
     }
 
-    // If already in a different voice channel → leave first
     if (voiceChannelId) {
       disconnectLiveKit()
       getSocket().emit('leave-voice-channel', { channelId: voiceChannelId })
       setFeedback(`Has sortit del canal "${voiceChannelName}"`)
     }
 
-    // Join the new voice channel
     setVoiceChannelId(channel.channelId)
     setVoiceChannelName(channel.name)
 
     try {
       let voiceChannelKey: Uint8Array | null = null
       if (channel.encryptionType !== 'none') {
-        if (!currentDeviceId) {
-          throw new Error('Falta el dispositiu actual per obtenir la clau del canal')
-        }
+        if (!currentDeviceId) throw new Error('Falta el dispositiu actual per obtenir la clau del canal')
 
-        voiceChannelKey = await ensureChannelKey(
-          channel.channelId,
-          channel.encryptionType,
-          currentDeviceId
-        )
-
-        if (!voiceChannelKey) {
-          throw new Error('No s\'ha pogut obtenir la clau del canal de veu')
-        }
+        voiceChannelKey = await ensureChannelKey(channel.channelId, channel.encryptionType, currentDeviceId)
+        if (!voiceChannelKey) throw new Error('No s\'ha pogut obtenir la clau del canal de veu')
 
         if (channel.encryptionType === 'asymmetric') {
           distributeChannelKey(channel.channelId, voiceChannelKey).catch(() => {})
@@ -904,44 +646,16 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
     }
   }
 
-  useEffect(() => {
-    const handlePageClose = () => {
-      if (voiceChannelId) {
-        getSocket().emit('leave-voice-channel', { channelId: voiceChannelId })
-      }
-    }
-
-    window.addEventListener('beforeunload', handlePageClose)
-    window.addEventListener('pagehide', handlePageClose)
-
-    return () => {
-      window.removeEventListener('beforeunload', handlePageClose)
-      window.removeEventListener('pagehide', handlePageClose)
-    }
-  }, [voiceChannelId])
-
-  const handleToggleMute = () => {
-    toggleLiveKitMute()
-  }
-
-  const handleToggleDeafen = () => {
-    toggleLiveKitDeafen()
-  }
-
-  const handleToggleCamera = async () => {
-    await toggleLiveKitCamera()
-  }
-
-  const handleToggleScreenShare = async () => {
-    await toggleLiveKitScreenShare()
-  }
+  const handleToggleMute = () => { toggleLiveKitMute() }
+  const handleToggleDeafen = () => { toggleLiveKitDeafen() }
+  const handleToggleCamera = async () => { await toggleLiveKitCamera() }
+  const handleToggleScreenShare = async () => { await toggleLiveKitScreenShare() }
 
   const handleCreateServer = async () => {
     if (!canCreateServer) {
       setFeedback('Ja has arribat al límit de servidors del teu tier')
       return
     }
-
     setPanel('createServer')
   }
 
@@ -957,7 +671,6 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
     }
   }
 
-  // Crear canal de text
   const handleCreateTextChannel = async (
     name: string,
     encryptionType: string,
@@ -968,25 +681,11 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
     const result = await channelsCreate(selectedServer, name, 'text', encryptionType, messageTTL, isPrivate)
     if (result.success) {
       if (result.data.encryptionType === 'asymmetric') {
-        // Nivell 2: generar clau localment i distribuir-la a tots els membres.
-        // Nivell 1 (symmetric) es genera al servidor.
         const { generateSymmetricKey } = await import('../lib/crypto')
         const { storeChannelKey } = await import('../lib/storage')
         const channelKey = generateSymmetricKey()
-        await storeChannelKey(
-          result.data.channelId,
-          channelKey,
-          result.data.encryptionType,
-          result.data.keyVersion ?? 1,
-          result.data.keyVersionId ?? null,
-        )
-        distributeChannelKey(
-          result.data.channelId,
-          channelKey,
-          result.data.keyVersion ?? 1,
-          result.data.keyVersionId ?? null,
-          currentDeviceId ?? undefined,
-        ).catch(() => {})
+        await storeChannelKey(result.data.channelId, channelKey, result.data.encryptionType, result.data.keyVersion ?? 1, result.data.keyVersionId ?? null)
+        distributeChannelKey(result.data.channelId, channelKey, result.data.keyVersion ?? 1, result.data.keyVersionId ?? null, currentDeviceId ?? undefined).catch(() => {})
       }
       await fetchChannels(selectedServer)
       setSelectedChannel(result.data)
@@ -996,7 +695,6 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
     }
   }
 
-  // Crear canal de veu
   const handleCreateVoiceChannel = async (name: string, encryptionType: string, isPrivate: boolean) => {
     if (!selectedServer) return
     const result = await channelsCreate(selectedServer, name, 'voice', encryptionType, null, isPrivate)
@@ -1005,20 +703,8 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
         const { generateSymmetricKey } = await import('../lib/crypto')
         const { storeChannelKey } = await import('../lib/storage')
         const channelKey = generateSymmetricKey()
-        await storeChannelKey(
-          result.data.channelId,
-          channelKey,
-          result.data.encryptionType,
-          result.data.keyVersion ?? 1,
-          result.data.keyVersionId ?? null,
-        )
-        distributeChannelKey(
-          result.data.channelId,
-          channelKey,
-          result.data.keyVersion ?? 1,
-          result.data.keyVersionId ?? null,
-          currentDeviceId ?? undefined,
-        ).catch(() => {})
+        await storeChannelKey(result.data.channelId, channelKey, result.data.encryptionType, result.data.keyVersion ?? 1, result.data.keyVersionId ?? null)
+        distributeChannelKey(result.data.channelId, channelKey, result.data.keyVersion ?? 1, result.data.keyVersionId ?? null, currentDeviceId ?? undefined).catch(() => {})
       }
       await fetchChannels(selectedServer)
       setSelectedChannel(result.data)
@@ -1026,11 +712,6 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
     } else {
       setFeedback(result.error.message)
     }
-  }
-
-  const handleInviteServerMember = async () => {
-    if (!selectedServer) return
-    setShowInviteServer(true)
   }
 
   const handleInviteServerSubmit = async (username: string) => {
@@ -1083,9 +764,7 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
             latestKey = await getLatestChannelKey(channel.channelId)
           }
 
-          if (!channelKey) {
-            throw new Error('No tens la clau local del canal per redistribuir-la')
-          }
+          if (!channelKey) throw new Error('No tens la clau local del canal per redistribuir-la')
 
           await distributeChannelKey(
             channel.channelId,
@@ -1110,21 +789,10 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
     }
   }
 
-  const handleManageDevices = () => {
-    setPanel('devices')
-  }
-
-  const handleManageChannelKeys = () => {
-    setPanel('channelKeys')
-  }
-
-  const handleManageFriends = () => {
-    setPanel('friends')
-  }
-
-  const handleChangePassword = () => {
-    setPanel('changePassword')
-  }
+  const handleManageDevices = () => { setPanel('devices') }
+  const handleManageChannelKeys = () => { setPanel('channelKeys') }
+  const handleManageFriends = () => { setPanel('friends') }
+  const handleChangePassword = () => { setPanel('changePassword') }
 
   const handleManagePermissions = () => {
     setSelectedChannel(null)
@@ -1146,16 +814,13 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
       setPanel('serverConfig')
       return
     }
-
     setPendingServerConfigOpenId(serverId)
     setSelectedServer(serverId)
   }
 
   const refreshFriends = async () => {
     const result = await friendsList()
-    if (result.success) {
-      setFriends(result.data)
-    }
+    if (result.success) setFriends(result.data)
   }
 
   const handleAddFriend = async (usernameToAdd: string) => {
@@ -1179,15 +844,12 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
   }
 
   const handleSearchUsers = async (query: string) => {
+    const { usersSearch } = await import('../lib/api')
     const result = await usersSearch(query)
     return result.success ? result.data : []
   }
 
-  const [showLogoutModal, setShowLogoutModal] = useState(false)
-
-  const handleLogout = () => {
-    setShowLogoutModal(true)
-  }
+  const handleLogout = () => { setShowLogoutModal(true) }
 
   const handleLogoutConfirm = () => {
     setShowLogoutModal(false)
@@ -1196,38 +858,15 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
     logout()
   }
 
-  // Obrir pestanya integrada de configuració de canal
   const handleConfigureChannel = (channel?: Channel) => {
     if (channel && (channel.permissionLevel ?? 0) < 3) {
       setFeedback('No tens permisos per configurar aquest canal')
       return
     }
-
-    if (channel) {
-      setSelectedChannel(channel)
-    }
+    if (channel) setSelectedChannel(channel)
     setPanel('channelConfig')
   }
 
-  // Desar canvis del canal
-  const handleConfigureChannelSubmit = async (name: string, messageTTL: number | null, isPrivate: boolean) => {
-    if (!selectedChannel) return
-    const result = await channelsUpdate(selectedChannel.channelId, name, messageTTL, isPrivate)
-    if (result.success) {
-      await fetchChannels(selectedServer!)
-      setSelectedChannel({
-        ...selectedChannel,
-        name,
-        messageTTL,
-        isPrivate,
-      })
-      setFeedback(`Canal "${name}" actualitzat`)
-    } else {
-      setFeedback(result.error.message)
-    }
-  }
-
-  // Esborrar canal amb confirmació visual
   const handleDeleteChannel = async (channelId: string) => {
     const result = await channelDelete(channelId)
     if (result.success) {
@@ -1240,36 +879,9 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
     }
   }
 
-  const handleChannelConfigSave = async (event: React.FormEvent) => {
-    event.preventDefault()
-    if (!resolvedSelectedChannel) return
-
-    const trimmedName = channelConfigName.trim()
-    if (!trimmedName) {
-      setFeedback('El nom del canal és obligatori')
-      return
-    }
-
-    const ttlRaw = channelConfigMessageTTL.trim()
-    let parsedTtl: number | null = null
-    if (ttlRaw) {
-      const value = Number(ttlRaw)
-      if (Number.isNaN(value) || value < 0) {
-        setFeedback('TTL ha de ser un número positiu o buit')
-        return
-      }
-      parsedTtl = value
-    }
-
-    await handleConfigureChannelSubmit(trimmedName, parsedTtl, channelConfigIsPrivate)
-  }
-
-  // Gestiona les accions del menú del servidor
   const handleServerMenuAction = (action: ServerMenuAction) => {
     switch (action) {
       case 'config':
-        setPanel('serverConfig')
-        break
       case 'invite':
         setPanel('serverConfig')
         break
@@ -1315,298 +927,13 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
 
   const openTextTabs = channels.filter((channel) => channel.type === 'text' && openTextChannelIds.includes(channel.channelId))
   const activeVoiceChannel = voiceChannelId ? channels.find((channel) => channel.channelId === voiceChannelId) ?? null : null
-  const textTabNodes = openTextTabs.map((channel) => (
-    <div
-      key={channel.channelId}
-      className={`main-content-tab ${resolvedSelectedChannel?.channelId === channel.channelId ? 'active' : ''}`}
-      onClick={() => {
-        setPanel('none')
-        setSelectedChannel(channel)
-      }}
-    >
-      <span>#</span>
-      <span>{channel.name}</span>
-      {(channel.unreadCount ?? 0) > 0 && (
-        <span className="channel-unread-badge">{channel.unreadCount}</span>
-      )}
-      <button
-        type="button"
-        className="main-content-tab-close"
-        onClick={(event) => {
-          event.stopPropagation()
-          handleCloseTextTab(channel.channelId)
-        }}
-        title="Tancar pestanya"
-      >
-        ✕
-      </button>
-    </div>
-  ))
-  const voiceTabNode = activeVoiceChannel ? (
-    <div
-      className={`main-content-tab ${resolvedSelectedChannel?.channelId === activeVoiceChannel.channelId ? 'active' : ''}`}
-      onClick={() => {
-        setPanel('none')
-        setSelectedChannel(activeVoiceChannel)
-      }}
-    >
-      <span>🔊</span>
-      <span>{activeVoiceChannel.name}</span>
-      <button
-        type="button"
-        className="main-content-tab-close"
-        onClick={(event) => {
-          event.stopPropagation()
-          handleLeaveVoiceChannel()
-        }}
-        title="Surt del canal de veu"
-      >
-        ✕
-      </button>
-    </div>
-  ) : null
-
-  const adminUsersTabNode = panel === 'adminUsers' ? (
-    <div
-      className="main-content-tab active"
-      onClick={() => setPanel('adminUsers')}
-    >
-      <span>🛠️</span>
-      <span>Usuaris</span>
-      <button
-        type="button"
-        className="main-content-tab-close"
-        onClick={(event) => {
-          event.stopPropagation()
-          setPanel('none')
-        }}
-        title="Tancar pestanya"
-      >
-        ✕
-      </button>
-    </div>
-  ) : null
-
-  const permissionsTabNode = panel === 'permissions' ? (
-    <div
-      className="main-content-tab active"
-      onClick={() => setPanel('permissions')}
-    >
-      <span>🛡️</span>
-      <span>Permisos</span>
-      <button
-        type="button"
-        className="main-content-tab-close"
-        onClick={(event) => {
-          event.stopPropagation()
-          setPanel('none')
-        }}
-        title="Tancar pestanya"
-      >
-        ✕
-      </button>
-    </div>
-  ) : null
-
-  const serverConfigTabNode = panel === 'serverConfig' ? (
-    <div
-      className="main-content-tab active"
-      onClick={() => setPanel('serverConfig')}
-    >
-      <span>⚙️</span>
-      <span>Servidor</span>
-      <button
-        type="button"
-        className="main-content-tab-close"
-        onClick={(event) => {
-          event.stopPropagation()
-          setPanel('none')
-        }}
-        title="Tancar pestanya"
-      >
-        ✕
-      </button>
-    </div>
-  ) : null
-
-  const channelConfigTabNode = panel === 'channelConfig' && resolvedSelectedChannel ? (
-    <div
-      className="main-content-tab active"
-      onClick={() => setPanel('channelConfig')}
-    >
-      <span>#</span>
-      <span>{resolvedSelectedChannel.name}</span>
-      <button
-        type="button"
-        className="main-content-tab-close"
-        onClick={(event) => {
-          event.stopPropagation()
-          setPanel('none')
-        }}
-        title="Tancar pestanya"
-      >
-        ✕
-      </button>
-    </div>
-  ) : null
-
-  const createServerTabNode = panel === 'createServer' ? (
-    <div
-      className="main-content-tab active"
-      onClick={() => setPanel('createServer')}
-    >
-      <span>➕</span>
-      <span>Nou servidor</span>
-      <button
-        type="button"
-        className="main-content-tab-close"
-        onClick={(event) => {
-          event.stopPropagation()
-          setPanel('none')
-        }}
-        title="Tancar pestanya"
-      >
-        ✕
-      </button>
-    </div>
-  ) : null
-
-  const friendsTabNode = panel === 'friends' ? (
-    <div
-      className="main-content-tab active"
-      onClick={() => setPanel('friends')}
-    >
-      <span>👥</span>
-      <span>Amics</span>
-      <button
-        type="button"
-        className="main-content-tab-close"
-        onClick={(event) => {
-          event.stopPropagation()
-          setPanel('none')
-        }}
-        title="Tancar pestanya"
-      >
-        ✕
-      </button>
-    </div>
-  ) : null
-
-  const devicesTabNode = panel === 'devices' ? (
-    <div
-      className="main-content-tab active"
-      onClick={() => setPanel('devices')}
-    >
-      <span>📱</span>
-      <span>Dispositius</span>
-      <button
-        type="button"
-        className="main-content-tab-close"
-        onClick={(event) => {
-          event.stopPropagation()
-          setPanel('none')
-        }}
-        title="Tancar pestanya"
-      >
-        ✕
-      </button>
-    </div>
-  ) : null
-
-  const changePasswordTabNode = panel === 'changePassword' ? (
-    <div
-      className="main-content-tab active"
-      onClick={() => setPanel('changePassword')}
-    >
-      <span>🔒</span>
-      <span>Password</span>
-      <button
-        type="button"
-        className="main-content-tab-close"
-        onClick={(event) => {
-          event.stopPropagation()
-          setPanel('none')
-        }}
-        title="Tancar pestanya"
-      >
-        ✕
-      </button>
-    </div>
-  ) : null
-
-  const channelKeysTabNode = panel === 'channelKeys' ? (
-    <div
-      className="main-content-tab active"
-      onClick={() => setPanel('channelKeys')}
-    >
-      <span>🔑</span>
-      <span>Claus</span>
-      <button
-        type="button"
-        className="main-content-tab-close"
-        onClick={(event) => {
-          event.stopPropagation()
-          setPanel('none')
-        }}
-        title="Tancar pestanya"
-      >
-        ✕
-      </button>
-    </div>
-  ) : null
-
-  const createTextChannelTabNode = panel === 'createTextChannel' ? (
-    <div
-      className="main-content-tab active"
-      onClick={() => setPanel('createTextChannel')}
-    >
-      <span>#</span>
-      <span>Nou text</span>
-      <button
-        type="button"
-        className="main-content-tab-close"
-        onClick={(event) => {
-          event.stopPropagation()
-          setPanel('none')
-        }}
-        title="Tancar pestanya"
-      >
-        ✕
-      </button>
-    </div>
-  ) : null
-
-  const createVoiceChannelTabNode = panel === 'createVoiceChannel' ? (
-    <div
-      className="main-content-tab active"
-      onClick={() => setPanel('createVoiceChannel')}
-    >
-      <span>🔊</span>
-      <span>Nou veu</span>
-      <button
-        type="button"
-        className="main-content-tab-close"
-        onClick={(event) => {
-          event.stopPropagation()
-          setPanel('none')
-        }}
-        title="Tancar pestanya"
-      >
-        ✕
-      </button>
-    </div>
-  ) : null
 
   const mergedVoiceParticipants = voiceChannelId
     ? liveKitParticipants.map((participant) => {
         const socketPresence = (voicePresenceByChannel[voiceChannelId] ?? []).find(
           (presence) => presence.userId === participant.userId
         )
-
-        if (!socketPresence) {
-          return participant
-        }
-
+        if (!socketPresence) return participant
         return {
           ...participant,
           isSuppressed: socketPresence.isSuppressed,
@@ -1616,7 +943,6 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
       })
     : []
 
-  // Build voice connection object from LiveKit state
   const voiceConnection = voiceChannelId
     ? {
         channelId: voiceChannelId,
@@ -1628,6 +954,8 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
         isCameraOn: liveKitCameraOn,
       }
     : null
+
+  const showTabBar = panel !== 'none' || openTextTabs.length > 0 || !!activeVoiceChannel
 
   return (
     <div className="app-layout">
@@ -1688,21 +1016,59 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
       )}
 
       <div className="main-content-area">
-        {(selectedServer || panel === 'createServer' || panel === 'friends' || panel === 'devices' || panel === 'changePassword' || panel === 'channelKeys' || panel === 'createTextChannel' || panel === 'createVoiceChannel') && (openTextTabs.length > 0 || activeVoiceChannel || panel === 'adminUsers' || panel === 'serverConfig' || panel === 'channelConfig' || panel === 'permissions' || panel === 'createServer' || panel === 'friends' || panel === 'devices' || panel === 'changePassword' || panel === 'channelKeys' || panel === 'createTextChannel' || panel === 'createVoiceChannel') && (
+        {showTabBar && (
           <div className="main-content-tabs">
-            {textTabNodes}
-            {voiceTabNode}
-            {serverConfigTabNode}
-            {channelConfigTabNode}
-            {permissionsTabNode}
-            {adminUsersTabNode}
-            {createServerTabNode}
-            {friendsTabNode}
-            {devicesTabNode}
-            {changePasswordTabNode}
-            {channelKeysTabNode}
-            {createTextChannelTabNode}
-            {createVoiceChannelTabNode}
+            {openTextTabs.map((channel) => (
+              <div
+                key={channel.channelId}
+                className={`main-content-tab ${resolvedSelectedChannel?.channelId === channel.channelId ? 'active' : ''}`}
+                onClick={() => { setPanel('none'); setSelectedChannel(channel) }}
+              >
+                <span>#</span>
+                <span>{channel.name}</span>
+                {(channel.unreadCount ?? 0) > 0 && (
+                  <span className="channel-unread-badge">{channel.unreadCount}</span>
+                )}
+                <button
+                  type="button"
+                  className="main-content-tab-close"
+                  onClick={(event) => { event.stopPropagation(); handleCloseTextTab(channel.channelId) }}
+                  title="Tancar pestanya"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+
+            {activeVoiceChannel && (
+              <div
+                className={`main-content-tab ${resolvedSelectedChannel?.channelId === activeVoiceChannel.channelId ? 'active' : ''}`}
+                onClick={() => { setPanel('none'); setSelectedChannel(activeVoiceChannel) }}
+              >
+                <span>🔊</span>
+                <span>{activeVoiceChannel.name}</span>
+                <button
+                  type="button"
+                  className="main-content-tab-close"
+                  onClick={(event) => { event.stopPropagation(); handleLeaveVoiceChannel() }}
+                  title="Surt del canal de veu"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
+            <PanelTab icon="⚙️" label="Servidor" isActive={panel === 'serverConfig'} onClick={() => setPanel('serverConfig')} onClose={() => setPanel('none')} />
+            <PanelTab icon="#" label={resolvedSelectedChannel?.name ?? ''} isActive={panel === 'channelConfig' && !!resolvedSelectedChannel} onClick={() => setPanel('channelConfig')} onClose={() => setPanel('none')} />
+            <PanelTab icon="🛡️" label="Permisos" isActive={panel === 'permissions'} onClick={() => setPanel('permissions')} onClose={() => setPanel('none')} />
+            <PanelTab icon="🛠️" label="Usuaris" isActive={panel === 'adminUsers'} onClick={() => setPanel('adminUsers')} onClose={() => setPanel('none')} />
+            <PanelTab icon="➕" label="Nou servidor" isActive={panel === 'createServer'} onClick={() => setPanel('createServer')} onClose={() => setPanel('none')} />
+            <PanelTab icon="👥" label="Amics" isActive={panel === 'friends'} onClick={() => setPanel('friends')} onClose={() => setPanel('none')} />
+            <PanelTab icon="📱" label="Dispositius" isActive={panel === 'devices'} onClick={() => setPanel('devices')} onClose={() => setPanel('none')} />
+            <PanelTab icon="🔒" label="Password" isActive={panel === 'changePassword'} onClick={() => setPanel('changePassword')} onClose={() => setPanel('none')} />
+            <PanelTab icon="🔑" label="Claus" isActive={panel === 'channelKeys'} onClick={() => setPanel('channelKeys')} onClose={() => setPanel('none')} />
+            <PanelTab icon="#" label="Nou text" isActive={panel === 'createTextChannel'} onClick={() => setPanel('createTextChannel')} onClose={() => setPanel('none')} />
+            <PanelTab icon="🔊" label="Nou veu" isActive={panel === 'createVoiceChannel'} onClick={() => setPanel('createVoiceChannel')} onClose={() => setPanel('none')} />
           </div>
         )}
 
@@ -1720,18 +1086,13 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
             <div className="admin-users-panel-header">
               <h3>Crear servidor</h3>
             </div>
-
-            <CreateServerPanel
-              onClose={() => setPanel('none')}
-              onCreate={handleCreateServerSubmit}
-            />
+            <CreateServerPanel onClose={() => setPanel('none')} onCreate={handleCreateServerSubmit} />
           </div>
         ) : panel === 'friends' ? (
           <div className="panel admin-users-panel">
             <div className="admin-users-panel-header">
               <h3>Gestio d'amics</h3>
             </div>
-
             <FriendsPanel
               friends={friends}
               onAddFriend={handleAddFriend}
@@ -1744,19 +1105,13 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
             <div className="admin-users-panel-header">
               <h3>Gestio de dispositius</h3>
             </div>
-
-            <DeviceKeysPanel
-              currentDeviceId={currentDeviceId}
-              channels={channels}
-              devices={user?.devices ?? []}
-            />
+            <DeviceKeysPanel currentDeviceId={currentDeviceId} channels={channels} devices={user?.devices ?? []} />
           </div>
         ) : panel === 'changePassword' ? (
           <div className="panel admin-users-panel">
             <div className="admin-users-panel-header">
               <h3>Canviar password</h3>
             </div>
-
             <ChangePasswordPanel onClose={() => setPanel('none')} />
           </div>
         ) : panel === 'channelKeys' ? (
@@ -1764,7 +1119,6 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
             <div className="admin-users-panel-header">
               <h3>Gestió de claus de canals</h3>
             </div>
-
             <ChannelKeysPanel channels={channels} serverName={serverDetails?.name} />
           </div>
         ) : panel === 'createTextChannel' ? (
@@ -1772,22 +1126,14 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
             <div className="admin-users-panel-header">
               <h3>Crear canal de text</h3>
             </div>
-
-            <CreateTextChannelPanel
-              onClose={() => setPanel('none')}
-              onCreate={handleCreateTextChannel}
-            />
+            <CreateTextChannelPanel onClose={() => setPanel('none')} onCreate={handleCreateTextChannel} />
           </div>
         ) : panel === 'createVoiceChannel' ? (
           <div className="panel admin-users-panel">
             <div className="admin-users-panel-header">
               <h3>Crear canal de veu</h3>
             </div>
-
-            <CreateVoiceChannelPanel
-              onClose={() => setPanel('none')}
-              onCreate={handleCreateVoiceChannel}
-            />
+            <CreateVoiceChannelPanel onClose={() => setPanel('none')} onCreate={handleCreateVoiceChannel} />
           </div>
         ) : panel === 'adminUsers' ? (
           <AdminUsersPanel
@@ -1813,248 +1159,43 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
                 Tornar a servidor
               </button>
             </div>
-
-            <PermissionsPanel
-              server={serverDetails}
-              channels={channels}
-              currentDeviceId={currentDeviceId}
-            />
+            <PermissionsPanel server={serverDetails} channels={channels} currentDeviceId={currentDeviceId} />
           </div>
         ) : panel === 'serverConfig' && serverDetails ? (
-          <div className="panel admin-users-panel">
-            <div className="admin-users-panel-header">
-              <h3>Configuració del servidor</h3>
-              <button className="admin-panel-tab" onClick={() => setPanel('permissions')}>
-                Permisos usuaris/canals
-              </button>
-            </div>
-
-            <p>
-              <strong>{serverDetails.name}</strong> · Rol: {serverDetails.myRole}
-            </p>
-
-            {canManageServer && (
-              <div className="modal-form" style={{ marginTop: '12px', marginBottom: '12px' }}>
-                <h4 style={{ marginBottom: '8px' }}>Convidar membre al servidor</h4>
-                <InviteUserSearch
-                  onSearchUsers={handleSearchUsers}
-                  onInvite={handleInviteServerSubmit}
-                />
-              </div>
-            )}
-
-            <div className="server-members" style={{ marginTop: '12px' }}>
-              <h4>Canals del servidor</h4>
-              <ul>
-                {channels.filter((channel) => channel.scope !== 'dm').map((channel) => (
-                  <li key={channel.channelId} style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
-                    <span>{channel.type === 'voice' ? '🔊' : '#'} {channel.name}</span>
-                    <button
-                      type="button"
-                      className="admin-panel-tab"
-                      onClick={() => handleConfigureChannel(channel)}
-                    >
-                      Configurar
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div className="server-members" style={{ marginTop: '12px' }}>
-              <h4>Membres</h4>
-              <ul>
-                {serverDetails.members.map((member) => {
-                  const isCurrentUser = member.userId === user?.userId
-                  const canModify = canManageServer && member.role !== 'owner' && !isCurrentUser
-                  return (
-                    <li key={member.userId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-                      <span>{member.username} — {member.role}</span>
-                      {canManageServer && (
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                          {member.role !== 'owner' && (
-                            <select
-                              aria-label={`Rol de ${member.username}`}
-                              value={member.role}
-                              onChange={(e) => {
-                                const nextRole = e.target.value as 'admin' | 'member'
-                                void handleUpdateServerMemberRole(member.userId, nextRole)
-                              }}
-                              className="device-keys-input"
-                              style={{ width: '120px', padding: '4px 8px' }}
-                            >
-                              <option value="member">member</option>
-                              <option value="admin">admin</option>
-                            </select>
-                          )}
-                          <button
-                            type="button"
-                            className="admin-panel-tab"
-                            style={{ borderColor: '#ff6b6b', color: '#ff6b6b' }}
-                            disabled={!canModify}
-                            onClick={() => {
-                              setPendingMemberRemovalId(member.userId)
-                            }}
-                          >
-                            Eliminar
-                          </button>
-                          {pendingMemberRemovalId === member.userId && (
-                            <>
-                              <button
-                                type="button"
-                                className="admin-panel-tab"
-                                onClick={() => {
-                                  void handleRemoveServerMember(member.userId)
-                                }}
-                              >
-                                Confirmar
-                              </button>
-                              <button
-                                type="button"
-                                className="admin-panel-tab"
-                                onClick={() => setPendingMemberRemovalId(null)}
-                              >
-                                Cancel·lar
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
-          </div>
+          <ServerConfigPanel
+            serverDetails={serverDetails}
+            channels={channels}
+            canManageServer={!!canManageServer}
+            currentUserId={user?.userId}
+            pendingMemberRemovalId={pendingMemberRemovalId}
+            onSetPendingMemberRemovalId={setPendingMemberRemovalId}
+            onSearchUsers={handleSearchUsers}
+            onInviteServerSubmit={handleInviteServerSubmit}
+            onConfigureChannel={handleConfigureChannel}
+            onUpdateServerMemberRole={handleUpdateServerMemberRole}
+            onRemoveServerMember={handleRemoveServerMember}
+            onOpenPermissions={() => setPanel('permissions')}
+          />
         ) : panel === 'channelConfig' && resolvedSelectedChannel ? (
-          <div className="panel admin-users-panel">
-            <div className="admin-users-panel-header">
-              <h3>Configuració integrada del canal</h3>
-              <button className="admin-panel-tab" onClick={() => setPanel('serverConfig')}>
-                Tornar a servidor
-              </button>
-            </div>
-
-            <form onSubmit={handleChannelConfigSave} className="modal-form" style={{ marginBottom: '12px' }}>
-              <div className="form-group">
-                <label htmlFor="integrated-channel-name">Nom del canal</label>
-                <input
-                  id="integrated-channel-name"
-                  type="text"
-                  value={channelConfigName}
-                  onChange={(e) => setChannelConfigName(e.target.value)}
-                  maxLength={30}
-                />
-              </div>
-              <div className="form-group">
-                <label htmlFor="integrated-channel-ttl">TTL (segons)</label>
-                <input
-                  id="integrated-channel-ttl"
-                  type="number"
-                  value={channelConfigMessageTTL}
-                  onChange={(e) => setChannelConfigMessageTTL(e.target.value)}
-                  placeholder="Sense límit"
-                  min="0"
-                />
-              </div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                <input
-                  type="checkbox"
-                  checked={channelConfigIsPrivate}
-                  onChange={(e) => setChannelConfigIsPrivate(e.target.checked)}
-                />
-                Canal privat
-              </label>
-              <div className="modal-form-actions" style={{ justifyContent: 'flex-end' }}>
-                <button type="submit" className="admin-panel-tab active">
-                  Desar canvis
-                </button>
-              </div>
-            </form>
-
-            <div className="modal-form" style={{ marginBottom: '12px' }}>
-              <h4 style={{ marginBottom: '8px' }}>Convidar usuari</h4>
-              <InviteUserSearch
-                onSearchUsers={handleSearchUsers}
-                onInvite={handleInviteChannelSubmit}
-              />
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button
-                type="button"
-                className="admin-panel-tab"
-                style={{ borderColor: '#ff6b6b', color: '#ff6b6b' }}
-                onClick={() => handleDeleteChannel(resolvedSelectedChannel.channelId)}
-              >
-                Esborrar canal
-              </button>
-            </div>
-
-            {canViewChannelExplicitPermissions && (
-              <div className="server-members" style={{ marginTop: '12px' }}>
-                <h4>Permisos del canal (efectius + override explícit)</h4>
-                {channelExplicitPermissionsLoading ? (
-                  <p>Carregant permisos explícits...</p>
-                ) : channelPermissionRows.length > 0 ? (
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                      <thead>
-                        <tr>
-                          <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>Usuari</th>
-                          <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>Permís efectiu</th>
-                          <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>Origen</th>
-                          <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>Override explícit</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {channelPermissionRows.map((entry) => (
-                          <tr key={entry.userId}>
-                            <td style={{ padding: '6px 4px', borderBottom: '1px solid var(--bg-active)' }}>{entry.username}</td>
-                            <td style={{ padding: '6px 4px', borderBottom: '1px solid var(--bg-active)' }}>
-                              {entry.effectivePermission} ({entry.effectiveLevel})
-                            </td>
-                            <td style={{ padding: '6px 4px', borderBottom: '1px solid var(--bg-active)' }}>
-                              <span
-                                style={{
-                                  display: 'inline-block',
-                                  padding: '2px 8px',
-                                  borderRadius: '999px',
-                                  fontSize: '11px',
-                                  border: '1px solid var(--bg-active)',
-                                  background: entry.explicitLevel === null ? 'transparent' : 'var(--bg-active)',
-                                }}
-                              >
-                                {entry.explicitLevel === null ? 'heretat' : 'explícit'}
-                              </span>
-                            </td>
-                            <td style={{ padding: '6px 4px', borderBottom: '1px solid var(--bg-active)' }}>
-                              <select
-                                value={entry.explicitLevel === null ? 'inherited' : String(entry.explicitLevel)}
-                                onChange={(event) => {
-                                  void handleUpdateChannelExplicitPermission(entry.userId, event.target.value)
-                                }}
-                                disabled={updatingChannelPermissionUserId === entry.userId}
-                                className="device-keys-input"
-                                style={{ width: '180px', padding: '4px 8px' }}
-                              >
-                                <option value="inherited">heretat (rol servidor)</option>
-                                <option value="1">read (1)</option>
-                                <option value="2">write (2)</option>
-                                <option value="3">manage (3)</option>
-                              </select>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <p>No hi ha dades de permisos visibles en aquest canal.</p>
-                )}
-              </div>
-            )}
-          </div>
+          <ChannelConfigPanel
+            channel={resolvedSelectedChannel}
+            channelConfigName={channelConfigName}
+            setChannelConfigName={setChannelConfigName}
+            channelConfigMessageTTL={channelConfigMessageTTL}
+            setChannelConfigMessageTTL={setChannelConfigMessageTTL}
+            channelConfigIsPrivate={channelConfigIsPrivate}
+            setChannelConfigIsPrivate={setChannelConfigIsPrivate}
+            onSave={handleChannelConfigSave}
+            onSearchUsers={handleSearchUsers}
+            onInviteChannelSubmit={handleInviteChannelSubmit}
+            onDeleteChannel={handleDeleteChannel}
+            onBackToServer={() => setPanel('serverConfig')}
+            canViewChannelExplicitPermissions={canViewChannelExplicitPermissions}
+            channelExplicitPermissionsLoading={channelExplicitPermissionsLoading}
+            channelPermissionRows={channelPermissionRows}
+            updatingChannelPermissionUserId={updatingChannelPermissionUserId}
+            onUpdateChannelExplicitPermission={handleUpdateChannelExplicitPermission}
+          />
         ) : resolvedSelectedChannel ? (
           <>
             <MainContent
@@ -2092,7 +1233,6 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
           </div>
         )}
 
-        {/* ── Modals ─────────────────────────────────── */}
         {selectedServer && (
           <InviteMemberModal
             isOpen={showInviteServer}
@@ -2126,45 +1266,12 @@ const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Arr
           />
         )}
 
-        {leaveServerConfirm && (
-          <div className="modal-overlay" onClick={() => !leaveServerBusy && setLeaveServerConfirm(null)}>
-            <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-header">
-                <h2 className="modal-title">Sortir del servidor</h2>
-              </div>
-              <div className="modal-body">
-                {leaveServerConfirm.isLastAdmin ? (
-                  <p style={{ color: 'var(--text-secondary)', margin: 0 }}>
-                    Ets l'últim administrador de <strong>{leaveServerConfirm.serverName}</strong>.
-                    Si surts, el servidor es quedarà sense admins. Vols continuar igualment?
-                  </p>
-                ) : (
-                  <p style={{ color: 'var(--text-secondary)', margin: 0 }}>
-                    Estàs segur que vols sortir de <strong>{leaveServerConfirm.serverName}</strong>?
-                    Hauràs de ser convidat de nou per tornar-hi.
-                  </p>
-                )}
-              </div>
-              <div className="modal-form-actions">
-                <Button
-                  variant="secondary"
-                  onClick={() => setLeaveServerConfirm(null)}
-                  disabled={leaveServerBusy}
-                >
-                  Cancel·lar
-                </Button>
-                <Button
-                  variant="danger"
-                  onClick={() => void handleLeaveServerConfirm(leaveServerConfirm.isLastAdmin)}
-                  disabled={leaveServerBusy}
-                >
-                  {leaveServerBusy ? 'Sortint...' : 'Sortir del servidor'}
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
-
+        <LeaveServerModal
+          confirm={leaveServerConfirm}
+          busy={leaveServerBusy}
+          onConfirm={handleLeaveServerConfirm}
+          onCancel={() => setLeaveServerConfirm(null)}
+        />
       </div>
     </div>
   )
