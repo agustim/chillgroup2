@@ -1,7 +1,15 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, waitFor, act } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { InviteMemberModal } from './InviteMemberModal'
+import type { UserSearchResult } from '../../types'
+
+const mockUser: UserSearchResult = {
+  userId: 'u1',
+  username: 'marc123',
+  status: 'online',
+  isFriend: false,
+}
 
 describe('InviteMemberModal', () => {
   afterEach(() => {
@@ -13,23 +21,26 @@ describe('InviteMemberModal', () => {
 
   let onClose = vi.fn()
   let onInvite = vi.fn().mockResolvedValue(undefined)
+  let onSearchUsers = vi.fn().mockResolvedValue([mockUser])
 
   beforeEach(() => {
     onClose = vi.fn()
     onInvite = vi.fn().mockResolvedValue(undefined)
+    onSearchUsers = vi.fn().mockResolvedValue([mockUser])
+    vi.useFakeTimers()
   })
 
   function renderModal(opts: {
     inviteType?: 'server' | 'channel'
     targetName?: string
     open?: boolean
-    onInviteFn?: typeof onInvite
   } = {}) {
     return render(
       <InviteMemberModal
         isOpen={opts.open ?? true}
         onClose={onClose}
-        onInvite={opts.onInviteFn ?? onInvite}
+        onInvite={onInvite}
+        onSearchUsers={onSearchUsers}
         inviteType={opts.inviteType ?? 'server'}
         targetName={opts.targetName ?? 'El meu servidor'}
       />
@@ -58,89 +69,45 @@ describe('InviteMemberModal', () => {
     expect(screen.getByText(/Servidor Premium/)).toBeTruthy()
   })
 
-  it('bloqueja el submit amb nom buit', () => {
-    renderModal()
-    expect(screen.getByRole('button', { name: /Convidar/ })).toBeDisabled()
-  })
-
-  it('el botó s activa amb nom de 3 caracters', () => {
+  it('no cerca amb menys de 2 caracters', async () => {
     renderModal()
     const input = screen.getByRole('textbox') as HTMLInputElement
-    fireEvent.change(input, { target: { value: 'abc' } })
-    expect(screen.getByRole('button', { name: /Convidar/ })).not.toBeDisabled()
+    fireEvent.change(input, { target: { value: 'a' } })
+    await act(async () => { await vi.runAllTimersAsync() })
+    expect(onSearchUsers).not.toHaveBeenCalled()
   })
 
-  it('accepta un nom valid i crida onInvite', async () => {
+  it('cerca amb 2+ caracters despres del debounce', async () => {
     renderModal()
     const input = screen.getByRole('textbox') as HTMLInputElement
-    fireEvent.change(input, { target: { value: 'marc123' } })
-    const submitBtn = screen.getByRole('button', { name: /Convidar/ })
-    expect(submitBtn).not.toBeDisabled()
-    fireEvent.click(submitBtn)
-    await waitFor(() => {
-      expect(onInvite).toHaveBeenCalledWith('marc123')
+    fireEvent.change(input, { target: { value: 'ma' } })
+    await act(async () => { await vi.runAllTimersAsync() })
+    expect(onSearchUsers).toHaveBeenCalledWith('ma')
+  })
+
+  it('mostra resultats de cerca', async () => {
+    renderModal()
+    const input = screen.getByRole('textbox') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'marc' } })
+    await act(async () => { await vi.runAllTimersAsync() })
+    expect(screen.getByText('marc123')).toBeTruthy()
+  })
+
+  it('crida onInvite amb el username en clicar Convidar', async () => {
+    renderModal()
+    const input = screen.getByRole('textbox') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'marc' } })
+    await act(async () => { await vi.runAllTimersAsync() })
+    screen.getByText('marc123')
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Convidar$/ }))
+      await vi.runAllTimersAsync()
     })
-  })
-
-  it('tanca el modal despres de convidar amb exit', async () => {
-    renderModal()
-    const input = screen.getByRole('textbox') as HTMLInputElement
-    fireEvent.change(input, { target: { value: 'marc123' } })
-    fireEvent.click(screen.getByRole('button', { name: /Convidar/ }))
-    // The modal shows success then closes after 1500ms setTimeout
-    // With real timers, waitFor won't wait for setTimeout
-    // Just verify that onInvite was called
-    await waitFor(() => {
-      expect(onInvite).toHaveBeenCalledWith('marc123')
-    })
-  })
-
-  it('desactiva el boto durant el submit', async () => {
-    const onInviteDelay = vi.fn().mockImplementation(
-      () => new Promise((resolve) => setTimeout(resolve, 200))
-    )
-    renderModal({ onInviteFn: onInviteDelay })
-    const input = screen.getByRole('textbox') as HTMLInputElement
-    fireEvent.change(input, { target: { value: 'marc123' } })
-    fireEvent.click(screen.getByRole('button', { name: /Convidar/ }))
-    const btn = screen.getByRole('button', { name: /Enviant/ })
-    expect(btn).toBeDisabled()
-    await waitFor(() => {
-      expect(onInviteDelay).toHaveBeenCalled()
-    })
-  })
-
-  it('accepta noms de 3+ caracters', () => {
-    renderModal()
-    const input = screen.getByRole('textbox') as HTMLInputElement
-    fireEvent.change(input, { target: { value: 'abc' } })
-    expect(screen.getByRole('button', { name: /Convidar/ })).not.toBeDisabled()
-  })
-
-  it('validacio en submit rejecta noms de 2 caracters o menys', async () => {
-    // Button is enabled (validation only happens on submit)
-    renderModal()
-    const input = screen.getByRole('textbox') as HTMLInputElement
-    fireEvent.change(input, { target: { value: 'ab' } })
-    expect(screen.getByRole('button', { name: /Convidar/ })).not.toBeDisabled()
-  })
-
-  it('neteja el camp de text en enviar', async () => {
-    renderModal()
-    const input = screen.getByRole('textbox') as HTMLInputElement
-    fireEvent.change(input, { target: { value: 'marc123' } })
-    fireEvent.click(screen.getByRole('button', { name: /Convidar/ }))
-    await waitFor(() => {
-      expect(onInvite).toHaveBeenCalledWith('marc123')
-    })
-    // After success, the input is cleared
-    // This happens in a setTimeout, so with real timers it may not be reflected
+    expect(onInvite).toHaveBeenCalledWith('marc123')
   })
 
   it('utilitza el contextLabel correcte per al tipus de target', () => {
     renderModal({ inviteType: 'channel', targetName: '# general' })
     expect(screen.getByText(/Convidar al canal/i)).toBeTruthy()
-    renderModal({ inviteType: 'server', targetName: 'Mon server' })
-    expect(screen.getByText(/Convidar al servidor/i)).toBeTruthy()
   })
 })

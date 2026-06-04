@@ -13,6 +13,7 @@ import { ChannelKeysPanel } from './modals/ChannelKeysModal'
 import { PermissionsPanel } from './modals/PermissionsModal'
 import { ChangePasswordPanel } from './modals/ChangePasswordModal'
 import { FriendsPanel } from './modals/FriendsModal'
+import { InviteUserSearch } from './shared/InviteUserSearch'
 import { AdminUsersPanel } from './main/AdminUsersPanel'
 import { LogoutBackupModal } from './modals/LogoutBackupModal'
 import { ServerInvitationsModal } from './modals/ServerInvitationsModal'
@@ -114,13 +115,11 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   const [showServerInvitations, setShowServerInvitations] = useState(false)
   const [pendingInvitationCount, setPendingInvitationCount] = useState(0)
   const [pendingServerConfigOpenId, setPendingServerConfigOpenId] = useState<string | null>(null)
-  const [serverConfigInviteUsername, setServerConfigInviteUsername] = useState('')
-  const [pendingMemberRemovalId, setPendingMemberRemovalId] = useState<string | null>(null)
+const [pendingMemberRemovalId, setPendingMemberRemovalId] = useState<string | null>(null)
   const [channelConfigName, setChannelConfigName] = useState('')
   const [channelConfigMessageTTL, setChannelConfigMessageTTL] = useState('')
   const [channelConfigIsPrivate, setChannelConfigIsPrivate] = useState(false)
-  const [channelConfigInviteUsername, setChannelConfigInviteUsername] = useState('')
-  const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Array<{
+const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<Array<{
     userId: string
     username: string
     permissionLevel: number
@@ -259,7 +258,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
         : String(resolvedSelectedChannel.messageTTL)
     )
     setChannelConfigIsPrivate(!!resolvedSelectedChannel.isPrivate)
-    setChannelConfigInviteUsername('')
   }, [panel, resolvedSelectedChannel?.channelId, resolvedSelectedChannel?.name, resolvedSelectedChannel?.messageTTL, resolvedSelectedChannel?.isPrivate])
 
   useEffect(() => {
@@ -1045,17 +1043,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     }
   }
 
-  const handleServerConfigInviteSubmit = async (event: React.FormEvent) => {
-    event.preventDefault()
-    const usernameToInvite = serverConfigInviteUsername.trim()
-    if (!usernameToInvite) {
-      setFeedback("El nom d'usuari és obligatori")
-      return
-    }
-    await handleInviteServerSubmit(usernameToInvite)
-    setServerConfigInviteUsername('')
-  }
-
   const handleUpdateServerMemberRole = async (userId: string, role: 'admin' | 'member') => {
     if (!selectedServer) return
     const result = await serverUpdateMemberRole(selectedServer, userId, role)
@@ -1275,17 +1262,6 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     }
 
     await handleConfigureChannelSubmit(trimmedName, parsedTtl, channelConfigIsPrivate)
-  }
-
-  const handleChannelConfigInvite = async (event: React.FormEvent) => {
-    event.preventDefault()
-    const usernameToInvite = channelConfigInviteUsername.trim()
-    if (!usernameToInvite) {
-      setFeedback("El nom d'usuari és obligatori")
-      return
-    }
-    await handleInviteChannelSubmit(usernameToInvite)
-    setChannelConfigInviteUsername('')
   }
 
   // Gestiona les accions del menú del servidor
@@ -1858,23 +1834,13 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
             </p>
 
             {canManageServer && (
-              <form onSubmit={handleServerConfigInviteSubmit} className="modal-form" style={{ marginTop: '12px', marginBottom: '12px' }}>
-                <div className="form-group">
-                  <label htmlFor="integrated-server-invite">Convidar membre al servidor</label>
-                  <input
-                    id="integrated-server-invite"
-                    type="text"
-                    value={serverConfigInviteUsername}
-                    onChange={(e) => setServerConfigInviteUsername(e.target.value)}
-                    placeholder="Nom d'usuari"
-                  />
-                </div>
-                <div className="modal-form-actions" style={{ justifyContent: 'flex-end' }}>
-                  <button type="submit" className="admin-panel-tab">
-                    Convidar
-                  </button>
-                </div>
-              </form>
+              <div className="modal-form" style={{ marginTop: '12px', marginBottom: '12px' }}>
+                <h4 style={{ marginBottom: '8px' }}>Convidar membre al servidor</h4>
+                <InviteUserSearch
+                  onSearchUsers={handleSearchUsers}
+                  onInvite={handleInviteServerSubmit}
+                />
+              </div>
             )}
 
             <div className="server-members" style={{ marginTop: '12px' }}>
@@ -2006,23 +1972,13 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
               </div>
             </form>
 
-            <form onSubmit={handleChannelConfigInvite} className="modal-form" style={{ marginBottom: '12px' }}>
-              <div className="form-group">
-                <label htmlFor="integrated-channel-invite">Convidar usuari</label>
-                <input
-                  id="integrated-channel-invite"
-                  type="text"
-                  value={channelConfigInviteUsername}
-                  onChange={(e) => setChannelConfigInviteUsername(e.target.value)}
-                  placeholder="Nom d'usuari"
-                />
-              </div>
-              <div className="modal-form-actions" style={{ justifyContent: 'flex-end' }}>
-                <button type="submit" className="admin-panel-tab">
-                  Convidar
-                </button>
-              </div>
-            </form>
+            <div className="modal-form" style={{ marginBottom: '12px' }}>
+              <h4 style={{ marginBottom: '8px' }}>Convidar usuari</h4>
+              <InviteUserSearch
+                onSearchUsers={handleSearchUsers}
+                onInvite={handleInviteChannelSubmit}
+              />
+            </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button
@@ -2142,6 +2098,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
             isOpen={showInviteServer}
             onClose={() => setShowInviteServer(false)}
             onInvite={handleInviteServerSubmit}
+            onSearchUsers={handleSearchUsers}
             inviteType="server"
             targetName={selectedServerInfo?.name ?? selectedServer}
           />

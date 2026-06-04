@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useRef } from 'react'
 import { EncryptionType } from '../../types'
 import { Button } from '../shared/Button'
 
@@ -19,6 +19,7 @@ interface MessageInputProps {
   placeholder?: string
   encryptionType: EncryptionType
   isBusy?: boolean
+  focusKey?: string
 }
 
 function formatFileSize(size: number): string {
@@ -38,8 +39,16 @@ export function MessageInput({
   placeholder,
   encryptionType,
   isBusy = false,
+  focusKey,
 }: MessageInputProps) {
   const fileInputRef = React.useRef<HTMLInputElement>(null)
+  const textInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (focusKey !== undefined) {
+      textInputRef.current?.focus()
+    }
+  }, [focusKey])
 
   const handleSubmit = () => {
     if (isBusy) return
@@ -108,6 +117,7 @@ export function MessageInput({
 
       <div className="message-input-content">
         <input
+          ref={textInputRef}
           type="text"
           className="message-input-field"
           value={value}

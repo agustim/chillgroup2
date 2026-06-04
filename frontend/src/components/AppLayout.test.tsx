@@ -474,7 +474,8 @@ describe('AppLayout', () => {
       fireEvent.click(settingsButton)
       await waitFor(() => {
         expect(screen.getByText('Configuració integrada del canal')).toBeTruthy()
-        expect(screen.getByLabelText('Convidar usuari')).toBeTruthy()
+        expect(screen.getByText('Convidar usuari')).toBeTruthy()
+        expect(screen.getByPlaceholderText('Cerca per nom d\'usuari')).toBeTruthy()
       })
     })
 
@@ -494,14 +495,19 @@ describe('AppLayout', () => {
         keyVersionId: 'kv-1',
       })
       mockGetChannelKey.mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
+      mockUsersSearch.mockResolvedValue({
+        success: true,
+        data: [{ userId: 'u-pop', username: 'pop', status: 'online', isFriend: false }],
+      })
 
       renderApp()
       const settingsButton = await screen.findByTestId('btn-channel-settings')
       fireEvent.click(settingsButton)
 
-      const inviteInput = await screen.findByLabelText('Convidar usuari')
-      fireEvent.change(inviteInput, { target: { value: 'pop' } })
-      const inviteButton = screen.getByRole('button', { name: 'Convidar' })
+      const inviteInput = await screen.findByPlaceholderText('Cerca per nom d\'usuari')
+      fireEvent.change(inviteInput, { target: { value: 'po' } })
+
+      const inviteButton = await screen.findByRole('button', { name: 'Convidar' }, { timeout: 3000 })
       fireEvent.click(inviteButton)
 
       await waitFor(() => {

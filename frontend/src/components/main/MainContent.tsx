@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect } from 'react'
 import { Channel, Message, VoiceConnection } from '../../types'
 import { messagesSend } from '../../lib/api'
 import { encryptChannelMessage, ensureChannelKey, distributeChannelKey } from '../../lib/channel-crypto'
@@ -54,6 +54,11 @@ export function MainContent({
   const [pendingAttachments, setPendingAttachments] = useState<ComposerAttachment[]>([])
   const [socketMessages, setSocketMessages] = useState<Message[]>([])
   const [expiringMessageIds, setExpiringMessageIds] = useState<Set<string>>(new Set())
+  const [focusTrigger, setFocusTrigger] = useState(0)
+
+  useEffect(() => {
+    setFocusTrigger((n) => n + 1)
+  }, [channel?.channelId])
 
   const handleSocketMessage = useCallback((msg: Message) => {
     setSocketMessages((prev) => {
@@ -219,6 +224,7 @@ export function MainContent({
         setMessage('')
         setPendingAttachments([])
         setRefreshKey((current) => current + 1)
+        setFocusTrigger((n) => n + 1)
       } else {
         setSendError(response.error.message || "No s'ha pogut enviar el missatge")
       }
@@ -316,6 +322,7 @@ export function MainContent({
               placeholder={`Missatjar a #${channel.name}`}
               encryptionType={channel.encryptionType}
               isBusy={sending}
+              focusKey={String(focusTrigger)}
             />
             {uploadingAttachmentNames.length > 0 && (
               <div className="message-send-info">
