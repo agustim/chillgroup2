@@ -23,7 +23,7 @@ export default defineConfig({
       { text: 'Referencia', link: '/ca/reference/' }
     ],
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/' }
+      { icon: 'github', link: 'https://github.com/agustim/chillgroup2' }
     ],
     search: {
       provider: 'local'
