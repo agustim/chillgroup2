@@ -18,3 +18,4 @@ build/
 *.tar.gz
 .pnpm-store/
 memory/
+.claude
