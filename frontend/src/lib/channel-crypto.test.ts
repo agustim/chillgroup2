@@ -72,7 +72,8 @@ describe('decryptMessagesForChannel - mode none', () => {
         timestamp: new Date().toISOString(),
         editedAt: null,
         deletedAt: null,
-        attachments: [],
+        attachmentIds: [],
+        expiresAt: null,
       },
     ]
 
@@ -111,7 +112,8 @@ describe('encryptChannelMessage + decryptMessagesForChannel - round trip', () =>
         timestamp: new Date().toISOString(),
         editedAt: null,
         deletedAt: null,
-        attachments: [],
+        attachmentIds: [],
+        expiresAt: null,
       },
     ]
 

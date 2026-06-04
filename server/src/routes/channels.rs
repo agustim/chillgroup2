@@ -383,6 +383,7 @@ pub async fn create_channel(
             unread_count: 0,
             key_version_id: initial_key_version_id,
             key_version: initial_key_version,
+            last_read_message_id: None,
             created_at: now,
         }),
     ))

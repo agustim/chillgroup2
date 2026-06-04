@@ -3000,10 +3000,12 @@ impl DatabasePool {
                                              WHEN cm.user_id IS NOT NULL THEN cm.permission_level \
                                              WHEN sm.role IN ('owner', 'admin') THEN 3 \
                                              ELSE 2 \
-                                         END AS permission_level \
+                                         END AS permission_level, \
+                                         rs.last_read_message_id \
                                          FROM channels c \
                                          LEFT JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = $2 \
                                          LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = $2 \
+                                         LEFT JOIN channel_read_state rs ON rs.channel_id = c.id AND rs.user_id = $2 \
                                          WHERE c.server_id = $1 \
                                              AND (c.is_private = false OR cm.user_id IS NOT NULL) \
                                          ORDER BY c.channel_type ASC, c.name ASC";
@@ -3050,6 +3052,7 @@ impl DatabasePool {
                         unread_count: 0,
                         key_version_id,
                         key_version,
+                        last_read_message_id: row.get(9),
                         created_at,
                     });
                 }
@@ -3061,14 +3064,17 @@ impl DatabasePool {
                                                              WHEN cm.user_id IS NOT NULL THEN cm.permission_level \
                                                              WHEN sm.role IN ('owner', 'admin') THEN 3 \
                                                              ELSE 2 \
-                                                         END AS permission_level \
+                                                         END AS permission_level, \
+                                                         rs.last_read_message_id \
                                                          FROM channels c \
                                                          LEFT JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = ? \
                                                          LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = ? \
+                                                         LEFT JOIN channel_read_state rs ON rs.channel_id = c.id AND rs.user_id = ? \
                                                          WHERE c.server_id = ? \
                                                              AND (c.is_private = 0 OR cm.user_id IS NOT NULL) \
                                                          ORDER BY c.type ASC, c.name ASC";
                 let rows = sqlx::query(&query)
+                    .bind(user_id)
                     .bind(user_id)
                     .bind(user_id)
                     .bind(server_id)
@@ -3109,6 +3115,7 @@ impl DatabasePool {
                         unread_count: 0,
                         key_version_id,
                         key_version,
+                        last_read_message_id: row.get(9),
                         created_at,
                     });
                 }
@@ -3778,6 +3785,7 @@ impl DatabasePool {
                         unread_count: 0,
                         key_version_id,
                         key_version,
+                        last_read_message_id: None,
                         created_at,
                     }))
                 } else {
@@ -3824,6 +3832,7 @@ impl DatabasePool {
                         unread_count: 0,
                         key_version_id,
                         key_version,
+                        last_read_message_id: None,
                         created_at,
                     }))
                 } else {
@@ -4476,12 +4485,17 @@ impl DatabasePool {
                 conditions.push(format!("(expires_at IS NULL OR expires_at > $2::timestamptz)"));
 
                 if let Some(a) = after {
-                    conditions.push("id > $3".to_string());
-                    let _ = a; // bound below
+                    // Timestamp subquery: get messages AFTER the anchor (oldest-first for unread UX)
+                    conditions.push("timestamp > (SELECT timestamp FROM messages WHERE id = $3)".to_string());
+                    let _ = a;
                 }
                 if let Some(b) = before {
                     let before_param = if after.is_some() { 4 } else { 3 };
-                    conditions.push(format!("id < ${}", before_param));
+                    // Timestamp subquery: get messages BEFORE the anchor (newest-first for scroll-up)
+                    conditions.push(format!(
+                        "timestamp < (SELECT timestamp FROM messages WHERE id = ${})",
+                        before_param
+                    ));
                     let _ = b;
                 }
                 if let Some(s) = since {
@@ -4492,10 +4506,12 @@ impl DatabasePool {
 
                 conditions.push("deleted_at IS NULL".to_string());
 
+                // after → ASC (oldest unread first, user reads top-to-bottom from divider)
+                // before or no cursor → DESC (newest messages first, frontend sorts ASC for display)
                 let order = if after.is_some() {
-                    "ORDER BY timestamp DESC, id DESC"
-                } else {
                     "ORDER BY timestamp ASC, id ASC"
+                } else {
+                    "ORDER BY timestamp DESC, id DESC"
                 };
 
                 let query = format!(
@@ -4542,11 +4558,11 @@ impl DatabasePool {
                 let mut conditions = vec!["channel_id = ?".to_string(), "(expires_at IS NULL OR expires_at > ?)".to_string()];
 
                 if let Some(a) = after {
-                    conditions.push("id > ?".to_string());
+                    conditions.push("timestamp > (SELECT timestamp FROM messages WHERE id = ?)".to_string());
                     let _ = a;
                 }
                 if let Some(b) = before {
-                    conditions.push("id < ?".to_string());
+                    conditions.push("timestamp < (SELECT timestamp FROM messages WHERE id = ?)".to_string());
                     let _ = b;
                 }
                 if let Some(s) = since {
@@ -4557,9 +4573,9 @@ impl DatabasePool {
                 conditions.push("deleted_at IS NULL".to_string());
 
                 let order = if after.is_some() {
-                    "ORDER BY timestamp DESC, id DESC"
-                } else {
                     "ORDER BY timestamp ASC, id ASC"
+                } else {
+                    "ORDER BY timestamp DESC, id DESC"
                 };
 
                 let query = format!(

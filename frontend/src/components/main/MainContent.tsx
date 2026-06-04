@@ -297,6 +297,8 @@ export function MainContent({
               refreshKey={refreshKey}
               socketMessages={socketMessages}
               expiringMessageIds={expiringMessageIds}
+              unreadCount={channel.unreadCount ?? 0}
+              lastReadMessageId={channel.lastReadMessageId}
             />
             {sendError && <div className="message-send-error">{sendError}</div>}
             <MessageInput

@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkBreaks from 'remark-breaks'
 import remarkGfm from 'remark-gfm'
 import { EncryptionType, Message } from '../../types'
-import { attachmentGetDownload, messagesList } from '../../lib/api'
+import { attachmentGetDownload, channelsMarkRead, messagesList } from '../../lib/api'
 import { downloadAndDecryptAttachment } from '../../lib/attachments'
 import { decryptMessagesForChannel } from '../../lib/channel-crypto'
 import { logger } from '../../lib/logger'
@@ -27,6 +27,8 @@ interface MessageListProps {
   refreshKey?: number
   socketMessages?: Message[]
   expiringMessageIds?: Set<string>
+  unreadCount?: number
+  lastReadMessageId?: string | null
 }
 
 export function MessageList({
@@ -36,14 +38,23 @@ export function MessageList({
   refreshKey,
   socketMessages = [],
   expiringMessageIds,
+  unreadCount = 0,
+  lastReadMessageId,
 }: MessageListProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [decryptedPayloads, setDecryptedPayloads] = useState<Record<string, string>>({})
   const [attachmentById, setAttachmentById] = useState<Record<string, AttachmentView>>({})
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [hasPrevPage, setHasPrevPage] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [unreadDividerMessageId, setUnreadDividerMessageId] = useState<string | null>(null)
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesTopRef = useRef<HTMLDivElement>(null)
+  const unreadDividerRef = useRef<HTMLDivElement>(null)
   const expiringMessageIdsRef = useRef<Set<string> | undefined>(expiringMessageIds)
+  const atBottomRef = useRef(true)
   const isEncryptedChannel = encryptionType !== 'none'
 
   const renderMarkdownMessage = (text: string) => (
@@ -87,15 +98,20 @@ export function MessageList({
     }
   }
 
-  // Mantenir la ref actualitzada amb el valor actual de expiringMessageIds
   useEffect(() => {
     expiringMessageIdsRef.current = expiringMessageIds
   }, [expiringMessageIds])
 
+  const filterExpiring = (msgs: Message[]) =>
+    expiringMessageIdsRef.current && expiringMessageIdsRef.current.size > 0
+      ? msgs.filter((m) => !expiringMessageIdsRef.current!.has(m.messageId))
+      : msgs
+
+  // El backend retorna DESC (mes nou primer). Invertim per mostrar ASC (mes antic dalt).
+  // No usem sort() per timestamps perquè missatges enviats ràpidament poden tenir el mateix timestamp.
+  const fromDesc = (msgs: Message[]) => [...msgs].reverse()
+
   const loadMessages = async () => {
-    // Debug: veure què arriba
-    logger.debug('[MessageList] channelId prop:', channelId)
-    // Validar que el channelId existeix
     if (!channelId) {
       setError('Canal no seleccionat')
       setLoading(false)
@@ -105,17 +121,53 @@ export function MessageList({
     try {
       setLoading(true)
       setError(null)
-      const result = await messagesList(channelId, 50, undefined, scope)
-      if (result.success && result.data) {
-        // Filtrar missatges que estan a expiringMessageIds
-        const filtered = expiringMessageIdsRef.current && expiringMessageIdsRef.current.size > 0
-          ? result.data.data.filter((m) => !expiringMessageIdsRef.current!.has(m.messageId))
-          : result.data.data
-        setMessages(filtered)
-        const decrypted = await decryptMessagesForChannel(channelId, encryptionType, filtered)
+      setUnreadDividerMessageId(null)
+      atBottomRef.current = true
+
+      const hasUnread = unreadCount > 0 && !!lastReadMessageId
+
+      if (hasUnread) {
+        // Load unread messages (after lastReadMessageId)
+        const unreadResult = await messagesList(channelId, 50, undefined, scope, lastReadMessageId!)
+        if (!unreadResult.success || !unreadResult.data) {
+          setError('No es poden carregar els missatges')
+          return
+        }
+        const unreadMsgs = filterExpiring(unreadResult.data.data)
+
+        let contextMsgs: Message[] = []
+        let prevPage = false
+        if (unreadMsgs.length > 0) {
+          // Load 5 context messages just before the first unread (oldest unread = index 0 per ASC)
+          const ctxResult = await messagesList(channelId, 5, unreadMsgs[0].messageId, scope)
+          if (ctxResult.success && ctxResult.data) {
+            contextMsgs = filterExpiring(ctxResult.data.data)
+            prevPage = contextMsgs.length >= 5
+          }
+          setUnreadDividerMessageId(unreadMsgs[0].messageId)
+          atBottomRef.current = false
+        } else {
+          prevPage = unreadResult.data.data.length >= 50
+        }
+
+        // contextMsgs ve en DESC (before), unreadMsgs ve en ASC (after). Invertim context i mergem.
+        const merged = [...fromDesc(contextMsgs), ...unreadMsgs]
+        setMessages(merged)
+        setHasPrevPage(prevPage)
+        const decrypted = await decryptMessagesForChannel(channelId, encryptionType, merged)
         setDecryptedPayloads(decrypted)
       } else {
-        setError('No es poden carregar els missatges')
+        // Standard: load latest 50 (backend retorna DESC, ordenem ASC per emmagatzemar)
+        const result = await messagesList(channelId, 50, undefined, scope)
+        if (result.success && result.data) {
+          const loaded = fromDesc(filterExpiring(result.data.data))
+          setMessages(loaded)
+          setHasPrevPage(loaded.length >= 50)
+          const decrypted = await decryptMessagesForChannel(channelId, encryptionType, loaded)
+          setDecryptedPayloads(decrypted)
+        } else {
+          setError('No es poden carregar els missatges')
+        }
       }
     } catch {
       setError('Error de connexió')
@@ -124,15 +176,42 @@ export function MessageList({
     }
   }
 
+  const loadMoreMessages = useCallback(async () => {
+    if (loadingMore || !hasPrevPage || messages.length === 0) return
+    // messages[0] és sempre el més antic (estat guardat en ASC)
+    const oldestId = messages[0].messageId
+    setLoadingMore(true)
+    try {
+      const result = await messagesList(channelId, 50, oldestId, scope)
+      if (result.success && result.data && result.data.data.length > 0) {
+        const older = filterExpiring(result.data.data)
+        setMessages((prev) => {
+          const existingIds = new Set(prev.map((m) => m.messageId))
+          // older ve en DESC del backend → invertim. Filtrem duplicats de older (no de prev).
+          return [...fromDesc(older).filter((m) => !existingIds.has(m.messageId)), ...prev]
+        })
+        setHasPrevPage(result.data.data.length >= 50)
+      } else {
+        setHasPrevPage(false)
+      }
+    } catch {
+      // silent fail
+    } finally {
+      setLoadingMore(false)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channelId, scope, loadingMore, hasPrevPage, messages])
+
   useEffect(() => {
     loadMessages()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelId, scope, encryptionType, refreshKey])
 
   useEffect(() => {
     setAttachmentById({})
   }, [channelId])
 
-  // Quan arriben missatges expirats, esperem la durada de l'animació i els retirem de l'estat local
+  // Quan arriben missatges expirats, esperem la durada de l'animació i els retirem
   useEffect(() => {
     if (!expiringMessageIds || expiringMessageIds.size === 0) return
     const timer = setTimeout(() => {
@@ -141,70 +220,96 @@ export function MessageList({
     return () => clearTimeout(timer)
   }, [expiringMessageIds])
 
-  // Quan expiringMessageIds es reactualitza, filtrar immediatament els missatges carregats
   useEffect(() => {
     if (!expiringMessageIds || expiringMessageIds.size === 0) return
     setMessages((prev) => prev.filter((m) => !expiringMessageIds.has(m.messageId)))
   }, [expiringMessageIds])
 
-  // Combinar missatges carregats + missatges rebuts via socket (sense duplicats),
-  // i filtrar els que estan a expiringMessageIds per evitar el "flash" després de l'animació.
-  // Cal calcular-ho AQUÍ perquè el useEffect de desxifrat el necessita i tots els hooks
-  // s'han d'invocar abans de qualsevol early return.
+  // Combinar missatges carregats (ja en ordre ASC) + nous via socket (sempre al final)
+  // No fem sort per timestamp: messages[] ja té l'ordre correcte establert manualment.
+  // socketMessages s'afegeixen al final perquè sempre son els més nous.
   const loadedIds = new Set(messages.map((m) => m.messageId))
   const combined = [
     ...messages,
     ...socketMessages.filter((m) => !loadedIds.has(m.messageId)),
-  ]
-    .filter((m) => !expiringMessageIds?.has(m.messageId))
-    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+  ].filter((m) => !expiringMessageIds?.has(m.messageId))
 
-  // Desxifrar missatges combinats en temps real (socket + historial)
+  // Desxifrar missatges combinats en temps real
   useEffect(() => {
-    if (combined.length === 0) {
-      return
-    }
-
+    if (combined.length === 0) return
     let cancelled = false
     decryptMessagesForChannel(channelId, encryptionType, combined)
-      .then((decrypted) => {
-        if (!cancelled) {
-          setDecryptedPayloads(decrypted)
-        }
-      })
-      .catch(() => {
-        // Best effort: si falta clau, el missatge mostrarà el payload cru.
-      })
-
-    return () => {
-      cancelled = true
-    }
+      .then((decrypted) => { if (!cancelled) setDecryptedPayloads(decrypted) })
+      .catch(() => {})
+    return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelId, scope, encryptionType, messages, socketMessages, expiringMessageIds])
 
+  // Scroll inicial: al divisor de no llegits o al final
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView?.({ behavior: 'smooth' })
-  }, [combined])
+    if (loading) return
+    if (unreadDividerRef.current) {
+      unreadDividerRef.current.scrollIntoView({ behavior: 'instant' as ScrollBehavior })
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior })
+    }
+  // Només en canvi de canal o fi de càrrega inicial
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, channelId])
 
+  // Scroll suau al final quan arriben missatges de socket (si ja som al final)
+  useEffect(() => {
+    if (socketMessages.length > 0 && atBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [socketMessages])
+
+  // IntersectionObserver per carregar missatges antics (scroll cap amunt)
+  useEffect(() => {
+    const el = messagesTopRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) void loadMoreMessages() },
+      { threshold: 0.1 },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [loadMoreMessages])
+
+  // IntersectionObserver per marcar com llegit quan s'arriba al final
+  useEffect(() => {
+    const el = messagesEndRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        atBottomRef.current = entry.isIntersecting
+        if (entry.isIntersecting) {
+          const lastMsg = combined[combined.length - 1]
+          if (lastMsg) {
+            channelsMarkRead(channelId, lastMsg.messageId).catch(() => {})
+            setUnreadDividerMessageId(null)
+          }
+        }
+      },
+      { threshold: 0.5 },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channelId, combined])
+
+  // Adjunts
   useEffect(() => {
     const attachmentIds = Array.from(
-      new Set(
-        combined.flatMap((msg) => msg.attachmentIds ?? []),
-      ),
+      new Set(combined.flatMap((msg) => msg.attachmentIds ?? [])),
     )
-
-    const missingIds = attachmentIds.filter((attachmentId) => !attachmentById[attachmentId])
+    const missingIds = attachmentIds.filter((id) => !attachmentById[id])
     if (missingIds.length === 0) return
-
     let cancelled = false
-
     Promise.all(
       missingIds.map(async (attachmentId) => {
         const response = await attachmentGetDownload(channelId, attachmentId)
-        if (!response.success) {
-          return null
-        }
-
+        if (!response.success) return null
         return {
           attachmentId,
           fileName: response.data.fileName,
@@ -220,27 +325,19 @@ export function MessageList({
     )
       .then((items) => {
         if (cancelled) return
-        const validItems = items.filter((item): item is AttachmentView => item !== null)
-        if (validItems.length === 0) return
-
-        setAttachmentById((previous) => {
-          const next = { ...previous }
-          validItems.forEach((item) => {
-            next[item.attachmentId] = item
-          })
+        const valid = items.filter((item): item is AttachmentView => item !== null)
+        if (valid.length === 0) return
+        setAttachmentById((prev) => {
+          const next = { ...prev }
+          valid.forEach((item) => { next[item.attachmentId] = item })
           return next
         })
       })
-      .catch(() => {
-        // Ignore per-message attachment metadata failures.
-      })
-
-    return () => {
-      cancelled = true
-    }
+      .catch(() => {})
+    return () => { cancelled = true }
   }, [attachmentById, channelId, combined])
 
-  // Early returns SEMPRE després de tots els hooks
+  // Early returns sempre després de tots els hooks
   if (loading) {
     return (
       <div className="message-list loading">
@@ -269,87 +366,100 @@ export function MessageList({
 
   return (
     <div className="message-list">
+      {/* Sentinel per carregar missatges antics */}
+      <div ref={messagesTopRef} className="messages-top-sentinel">
+        {loadingMore && <p className="loading-more-indicator">Carregant més...</p>}
+        {!loadingMore && hasPrevPage && <p className="load-more-hint">Fes scroll cap amunt per veure més</p>}
+      </div>
+
       {combined.map((msg, index) => {
+        const showDivider = unreadDividerMessageId === msg.messageId
         const showHeader =
-          index === 0 || combined[index - 1].senderUserId !== msg.senderUserId
+          index === 0 || combined[index - 1].senderUserId !== msg.senderUserId || showDivider
 
         return (
-          <div
-            key={msg.messageId}
-            className={`message-bubble ${msg.deletedAt ? 'deleted' : ''} ${msg.editedAt ? 'edited' : ''} ${showHeader ? 'first-in-row' : ''} ${expiringMessageIds?.has(msg.messageId) ? 'expiring' : ''}`}
-          >
-            {showHeader && (
-              <div className="message-sender">
-                <span className="sender-avatar">
-                  {msg.senderUsername.charAt(0).toUpperCase()}
-                </span>
-                <span className="sender-name">{msg.senderUsername}</span>
-                {msg.senderDeviceId && (
-                  <span className="device-badge" title="Dispositiu">
-                    💻
+          <React.Fragment key={msg.messageId}>
+            {showDivider && (
+              <div ref={unreadDividerRef} id="unread-divider" className="unread-divider">
+                <span>Missatges nous</span>
+              </div>
+            )}
+            <div
+              className={`message-bubble ${msg.deletedAt ? 'deleted' : ''} ${msg.editedAt ? 'edited' : ''} ${showHeader ? 'first-in-row' : ''} ${expiringMessageIds?.has(msg.messageId) ? 'expiring' : ''}`}
+            >
+              {showHeader && (
+                <div className="message-sender">
+                  <span className="sender-avatar">
+                    {msg.senderUsername.charAt(0).toUpperCase()}
+                  </span>
+                  <span className="sender-name">{msg.senderUsername}</span>
+                  {msg.senderDeviceId && (
+                    <span className="device-badge" title="Dispositiu">
+                      💻
+                    </span>
+                  )}
+                </div>
+              )}
+              <div className="message-content">
+                {msg.deletedAt ? (
+                  <p className="deleted-message">Missatge eliminat</p>
+                ) : (
+                  renderMarkdownMessage(decryptedPayloads[msg.messageId] ?? msg.encryptedPayload)
+                )}
+
+                {(msg.attachmentIds?.length ?? 0) > 0 && (
+                  <div className="message-attachment-list">
+                    {msg.attachmentIds?.map((attachmentId) => {
+                      const attachment = attachmentById[attachmentId]
+                      if (!attachment) {
+                        return (
+                          <span key={attachmentId} className="message-attachment-item loading">
+                            Adjunt carregant...
+                          </span>
+                        )
+                      }
+                      return (
+                        <a
+                          key={attachmentId}
+                          href={attachment.downloadUrl}
+                          className="message-attachment-item"
+                          download={attachment.fileName}
+                          title={attachment.fileName}
+                          onClick={(event) => {
+                            event.preventDefault()
+                            void handleAttachmentDownload(attachment)
+                          }}
+                        >
+                          📎 {attachment.fileName} ({formatSize(attachment.sizeBytes)})
+                        </a>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+              <div className="message-timestamp">
+                {new Date(msg.timestamp).toLocaleTimeString('ca-ES', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+                {msg.editedAt && <span className="edited-label">(editat)</span>}
+                {msg.expiresAt && (
+                  <span className="expires-label" title={msg.expiresAt}>
+                    ⏰
+                  </span>
+                )}
+                {isEncryptedChannel && msg.keyVersion != null && (
+                  <span className="key-version-label" title={`Versió de clau: ${msg.keyVersion}`}>
+                    🔐v{msg.keyVersion}
                   </span>
                 )}
               </div>
-            )}
-            <div className="message-content">
-              {msg.deletedAt ? (
-                <p className="deleted-message">Missatge eliminat</p>
-              ) : (
-                renderMarkdownMessage(decryptedPayloads[msg.messageId] ?? msg.encryptedPayload)
-              )}
-
-              {(msg.attachmentIds?.length ?? 0) > 0 && (
-                <div className="message-attachment-list">
-                  {msg.attachmentIds?.map((attachmentId) => {
-                    const attachment = attachmentById[attachmentId]
-
-                    if (!attachment) {
-                      return (
-                        <span key={attachmentId} className="message-attachment-item loading">
-                          Adjunt carregant...
-                        </span>
-                      )
-                    }
-
-                    return (
-                      <a
-                        key={attachmentId}
-                        href={attachment.downloadUrl}
-                        className="message-attachment-item"
-                        download={attachment.fileName}
-                        title={attachment.fileName}
-                        onClick={(event) => {
-                          event.preventDefault()
-                          void handleAttachmentDownload(attachment)
-                        }}
-                      >
-                        📎 {attachment.fileName} ({formatSize(attachment.sizeBytes)})
-                      </a>
-                    )
-                  })}
-                </div>
-              )}
             </div>
-            <div className="message-timestamp">
-              {new Date(msg.timestamp).toLocaleTimeString('ca-ES', {
-                hour: '2-digit',
-                minute: '2-digit',
-              })}
-              {msg.editedAt && <span className="edited-label">(editat)</span>}
-              {msg.expiresAt && (
-                <span className="expires-label" title={msg.expiresAt}>
-                  ⏰
-                </span>
-              )}
-              {isEncryptedChannel && msg.keyVersion != null && (
-                <span className="key-version-label" title={`Versió de clau: ${msg.keyVersion}`}>
-                  🔐v{msg.keyVersion}
-                </span>
-              )}
-            </div>
-          </div>
+          </React.Fragment>
         )
       })}
+
+      {/* Sentinel per detectar que l'usuari és al final (mark-as-read) */}
       <div ref={messagesEndRef} />
     </div>
   )

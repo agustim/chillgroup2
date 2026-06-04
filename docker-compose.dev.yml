@@ -137,7 +137,7 @@ services:
         cargo install cargo-watch --locked --root /cargo-tools;
       fi &&
       export PATH=/cargo-tools/bin:$$PATH &&
-      cargo watch -x 'run -p chillgroup-server'
+      cargo watch -w server/ -w Cargo.toml -w Cargo.lock -x 'run -p chillgroup-server'
       "
 
   frontend:

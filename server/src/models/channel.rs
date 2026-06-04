@@ -41,5 +41,8 @@ pub struct Channel {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub key_version: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub last_read_message_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
 }

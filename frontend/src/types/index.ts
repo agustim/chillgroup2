@@ -88,6 +88,7 @@ export interface Channel {
   messageTTL: number | null
   isPrivate: boolean
   unreadCount?: number
+  lastReadMessageId?: string | null
   keyVersionId?: string | null
   keyVersion?: number | null
   createdAt: string

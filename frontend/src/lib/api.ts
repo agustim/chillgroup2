@@ -739,9 +739,10 @@ export async function serverCreateInvitation(serverId: string, username: string)
   )
 }
 
-export async function messagesList(channelId: string, limit = 50, before?: string, scope?: 'server' | 'dm') {
+export async function messagesList(channelId: string, limit = 50, before?: string, scope?: 'server' | 'dm', after?: string) {
   const params = new URLSearchParams({ limit: String(limit) })
   if (before) params.set('before', before)
+  if (after) params.set('after', after)
   const path = scope === 'dm'
     ? `/api/dm/channels/${channelId}/messages?${params}`
     : `/api/channels/${channelId}/messages?${params}`
@@ -1004,6 +1005,7 @@ function mapChannelToTypes(channel: any): Channel {
     messageTTL: channel.message_ttl ?? channel.messageTTL ?? null,
     isPrivate: channel.is_private ?? channel.isPrivate ?? false,
     unreadCount: channel.unread_count ?? channel.unreadCount ?? 0,
+    lastReadMessageId: channel.last_read_message_id ?? channel.lastReadMessageId ?? null,
     keyVersionId: channel.key_version_id ?? channel.keyVersionId ?? null,
     keyVersion: channel.key_version ?? channel.keyVersion ?? null,
     createdAt: channel.created_at ?? channel.createdAt,

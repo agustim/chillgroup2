@@ -37,7 +37,6 @@ import {
   serversList,
   channelsCreate,
   channelsList,
-  channelsMarkRead,
   channelInvite,
   channelGetPermissions,
   channelGetExplicitPermissions,
@@ -628,11 +627,8 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     if (!resolvedSelectedChannel || resolvedSelectedChannel.type !== 'text') {
       return
     }
-
-    channelsMarkRead(resolvedSelectedChannel.channelId).catch(() => {
-      // Best effort: el socket reconcilia unread igualment.
-    })
-
+    // Resetejar el badge de no llegits a la UI; el mark-as-read real el fa
+    // MessageList quan l'usuari arriba al final (amb el missatge ID correcte).
     setChannels((prev) =>
       prev.map((c) =>
         c.channelId === resolvedSelectedChannel.channelId ? { ...c, unreadCount: 0 } : c
