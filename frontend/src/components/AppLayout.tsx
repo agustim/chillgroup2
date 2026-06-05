@@ -25,7 +25,7 @@ import { useLiveKit } from '../hooks/useLiveKit'
 import { Channel, FriendPresence, Server, ServerFullInfo, VoiceParticipant } from '../types'
 import { disconnectSocket, getSocket } from '../lib/socket'
 import { hasLocalDeviceKeypair } from '../lib/device-keys'
-import { ensureChannelKey, distributeChannelKey, syncChannelKeys } from '../lib/channel-crypto'
+import { ensureChannelKey, distributeChannelKey, syncChannelKeys, forceRefreshChannelKey } from '../lib/channel-crypto'
 import { getChannelKey, getLatestChannelKey } from '../lib/storage'
 import {
   friendsAdd,
@@ -45,6 +45,7 @@ import {
   channelInvite,
   channelDelete,
   dmChannelRotateKey,
+  channelRotateKey,
   userLimitsGet,
 } from '../lib/api'
 import { logger } from '../lib/logger'
@@ -57,7 +58,7 @@ interface AppLayoutProps {
 export type PanelType = 'none' | 'serverConfig' | 'channelConfig' | 'devices' | 'adminUsers' | 'permissions' | 'friends' | 'createServer' | 'changePassword' | 'channelKeys' | 'createTextChannel' | 'createVoiceChannel'
 type ServerMenuAction = 'config' | 'invite' | 'createText' | 'createVoice' | 'leave' | null
 
-function formatDmRepairFeedback(result: {
+function formatRepairFeedback(result: {
   discoveredDevices: string[]
   skippedSelfDevices: string[]
   skippedMissingKemDevices: string[]
@@ -65,7 +66,7 @@ function formatDmRepairFeedback(result: {
   failedDevices: Array<{ deviceId: string; reason: string }>
 }): string {
   const parts = [
-    `Devices DM vistos: ${result.discoveredDevices.length}`,
+    `Devices vistos: ${result.discoveredDevices.length}`,
     `bundles pujats: ${result.uploadedBundleDevices.length}`,
   ]
 
@@ -502,10 +503,10 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
     })
   }
 
-  const handleRepairDmKey = async (channel: Channel) => {
-    if (channel.scope !== 'dm') return
+  const handleRepairKey = async (channel: Channel) => {
+    if (channel.encryptionType !== 'asymmetric') return
     if (!currentDeviceId) {
-      setFeedback('Falta el dispositiu actual per arreglar claus del DM')
+      setFeedback('Falta el dispositiu actual per arreglar les claus')
       return
     }
 
@@ -522,7 +523,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
       const keyVersionId = latest?.keyVersionId ?? channel.keyVersionId ?? null
       const keyVersion = latest?.keyVersion ?? channel.keyVersion ?? 1
 
-      if (!channelKey) throw new Error('No tens cap clau local per poder arreglar el DM')
+      if (!channelKey) throw new Error('No tens cap clau local per poder arreglar el canal')
       if (!keyVersionId) throw new Error('Falta keyVersionId; no es pot signar la redistribució de claus')
 
       const distribution = await distributeChannelKey(
@@ -532,57 +533,56 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
         keyVersionId,
         currentDeviceId,
       )
-      setFeedback(formatDmRepairFeedback(distribution))
+      setFeedback(formatRepairFeedback(distribution))
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'No s\'ha pogut arreglar la clau del DM'
+      const message = error instanceof Error ? error.message : 'No s\'ha pogut arreglar les claus del canal'
       setFeedback(message)
     } finally {
       setDmKeyActionBusy(false)
     }
   }
 
-  const handleRotateDmKey = async (channel: Channel) => {
-    if (channel.scope !== 'dm') return
-    if (!currentDeviceId) {
-      setFeedback('Falta el dispositiu actual per rotar la clau del DM')
+  const handleRotateKey = async (channel: Channel) => {
+    if (!currentDeviceId && channel.encryptionType === 'asymmetric') {
+      setFeedback('Falta el dispositiu actual per rotar la clau')
       return
     }
 
     setDmKeyActionBusy(true)
     try {
-      const rotateResult = await dmChannelRotateKey(channel.channelId)
-      if (!rotateResult.success) {
-        setFeedback(rotateResult.error.message)
-        return
+      let keyVersion: number
+      let keyVersionId: string
+
+      if (channel.scope === 'dm') {
+        const rotateResult = await dmChannelRotateKey(channel.channelId)
+        if (!rotateResult.success) { setFeedback(rotateResult.error.message); return }
+        keyVersion = rotateResult.data.keyVersion
+        keyVersionId = rotateResult.data.keyVersionId
+      } else {
+        const rotateResult = await channelRotateKey(channel.channelId)
+        if (!rotateResult.success) { setFeedback(rotateResult.error.message); return }
+        keyVersion = rotateResult.data.keyVersion
+        keyVersionId = rotateResult.data.keyVersionId
       }
 
-      const { generateSymmetricKey } = await import('../lib/crypto')
-      const { storeChannelKey } = await import('../lib/storage')
+      if (channel.encryptionType === 'asymmetric' && currentDeviceId) {
+        const { generateSymmetricKey } = await import('../lib/crypto')
+        const { storeChannelKey } = await import('../lib/storage')
 
-      const channelKey = generateSymmetricKey()
-      await storeChannelKey(
-        channel.channelId,
-        channelKey,
-        'asymmetric',
-        rotateResult.data.keyVersion,
-        rotateResult.data.keyVersionId,
-      )
-      await distributeChannelKey(
-        channel.channelId,
-        channelKey,
-        rotateResult.data.keyVersion,
-        rotateResult.data.keyVersionId,
-        currentDeviceId,
-      )
+        const channelKey = generateSymmetricKey()
+        await storeChannelKey(channel.channelId, channelKey, 'asymmetric', keyVersion, keyVersionId)
+        await distributeChannelKey(channel.channelId, channelKey, keyVersion, keyVersionId, currentDeviceId)
+      } else if (channel.encryptionType === 'symmetric' && currentDeviceId) {
+        await forceRefreshChannelKey(channel.channelId, 'symmetric', currentDeviceId)
+      }
 
-      setSelectedChannel((current) => (
-        current && current.channelId === channel.channelId
-          ? { ...current, keyVersion: rotateResult.data.keyVersion, keyVersionId: rotateResult.data.keyVersionId }
-          : current
-      ))
-      setFeedback(`Clau del DM rotada a la versió ${rotateResult.data.keyVersion}`)
+      const updateChannel = (c: Channel) =>
+        c.channelId === channel.channelId ? { ...c, keyVersion, keyVersionId } : c
+      setSelectedChannel((current) => (current ? updateChannel(current) : current))
+      setChannels((prev) => prev.map(updateChannel))
+      setFeedback(`Clau rotada a la versió ${keyVersion}`)
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'No s\'ha pogut rotar la clau del DM'
+      const message = error instanceof Error ? error.message : 'No s\'ha pogut rotar la clau'
       setFeedback(message)
     } finally {
       setDmKeyActionBusy(false)
@@ -1209,9 +1209,10 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
               remoteVideoTracks={remoteVideoTracks}
               voiceAsTextMode={voiceAsTextMode}
               onToggleVoiceAsTextMode={() => setVoiceAsTextMode((prev) => !prev)}
-              onDmRepairKey={handleRepairDmKey}
-              onDmRotateKey={handleRotateDmKey}
-              dmKeyActionBusy={dmKeyActionBusy}
+              onRepairKey={handleRepairKey}
+              onRotateKey={handleRotateKey}
+              keyActionBusy={dmKeyActionBusy}
+              isChannelAdmin={canManageServer}
             />
           </>
         ) : voiceConnection ? (

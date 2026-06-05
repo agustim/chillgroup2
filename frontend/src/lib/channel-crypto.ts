@@ -572,3 +572,11 @@ export async function syncChannelKeys(
     }
   }
 }
+
+export async function forceRefreshChannelKey(
+  channelId: string,
+  encryptionType: EncryptionType,
+  myDeviceId: string
+): Promise<void> {
+  await fetchAndStoreChannelKey(channelId, encryptionType, myDeviceId)
+}

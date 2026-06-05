@@ -26,9 +26,10 @@ interface MainContentProps {
   localVideoTrack?: any
   localScreenTrack?: any
   remoteVideoTracks?: Record<string, any[]>
-  onDmRepairKey?: (channel: Channel) => Promise<void>
-  onDmRotateKey?: (channel: Channel) => Promise<void>
-  dmKeyActionBusy?: boolean
+  onRepairKey?: (channel: Channel) => Promise<void>
+  onRotateKey?: (channel: Channel) => Promise<void>
+  keyActionBusy?: boolean
+  isChannelAdmin?: boolean
 }
 
 export function MainContent({
@@ -42,9 +43,10 @@ export function MainContent({
   localVideoTrack,
   localScreenTrack,
   remoteVideoTracks = {},
-  onDmRepairKey,
-  onDmRotateKey,
-  dmKeyActionBusy = false,
+  onRepairKey,
+  onRotateKey,
+  keyActionBusy = false,
+  isChannelAdmin = false,
 }: MainContentProps) {
   const [message, setMessage] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
@@ -281,14 +283,14 @@ export function MainContent({
   const isTextChannel = channel?.type === 'text'
   const isVoiceChannel = channel?.type === 'voice'
   const showVoicePanel = !!voiceConnection && (!voiceAsTextMode || isVoiceChannel || !channel)
-  const handleDmRepairKey = async () => {
-    if (!channel || channel.scope !== 'dm' || !onDmRepairKey) return
-    await onDmRepairKey(channel)
+  const handleRepairKey = async () => {
+    if (!channel || !onRepairKey) return
+    await onRepairKey(channel)
   }
 
-  const handleDmRotateKey = async () => {
-    if (!channel || channel.scope !== 'dm' || !onDmRotateKey) return
-    await onDmRotateKey(channel)
+  const handleRotateKey = async () => {
+    if (!channel || !onRotateKey) return
+    await onRotateKey(channel)
   }
 
   // Layout: voice-panel a l'esquerra (si connectat) + text-area a la dreta (si canal de text)
@@ -314,9 +316,10 @@ export function MainContent({
         <div className="text-area">
           <ChannelHeader
             channel={channel}
-            onDmRepairKey={handleDmRepairKey}
-            onDmRotateKey={handleDmRotateKey}
-            dmKeyActionBusy={dmKeyActionBusy}
+            onRepairKey={handleRepairKey}
+            onRotateKey={handleRotateKey}
+            keyActionBusy={keyActionBusy}
+            isChannelAdmin={isChannelAdmin}
           />
           <div className="text-panel">
             <MessageList

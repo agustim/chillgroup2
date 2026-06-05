@@ -992,6 +992,25 @@ export async function dmChannelRotateKey(channelId: string): Promise<ApiResult<D
   }
 }
 
+export interface ChannelRotateKeyInfo {
+  channelId: string
+  keyVersionId: string
+  keyVersion: number
+}
+
+export async function channelRotateKey(channelId: string): Promise<ApiResult<ChannelRotateKeyInfo>> {
+  const result = await apiRequest<any>('POST', `/api/channels/${channelId}/keys/rotate`)
+  if (!result.success) return result
+  return {
+    success: true,
+    data: {
+      channelId: result.data.channel_id ?? result.data.channelId,
+      keyVersionId: result.data.key_version_id ?? result.data.keyVersionId,
+      keyVersion: result.data.key_version ?? result.data.keyVersion,
+    },
+  }
+}
+
 export async function channelsList(serverId: string): Promise<ApiResult<Channel[]>> {
   const result = await apiRequest<any[]>('GET', `/api/servers/${serverId}/channels`)
   if (!result.success) return result

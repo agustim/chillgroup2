@@ -11,10 +11,29 @@
   animation: slideDown 0.2s ease-out;
 }
 
-.feedback-banner:not(.modal-error):not(.modal-success) {
+.feedback-banner:not(.modal-error):not(.modal-success):not(.feedback-banner--warning) {
   background: rgba(35, 165, 89, 0.1);
   color: var(--success);
   border: 1px solid rgba(35, 165, 89, 0.3);
+}
+
+.feedback-banner--warning {
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--warning);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  border-radius: 0;
+  border-top: none;
+}
+
+.feedback-banner__actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 /* Reset */
