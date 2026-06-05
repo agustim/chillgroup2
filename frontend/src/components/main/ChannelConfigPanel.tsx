@@ -2,6 +2,7 @@ import React from 'react'
 import { Channel, UserSearchResult } from '../../types'
 import { InviteUserSearch } from '../shared/InviteUserSearch'
 import { ChannelPermissionRow } from '../../hooks/useChannelConfig'
+import { TTLSelector } from '../shared/TTLSelector'
 
 interface ChannelConfigPanelProps {
   channel: Channel
@@ -63,14 +64,10 @@ export function ChannelConfigPanel({
           />
         </div>
         <div className="form-group">
-          <label htmlFor="integrated-channel-ttl">TTL (segons)</label>
-          <input
-            id="integrated-channel-ttl"
-            type="number"
-            value={channelConfigMessageTTL}
-            onChange={(e) => setChannelConfigMessageTTL(e.target.value)}
-            placeholder="Sense límit"
-            min="0"
+          <label>TTL missatges</label>
+          <TTLSelector
+            value={channelConfigMessageTTL ? Number(channelConfigMessageTTL) : null}
+            onChange={(ttl) => setChannelConfigMessageTTL(ttl === null ? '' : String(ttl))}
           />
         </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>

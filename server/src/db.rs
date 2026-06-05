@@ -3538,7 +3538,7 @@ impl DatabasePool {
                         CASE WHEN c.dm_user_a_id = $1 THEN c.dm_user_b_id ELSE c.dm_user_a_id END AS peer_user_id,
                         u.username AS peer_username,
                         c.message_ttl,
-                        MAX(m.timestamp) AS last_message_at
+                        MAX(m.timestamp)::text AS last_message_at
                      FROM channels c
                      JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = $1
                      JOIN users u ON u.id = CASE WHEN c.dm_user_a_id = $1 THEN c.dm_user_b_id ELSE c.dm_user_a_id END
@@ -3854,50 +3854,27 @@ impl DatabasePool {
     ) -> Result<(), sqlx::Error> {
         match self {
             DatabasePool::Postgres(pool) => {
-                match (name, message_ttl) {
-                    (Some(n), Some(mt)) => {
+                match name {
+                    Some(n) => {
                         sqlx::query(
                             "UPDATE channels SET name=$1, channel_type=$2, encryption_type=$3, message_ttl=$4, is_private=$5 WHERE id=$6 AND server_id=$7",
                         )
                         .bind(n)
                         .bind(channel_type)
                         .bind(encryption_type)
-                        .bind(mt)
+                        .bind(message_ttl)
                         .bind(is_private)
                         .bind(channel_id)
                         .bind(server_id)
                         .execute(pool).await?;
                     }
-                    (Some(n), None) => {
-                        sqlx::query(
-                            "UPDATE channels SET name=$1, channel_type=$2, encryption_type=$3, is_private=$4 WHERE id=$5 AND server_id=$6",
-                        )
-                        .bind(n)
-                        .bind(channel_type)
-                        .bind(encryption_type)
-                        .bind(is_private)
-                        .bind(channel_id)
-                        .bind(server_id)
-                        .execute(pool).await?;
-                    }
-                    (None, Some(mt)) => {
+                    None => {
                         sqlx::query(
                             "UPDATE channels SET channel_type=$1, encryption_type=$2, message_ttl=$3, is_private=$4 WHERE id=$5 AND server_id=$6",
                         )
                         .bind(channel_type)
                         .bind(encryption_type)
-                        .bind(mt)
-                        .bind(is_private)
-                        .bind(channel_id)
-                        .bind(server_id)
-                        .execute(pool).await?;
-                    }
-                    (None, None) => {
-                        sqlx::query(
-                            "UPDATE channels SET channel_type=$1, encryption_type=$2, is_private=$3 WHERE id=$4 AND server_id=$5",
-                        )
-                        .bind(channel_type)
-                        .bind(encryption_type)
+                        .bind(message_ttl)
                         .bind(is_private)
                         .bind(channel_id)
                         .bind(server_id)
@@ -3906,50 +3883,27 @@ impl DatabasePool {
                 }
             }
             DatabasePool::Sqlite(pool) => {
-                match (name, message_ttl) {
-                    (Some(n), Some(mt)) => {
+                match name {
+                    Some(n) => {
                         sqlx::query(
                             "UPDATE channels SET name=?, type=?, encryption_type=?, message_ttl=?, is_private=? WHERE id=? AND server_id=?",
                         )
                         .bind(n)
                         .bind(channel_type)
                         .bind(encryption_type)
-                        .bind(mt)
+                        .bind(message_ttl)
                         .bind(is_private as i32)
                         .bind(channel_id)
                         .bind(server_id)
                         .execute(pool).await?;
                     }
-                    (Some(n), None) => {
-                        sqlx::query(
-                            "UPDATE channels SET name=?, type=?, encryption_type=?, is_private=? WHERE id=? AND server_id=?",
-                        )
-                        .bind(n)
-                        .bind(channel_type)
-                        .bind(encryption_type)
-                        .bind(is_private as i32)
-                        .bind(channel_id)
-                        .bind(server_id)
-                        .execute(pool).await?;
-                    }
-                    (None, Some(mt)) => {
+                    None => {
                         sqlx::query(
                             "UPDATE channels SET type=?, encryption_type=?, message_ttl=?, is_private=? WHERE id=? AND server_id=?",
                         )
                         .bind(channel_type)
                         .bind(encryption_type)
-                        .bind(mt)
-                        .bind(is_private as i32)
-                        .bind(channel_id)
-                        .bind(server_id)
-                        .execute(pool).await?;
-                    }
-                    (None, None) => {
-                        sqlx::query(
-                            "UPDATE channels SET type=?, encryption_type=?, is_private=? WHERE id=? AND server_id=?",
-                        )
-                        .bind(channel_type)
-                        .bind(encryption_type)
+                        .bind(message_ttl)
                         .bind(is_private as i32)
                         .bind(channel_id)
                         .bind(server_id)
@@ -4728,11 +4682,55 @@ impl DatabasePool {
 
     /// Esborra físicament els missatges expirats i retorna els (message_id, channel_id) eliminats
     /// perquè el servei pugui notificar els clients connectats.
-    pub async fn delete_expired_messages(&self) -> Result<Vec<(Uuid, Uuid)>, sqlx::Error> {
+    pub async fn delete_expired_messages(&self) -> Result<(Vec<(Uuid, Uuid)>, Vec<String>), sqlx::Error> {
         let now = chrono::Utc::now().to_rfc3339();
         let mut deleted = Vec::new();
+        let mut object_keys: Vec<String> = Vec::new();
         match self {
             DatabasePool::Postgres(pool) => {
+                // Recollir object_keys d'attachments (i thumbnails) vinculats als missatges que expiren
+                let att_rows = sqlx::query(
+                    "SELECT a.object_key, ta.object_key \
+                     FROM message_attachments ma \
+                     JOIN attachments a ON a.id = ma.attachment_id \
+                     LEFT JOIN attachments ta ON ta.id = a.thumbnail_attachment_id \
+                     WHERE ma.message_id IN (SELECT id FROM messages WHERE expires_at IS NOT NULL AND expires_at <= $1::timestamptz)",
+                )
+                .bind(&now)
+                .fetch_all(pool)
+                .await?;
+                for row in &att_rows {
+                    object_keys.push(row.get::<String, _>(0));
+                    if let Some(thumb_key) = row.get::<Option<String>, _>(1) {
+                        object_keys.push(thumb_key);
+                    }
+                }
+
+                // Esborrar thumbnails primer (self-referència)
+                sqlx::query(
+                    "DELETE FROM attachments WHERE id IN ( \
+                       SELECT a.thumbnail_attachment_id \
+                       FROM message_attachments ma \
+                       JOIN attachments a ON a.id = ma.attachment_id \
+                       WHERE ma.message_id IN (SELECT id FROM messages WHERE expires_at IS NOT NULL AND expires_at <= $1::timestamptz) \
+                       AND a.thumbnail_attachment_id IS NOT NULL \
+                     )",
+                )
+                .bind(&now)
+                .execute(pool)
+                .await?;
+
+                // Esborrar attachments principals
+                sqlx::query(
+                    "DELETE FROM attachments WHERE id IN ( \
+                       SELECT ma.attachment_id FROM message_attachments ma \
+                       WHERE ma.message_id IN (SELECT id FROM messages WHERE expires_at IS NOT NULL AND expires_at <= $1::timestamptz) \
+                     )",
+                )
+                .bind(&now)
+                .execute(pool)
+                .await?;
+
                 let rows = sqlx::query(
                     "DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at <= $1::timestamptz \
                      RETURNING id, channel_id",
@@ -4757,6 +4755,46 @@ impl DatabasePool {
                     deleted.push((row.get::<Uuid, _>(0), row.get::<Uuid, _>(1)));
                 }
                 if !deleted.is_empty() {
+                    let att_rows = sqlx::query(
+                        "SELECT a.object_key, ta.object_key \
+                         FROM message_attachments ma \
+                         JOIN attachments a ON a.id = ma.attachment_id \
+                         LEFT JOIN attachments ta ON ta.id = a.thumbnail_attachment_id \
+                         WHERE ma.message_id IN (SELECT id FROM messages WHERE expires_at IS NOT NULL AND expires_at <= ?)",
+                    )
+                    .bind(&now)
+                    .fetch_all(pool)
+                    .await?;
+                    for row in &att_rows {
+                        object_keys.push(row.get::<String, _>(0));
+                        if let Some(thumb_key) = row.get::<Option<String>, _>(1) {
+                            object_keys.push(thumb_key);
+                        }
+                    }
+
+                    sqlx::query(
+                        "DELETE FROM attachments WHERE id IN ( \
+                           SELECT a.thumbnail_attachment_id \
+                           FROM message_attachments ma \
+                           JOIN attachments a ON a.id = ma.attachment_id \
+                           WHERE ma.message_id IN (SELECT id FROM messages WHERE expires_at IS NOT NULL AND expires_at <= ?) \
+                           AND a.thumbnail_attachment_id IS NOT NULL \
+                         )",
+                    )
+                    .bind(&now)
+                    .execute(pool)
+                    .await?;
+
+                    sqlx::query(
+                        "DELETE FROM attachments WHERE id IN ( \
+                           SELECT ma.attachment_id FROM message_attachments ma \
+                           WHERE ma.message_id IN (SELECT id FROM messages WHERE expires_at IS NOT NULL AND expires_at <= ?) \
+                         )",
+                    )
+                    .bind(&now)
+                    .execute(pool)
+                    .await?;
+
                     sqlx::query(
                         "DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at <= ?",
                     )
@@ -4766,7 +4804,7 @@ impl DatabasePool {
                 }
             }
         }
-        Ok(deleted)
+        Ok((deleted, object_keys))
     }
 
     pub async fn count_new_messages(

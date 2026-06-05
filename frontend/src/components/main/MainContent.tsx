@@ -28,6 +28,7 @@ interface MainContentProps {
   remoteVideoTracks?: Record<string, any[]>
   onRepairKey?: (channel: Channel) => Promise<void>
   onRotateKey?: (channel: Channel) => Promise<void>
+  onUpdateDmTTL?: (channel: Channel, ttl: number | null) => Promise<void>
   keyActionBusy?: boolean
   isChannelAdmin?: boolean
 }
@@ -45,6 +46,7 @@ export function MainContent({
   remoteVideoTracks = {},
   onRepairKey,
   onRotateKey,
+  onUpdateDmTTL,
   keyActionBusy = false,
   isChannelAdmin = false,
 }: MainContentProps) {
@@ -293,6 +295,11 @@ export function MainContent({
     await onRotateKey(channel)
   }
 
+  const handleUpdateTTL = async (ttl: number | null) => {
+    if (!channel || !onUpdateDmTTL) return
+    await onUpdateDmTTL(channel, ttl)
+  }
+
   // Layout: voice-panel a l'esquerra (si connectat) + text-area a la dreta (si canal de text)
   return (
     <div className={`main-content ${showVoicePanel ? 'voice-active-layout' : ''}`}>
@@ -318,6 +325,7 @@ export function MainContent({
             channel={channel}
             onRepairKey={handleRepairKey}
             onRotateKey={handleRotateKey}
+            onUpdateTTL={channel.scope === 'dm' && onUpdateDmTTL ? handleUpdateTTL : undefined}
             keyActionBusy={keyActionBusy}
             isChannelAdmin={isChannelAdmin}
           />

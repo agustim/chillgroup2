@@ -33,6 +33,7 @@ import {
   friendsRemove,
   dmChannelOpen,
   dmChannelsList,
+  dmChannelUpdateSettings,
   serverCreateInvitation,
   serverLeave,
   serverUpdateMemberRole,
@@ -407,11 +408,37 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
   }, [voiceChannelId])
 
   const handleUnreadUpdated = (channelId: string, unreadCount: number) => {
-    setChannels((prev) =>
-      prev.map((channel) =>
+    setChannels((prev) => {
+      const known = prev.some((c) => c.channelId === channelId)
+      if (!known) {
+        // Canal DM nou (primer contacte): refresca la llista de DMs
+        dmChannelsList().then((result) => {
+          if (!result.success) return
+          setChannels((cur) => {
+            const existingIds = new Set(cur.map((c) => c.channelId))
+            const newDmChannels: Channel[] = result.data
+              .filter((dm) => !existingIds.has(dm.dmChannelId))
+              .map((dm) => ({
+                channelId: dm.dmChannelId,
+                name: dm.peerUsername,
+                type: 'text' as const,
+                encryptionType: 'asymmetric' as const,
+                scope: 'dm' as const,
+                dmPeerUserId: dm.peerUserId,
+                unreadCount: dm.unreadCount,
+                messageTTL: dm.messageTTL,
+                isPrivate: true,
+                createdAt: new Date().toISOString(),
+              }))
+            return newDmChannels.length > 0 ? [...cur, ...newDmChannels] : cur
+          })
+        }).catch(() => {})
+        return prev
+      }
+      return prev.map((channel) =>
         channel.channelId === channelId ? { ...channel, unreadCount } : channel
       )
-    )
+    })
   }
 
   const handleSelectServer = (serverId: string) => { setSelectedServer(serverId) }
@@ -586,6 +613,20 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
       setFeedback(message)
     } finally {
       setDmKeyActionBusy(false)
+    }
+  }
+
+  const handleUpdateDmTTL = async (channel: Channel, ttl: number | null) => {
+    const result = await dmChannelUpdateSettings(channel.channelId, ttl)
+    if (!result.success) {
+      setFeedback('No s\'ha pogut actualitzar el TTL del DM')
+      return
+    }
+    setChannels((prev) =>
+      prev.map((c) => c.channelId === channel.channelId ? { ...c, messageTTL: ttl } : c)
+    )
+    if (selectedChannel?.channelId === channel.channelId) {
+      setSelectedChannel((prev) => prev ? { ...prev, messageTTL: ttl } : prev)
     }
   }
 
@@ -1211,6 +1252,7 @@ export function AppLayout({ username, onLogout }: AppLayoutProps) {
               onToggleVoiceAsTextMode={() => setVoiceAsTextMode((prev) => !prev)}
               onRepairKey={handleRepairKey}
               onRotateKey={handleRotateKey}
+              onUpdateDmTTL={handleUpdateDmTTL}
               keyActionBusy={dmKeyActionBusy}
               isChannelAdmin={canManageServer}
             />

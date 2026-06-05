@@ -10,8 +10,10 @@ interface SocketMessage {
   senderDeviceId: string
   encryptedPayload: string
   iv: string
+  attachmentIds?: string[] | null
   keyVersion?: number | null
   timestamp: string
+  expiresAt?: string | null
   editedAt: string | null
   deletedAt: string | null
 }
@@ -54,9 +56,10 @@ export function useSocketIO({ channelId, onMessage, onUnreadUpdated, onMessagesE
         senderDeviceId: data.senderDeviceId,
         encryptedPayload: data.encryptedPayload,
         iv: data.iv,
+        attachmentIds: data.attachmentIds ?? [],
         keyVersion: data.keyVersion ?? null,
         timestamp: data.timestamp,
-        expiresAt: null,
+        expiresAt: data.expiresAt ?? null,
         editedAt: data.editedAt,
         deletedAt: data.deletedAt,
       }

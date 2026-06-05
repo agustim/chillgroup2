@@ -1,20 +1,25 @@
 import { useState } from 'react'
 import { Channel } from '../../types'
 import { EncryptionIcon } from '../shared/EncryptionIcon'
+import { TTLSelector, formatTTL } from '../shared/TTLSelector'
 
 interface ChannelHeaderProps {
   channel: Channel
   onRepairKey?: () => void
   onRotateKey?: () => void
+  onUpdateTTL?: (ttl: number | null) => Promise<void>
   keyActionBusy?: boolean
   isChannelAdmin?: boolean
 }
 
-export function ChannelHeader({ channel, onRepairKey, onRotateKey, keyActionBusy = false, isChannelAdmin = false }: ChannelHeaderProps) {
+export function ChannelHeader({ channel, onRepairKey, onRotateKey, onUpdateTTL, keyActionBusy = false, isChannelAdmin = false }: ChannelHeaderProps) {
   const [confirmingRotate, setConfirmingRotate] = useState(false)
+  const [editingTTL, setEditingTTL] = useState(false)
+  const [ttlBusy, setTtlBusy] = useState(false)
 
   const showRepair = channel.encryptionType === 'asymmetric'
   const showRotate = channel.encryptionType === 'asymmetric' || (channel.encryptionType === 'symmetric' && isChannelAdmin)
+  const isDM = channel.scope === 'dm'
 
   const handleRotateClick = () => setConfirmingRotate(true)
   const handleRotateConfirm = () => {
@@ -23,11 +28,22 @@ export function ChannelHeader({ channel, onRepairKey, onRotateKey, keyActionBusy
   }
   const handleRotateCancel = () => setConfirmingRotate(false)
 
+  const handleTTLChange = async (value: number | null) => {
+    if (!onUpdateTTL) return
+    setTtlBusy(true)
+    try {
+      await onUpdateTTL(value)
+    } finally {
+      setTtlBusy(false)
+      setEditingTTL(false)
+    }
+  }
+
   return (
     <>
       <div className="channel-header">
         <div className="channel-header-info">
-          {channel.scope === 'dm' ? (
+          {isDM ? (
             <span className="channel-icon">💬</span>
           ) : channel.type === 'voice' ? (
             <span className="channel-icon">🔊</span>
@@ -36,10 +52,29 @@ export function ChannelHeader({ channel, onRepairKey, onRotateKey, keyActionBusy
           )}
           <h2 className="channel-name">{channel.name}</h2>
           <EncryptionIcon type={channel.encryptionType} />
-          {channel.scope === 'dm' && <span className="private-badge">DM</span>}
+          {isDM && <span className="private-badge">DM</span>}
           {channel.isPrivate && <span className="private-badge">Privat</span>}
+          {channel.messageTTL != null && (
+            <span
+              className="ttl-badge"
+              title={`TTL missatges: ${formatTTL(channel.messageTTL)}`}
+            >
+              ⏱ {formatTTL(channel.messageTTL)}
+            </span>
+          )}
         </div>
         <div className="channel-header-actions">
+          {isDM && onUpdateTTL && (
+            <button
+              type="button"
+              className="chillgroup-button chillgroup-button--ghost chillgroup-button--sm"
+              onClick={() => setEditingTTL((v) => !v)}
+              disabled={ttlBusy || confirmingRotate}
+              title="Configura el temps d'expiració dels missatges"
+            >
+              TTL
+            </button>
+          )}
           {showRepair && (
             <button
               type="button"
@@ -82,6 +117,26 @@ export function ChannelHeader({ channel, onRepairKey, onRotateKey, keyActionBusy
               className="chillgroup-button chillgroup-button--ghost chillgroup-button--sm"
               onClick={handleRotateCancel}
               disabled={keyActionBusy}
+            >
+              Cancel·lar
+            </button>
+          </div>
+        </div>
+      )}
+      {editingTTL && (
+        <div className="feedback-banner">
+          <span>Expiració de missatges:</span>
+          <TTLSelector
+            value={channel.messageTTL}
+            onChange={(ttl) => void handleTTLChange(ttl)}
+            disabled={ttlBusy}
+          />
+          <div className="feedback-banner__actions">
+            <button
+              type="button"
+              className="chillgroup-button chillgroup-button--ghost chillgroup-button--sm"
+              onClick={() => setEditingTTL(false)}
+              disabled={ttlBusy}
             >
               Cancel·lar
             </button>

@@ -353,6 +353,7 @@ pub async fn send_message(
         "attachmentIds": message.attachment_ids,
         "keyVersion": message.key_version,
         "timestamp": message.timestamp,
+        "expiresAt": message.expires_at,
         "editedAt": message.edited_at,
         "deletedAt": message.deleted_at,
     });
@@ -854,6 +855,14 @@ pub async fn send_dm_channel_message(
         .await
         .map_err(AppError::DatabaseError)?;
 
+    if !req.attachment_ids.is_empty() {
+        state
+            .db
+            .attach_message_attachments(message_id, channel_id, claims.user_id, &req.attachment_ids)
+            .await
+            .map_err(AppError::DatabaseError)?;
+    }
+
     let message = Message {
         id: message_id,
         channel_id,
@@ -882,6 +891,7 @@ pub async fn send_dm_channel_message(
         "attachmentIds": message.attachment_ids,
         "keyVersion": message.key_version,
         "timestamp": message.timestamp,
+        "expiresAt": message.expires_at,
         "editedAt": message.edited_at,
         "deletedAt": message.deleted_at,
     });

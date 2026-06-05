@@ -14,7 +14,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use ml_kem::{Encapsulate, ml_kem_1024};
 use rand::RngCore;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 use crate::{
     db::{
@@ -143,9 +143,19 @@ pub struct CreateChannelRequest {
 fn default_channel_type() -> ChannelType { ChannelType::Text }
 fn default_encryption() -> EncryptionType { EncryptionType::None }
 
+// Distingeix entre camp absent (None) i camp present amb null (Some(None))
+fn deserialize_double_option<'de, T, D>(d: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    Ok(Some(Option::deserialize(d)?))
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub struct UpdateChannelRequest {
     pub name: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_double_option")]
     pub message_ttl: Option<Option<i32>>,
     #[serde(default)]
     pub channel_type: Option<ChannelType>,
@@ -927,7 +937,11 @@ pub async fn update_channel(
 
     // Build partial update
     let name = req.name.as_deref();
-    let message_ttl = req.message_ttl.flatten();
+    // None = camp absent (conserva valor actual); Some(v) = valor explícit (inclòs null)
+    let message_ttl = match req.message_ttl {
+        None => channel.message_ttl,
+        Some(v) => v,
+    };
     let channel_type_str = match req.channel_type {
         Some(ct) => match ct {
             ChannelType::Text => "text",
