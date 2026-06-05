@@ -966,6 +966,22 @@ body {
   text-decoration: none;
 }
 
+.message-attachment-image {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: fit-content;
+}
+
+.message-attachment-thumbnail {
+  max-width: 200px;
+  max-height: 200px;
+  border-radius: 6px;
+  object-fit: cover;
+  cursor: pointer;
+  display: block;
+}
+
 .message-markdown {
   font-size: 14px;
   color: var(--text-primary);

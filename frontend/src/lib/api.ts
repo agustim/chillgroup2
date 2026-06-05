@@ -343,6 +343,7 @@ export interface AttachmentCompleteRequest {
   uploadId: string
   parts: AttachmentCompletePart[]
   crypto: AttachmentCompleteCrypto
+  thumbnail_attachment_id?: string
 }
 
 export interface AttachmentCompleteResponse {
@@ -369,6 +370,7 @@ export interface AttachmentDownloadResponse {
   createdAt: string
   downloadUrl: string
   crypto: AttachmentDownloadCrypto
+  thumbnail_attachment_id?: string
 }
 
 export interface PaginatedMessages {
@@ -833,6 +835,7 @@ export async function attachmentComplete(
         key_version: payload.crypto.keyVersion,
         ciphertext_sha256: payload.crypto.ciphertextSha256,
       },
+      thumbnail_attachment_id: payload.thumbnail_attachment_id,
     },
   )
 }

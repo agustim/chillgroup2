@@ -12,6 +12,7 @@ interface UploadEncryptedAttachmentParams {
   file: File
   keyVersionId: string
   keyVersion: number
+  thumbnailAttachmentId?: string
 }
 
 interface UploadEncryptedAttachmentResult {
@@ -140,10 +141,58 @@ async function resolveUploadEtag(response: Response): Promise<string | null> {
   return null
 }
 
+export async function generateThumbnail(file: File, maxPx = 200): Promise<Blob | null> {
+  if (!file.type.startsWith('image/')) return null
+  try {
+    const bitmap = await createImageBitmap(file)
+    const scale = Math.min(1, maxPx / Math.max(bitmap.width, bitmap.height))
+    const w = Math.round(bitmap.width * scale)
+    const h = Math.round(bitmap.height * scale)
+    const canvas = new OffscreenCanvas(w, h)
+    const ctx = canvas.getContext('2d')!
+    ctx.drawImage(bitmap, 0, 0, w, h)
+    bitmap.close()
+    return await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.7 })
+  } catch {
+    return null
+  }
+}
+
+export async function decryptAttachmentToBlob(attachment: AttachmentDownloadPayload): Promise<Blob> {
+  const headers: Record<string, string> = {}
+  if (isApiProxyUrl(attachment.downloadUrl)) {
+    const token = getAuthToken()
+    if (token) headers.Authorization = `Bearer ${token}`
+  }
+
+  const response = await fetch(attachment.downloadUrl, { headers })
+  if (!response.ok) throw new Error(`Download de l'adjunt fallit (${response.status})`)
+
+  const ciphertext = new Uint8Array(await response.arrayBuffer())
+  const fileKeyBytes = base64ToUint8Array(attachment.crypto.wrappedFileKey)
+  const ivBytes = base64ToUint8Array(attachment.crypto.fileIv)
+
+  const fileKey = await crypto.subtle.importKey(
+    'raw',
+    toArrayBuffer(fileKeyBytes),
+    { name: 'AES-GCM' },
+    false,
+    ['decrypt'],
+  )
+
+  const plaintextBuffer = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: toArrayBuffer(ivBytes) },
+    fileKey,
+    toArrayBuffer(ciphertext),
+  )
+
+  return new Blob([plaintextBuffer], { type: attachment.mimeType || 'application/octet-stream' })
+}
+
 export async function uploadEncryptedAttachment(
   params: UploadEncryptedAttachmentParams,
 ): Promise<UploadEncryptedAttachmentResult> {
-  const { channelId, file, keyVersionId, keyVersion } = params
+  const { channelId, file, keyVersionId, keyVersion, thumbnailAttachmentId } = params
 
   const encrypted = await encryptFile(file)
   const chunkCount = Math.max(1, Math.ceil(encrypted.ciphertext.byteLength / MULTIPART_CHUNK_SIZE))
@@ -212,6 +261,7 @@ export async function uploadEncryptedAttachment(
       keyVersion,
       ciphertextSha256: encrypted.ciphertextSha256,
     },
+    thumbnail_attachment_id: thumbnailAttachmentId,
   })
 
   if (!completeResult.success) {
@@ -226,39 +276,6 @@ export async function uploadEncryptedAttachment(
 }
 
 export async function downloadAndDecryptAttachment(attachment: AttachmentDownloadPayload): Promise<void> {
-  const headers: Record<string, string> = {}
-  if (isApiProxyUrl(attachment.downloadUrl)) {
-    const token = getAuthToken()
-    if (token) {
-      headers.Authorization = `Bearer ${token}`
-    }
-  }
-
-  const response = await fetch(attachment.downloadUrl, { headers })
-  if (!response.ok) {
-    throw new Error(`Download de l'adjunt fallit (${response.status})`)
-  }
-
-  const ciphertext = new Uint8Array(await response.arrayBuffer())
-  const fileKeyBytes = base64ToUint8Array(attachment.crypto.wrappedFileKey)
-  const ivBytes = base64ToUint8Array(attachment.crypto.fileIv)
-
-  const fileKey = await crypto.subtle.importKey(
-    'raw',
-    toArrayBuffer(fileKeyBytes),
-    { name: 'AES-GCM' },
-    false,
-    ['decrypt'],
-  )
-
-  const plaintextBuffer = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: toArrayBuffer(ivBytes) },
-    fileKey,
-    toArrayBuffer(ciphertext),
-  )
-
-  const blob = new Blob([plaintextBuffer], {
-    type: attachment.mimeType || 'application/octet-stream',
-  })
+  const blob = await decryptAttachmentToBlob(attachment)
   triggerFileDownload(blob, attachment.fileName)
 }

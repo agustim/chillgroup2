@@ -165,6 +165,8 @@ pub struct CompleteAttachmentRequest {
     pub upload_id: String,
     pub parts: Vec<CompletePartItem>,
     pub crypto: CompleteCrypto,
+    #[serde(alias = "thumbnail_attachment_id")]
+    pub thumbnail_attachment_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -211,6 +213,8 @@ pub struct DownloadAttachmentResponse {
     #[serde(rename = "downloadUrl")]
     pub download_url: String,
     pub crypto: DownloadCrypto,
+    #[serde(rename = "thumbnail_attachment_id", skip_serializing_if = "Option::is_none")]
+    pub thumbnail_attachment_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize)]
@@ -498,6 +502,7 @@ pub async fn complete_attachment(
             req.crypto.key_version_id,
             req.crypto.key_version,
             &req.crypto.ciphertext_sha256,
+            req.thumbnail_attachment_id,
         )
         .await
         .map_err(AppError::DatabaseError)?;
@@ -636,6 +641,7 @@ pub async fn download_attachment(
             chunk_count: attachment.chunk_count,
             ciphertext_sha256: attachment.ciphertext_sha256.unwrap_or_default(),
         },
+        thumbnail_attachment_id: attachment.thumbnail_attachment_id,
     }))
 }
 
@@ -924,6 +930,7 @@ mod tests {
                     key_version: 1,
                     ciphertext_sha256: "deadbeef".to_string(),
                 },
+                thumbnail_attachment_id: None,
             }),
         )
         .await;
@@ -1005,6 +1012,7 @@ mod tests {
                 key_version_id,
                 1,
                 "deadbeef",
+                None,
             )
             .await
             .expect("complete attachment");
@@ -1282,6 +1290,7 @@ mod tests {
                 key_version_id,
                 1,
                 "deadbeef",
+                None,
             )
             .await
             .expect("complete attachment");
@@ -1346,7 +1355,7 @@ mod tests {
             .expect("create attachment");
         state
             .db
-            .complete_attachment(attachment_id, "aes-256-gcm", "iv", "wrapped", key_version_id, 1, "deadbeef")
+            .complete_attachment(attachment_id, "aes-256-gcm", "iv", "wrapped", key_version_id, 1, "deadbeef", None)
             .await
             .expect("complete attachment");
 

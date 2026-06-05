@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react'
 import { Channel, Message, VoiceConnection } from '../../types'
 import { messagesSend } from '../../lib/api'
 import { encryptChannelMessage, ensureChannelKey, distributeChannelKey } from '../../lib/channel-crypto'
-import { uploadEncryptedAttachment } from '../../lib/attachments'
+import { generateThumbnail, uploadEncryptedAttachment } from '../../lib/attachments'
 import { MessageList } from './MessageList'
 import { VoiceArea } from './VoiceArea'
 import { MessageInput } from './MessageInput'
@@ -201,11 +201,31 @@ export function MainContent({
         for (const attachment of pendingAttachments) {
           setUploadingAttachmentNames([attachment.file.name])
 
+          let thumbnailAttachmentId: string | undefined
+          if (attachment.file.type.startsWith('image/')) {
+            const thumbnailBlob = await generateThumbnail(attachment.file)
+            if (thumbnailBlob) {
+              const thumbnailFile = new File(
+                [thumbnailBlob],
+                `thumb_${attachment.file.name}`,
+                { type: 'image/jpeg' },
+              )
+              const thumbUploaded = await uploadEncryptedAttachment({
+                channelId: channel.channelId,
+                file: thumbnailFile,
+                keyVersionId,
+                keyVersion: resolvedKeyVersion,
+              })
+              thumbnailAttachmentId = thumbUploaded.attachmentId
+            }
+          }
+
           const uploaded = await uploadEncryptedAttachment({
             channelId: channel.channelId,
             file: attachment.file,
             keyVersionId,
             keyVersion: resolvedKeyVersion,
+            thumbnailAttachmentId,
           })
           attachmentIds.push(uploaded.attachmentId)
         }

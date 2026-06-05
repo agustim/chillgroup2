@@ -4,7 +4,7 @@ import remarkBreaks from 'remark-breaks'
 import remarkGfm from 'remark-gfm'
 import { EncryptionType, Message } from '../../types'
 import { attachmentGetDownload, channelsMarkRead, messagesList } from '../../lib/api'
-import { downloadAndDecryptAttachment } from '../../lib/attachments'
+import { decryptAttachmentToBlob, downloadAndDecryptAttachment } from '../../lib/attachments'
 import { decryptMessagesForChannel } from '../../lib/channel-crypto'
 import { logger } from '../../lib/logger'
 
@@ -18,6 +18,7 @@ interface AttachmentView {
     wrappedFileKey: string
     fileIv: string
   }
+  thumbnailAttachmentId?: string
 }
 
 interface MessageListProps {
@@ -44,6 +45,7 @@ export function MessageList({
   const [messages, setMessages] = useState<Message[]>([])
   const [decryptedPayloads, setDecryptedPayloads] = useState<Record<string, string>>({})
   const [attachmentById, setAttachmentById] = useState<Record<string, AttachmentView>>({})
+  const [thumbnailBlobUrls, setThumbnailBlobUrls] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [hasPrevPage, setHasPrevPage] = useState(false)
@@ -320,7 +322,8 @@ export function MessageList({
             wrappedFileKey: response.data.crypto.wrappedFileKey,
             fileIv: response.data.crypto.fileIv,
           },
-        } satisfies AttachmentView
+          thumbnailAttachmentId: response.data.thumbnail_attachment_id,
+        } as AttachmentView
       }),
     )
       .then((items) => {
@@ -336,6 +339,64 @@ export function MessageList({
       .catch(() => {})
     return () => { cancelled = true }
   }, [attachmentById, channelId, combined])
+
+  // Carregar thumbnails desencriptats per imatges
+  useEffect(() => {
+    const pending = Object.values(attachmentById).filter(
+      (a) => a.thumbnailAttachmentId && !thumbnailBlobUrls[a.attachmentId],
+    )
+    if (pending.length === 0) return
+    let cancelled = false
+    Promise.all(
+      pending.map(async (attachment) => {
+        const thumbId = attachment.thumbnailAttachmentId!
+        const response = await attachmentGetDownload(channelId, thumbId)
+        if (!response.success) {
+          logger.error('[thumb] download info failed', { thumbId, error: response.error })
+          return null
+        }
+        try {
+          const blob = await decryptAttachmentToBlob({
+            fileName: response.data.fileName,
+            downloadUrl: response.data.downloadUrl,
+            mimeType: response.data.mimeType,
+            crypto: {
+              wrappedFileKey: response.data.crypto.wrappedFileKey,
+              fileIv: response.data.crypto.fileIv,
+            },
+          })
+          return { attachmentId: attachment.attachmentId, blobUrl: URL.createObjectURL(blob) }
+        } catch (err) {
+          logger.error('[thumb] decrypt failed', { thumbId, err })
+          return null
+        }
+      }),
+    )
+      .then((results) => {
+        if (cancelled) return
+        const valid = results.filter(
+          (r): r is { attachmentId: string; blobUrl: string } => r !== null,
+        )
+        if (valid.length === 0) return
+        setThumbnailBlobUrls((prev) => {
+          const next = { ...prev }
+          valid.forEach(({ attachmentId, blobUrl }) => { next[attachmentId] = blobUrl })
+          return next
+        })
+      })
+      .catch((err) => { logger.error('[thumb] effect error', err) })
+    return () => { cancelled = true }
+  }, [attachmentById, channelId, thumbnailBlobUrls])
+
+  // Revocar blob URLs en canviar de canal
+  useEffect(() => {
+    return () => {
+      setThumbnailBlobUrls((prev) => {
+        Object.values(prev).forEach(URL.revokeObjectURL)
+        return {}
+      })
+    }
+  }, [channelId])
 
   // Early returns sempre després de tots els hooks
   if (loading) {
@@ -418,20 +479,30 @@ export function MessageList({
                           </span>
                         )
                       }
+                      const thumbUrl = thumbnailBlobUrls[attachmentId]
                       return (
-                        <a
-                          key={attachmentId}
-                          href={attachment.downloadUrl}
-                          className="message-attachment-item"
-                          download={attachment.fileName}
-                          title={attachment.fileName}
-                          onClick={(event) => {
-                            event.preventDefault()
-                            void handleAttachmentDownload(attachment)
-                          }}
-                        >
-                          📎 {attachment.fileName} ({formatSize(attachment.sizeBytes)})
-                        </a>
+                        <div key={attachmentId} className={thumbUrl ? 'message-attachment-image' : 'message-attachment-file'}>
+                          {thumbUrl && (
+                            <img
+                              src={thumbUrl}
+                              alt={attachment.fileName}
+                              className="message-attachment-thumbnail"
+                              title={attachment.fileName}
+                            />
+                          )}
+                          <a
+                            href={attachment.downloadUrl}
+                            className="message-attachment-item"
+                            download={attachment.fileName}
+                            title={attachment.fileName}
+                            onClick={(event) => {
+                              event.preventDefault()
+                              void handleAttachmentDownload(attachment)
+                            }}
+                          >
+                            📎 {attachment.fileName} ({formatSize(attachment.sizeBytes)})
+                          </a>
+                        </div>
                       )
                     })}
                   </div>

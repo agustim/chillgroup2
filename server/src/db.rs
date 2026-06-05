@@ -4188,6 +4188,7 @@ impl DatabasePool {
         key_version_id: Uuid,
         key_version: i32,
         ciphertext_sha256: &str,
+        thumbnail_attachment_id: Option<Uuid>,
     ) -> Result<(), sqlx::Error> {
         let completed_at = Utc::now().to_rfc3339();
         match self {
@@ -4195,7 +4196,8 @@ impl DatabasePool {
                 sqlx::query(
                     "UPDATE attachments \
                      SET status = 'ready', algorithm = $1, file_iv = $2, wrapped_file_key = $3, \
-                         key_version_id = $4, key_version = $5, ciphertext_sha256 = $6, completed_at = $7::timestamptz \
+                         key_version_id = $4, key_version = $5, ciphertext_sha256 = $6, completed_at = $7::timestamptz, \
+                         thumbnail_attachment_id = $9 \
                      WHERE id = $8",
                 )
                 .bind(algorithm)
@@ -4206,6 +4208,7 @@ impl DatabasePool {
                 .bind(ciphertext_sha256)
                 .bind(&completed_at)
                 .bind(attachment_id)
+                .bind(thumbnail_attachment_id)
                 .execute(pool)
                 .await?;
             }
@@ -4213,7 +4216,8 @@ impl DatabasePool {
                 sqlx::query(
                     "UPDATE attachments \
                      SET status = 'ready', algorithm = ?, file_iv = ?, wrapped_file_key = ?, \
-                         key_version_id = ?, key_version = ?, ciphertext_sha256 = ?, completed_at = ? \
+                         key_version_id = ?, key_version = ?, ciphertext_sha256 = ?, completed_at = ?, \
+                         thumbnail_attachment_id = ? \
                      WHERE id = ?",
                 )
                 .bind(algorithm)
@@ -4223,6 +4227,7 @@ impl DatabasePool {
                 .bind(key_version)
                 .bind(ciphertext_sha256)
                 .bind(completed_at)
+                .bind(thumbnail_attachment_id)
                 .bind(attachment_id)
                 .execute(pool)
                 .await?;

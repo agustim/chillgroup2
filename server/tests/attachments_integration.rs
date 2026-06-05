@@ -191,6 +191,7 @@ async fn multipart_attachment_flow_with_rustfs_roundtrip() {
                 key_version: 1,
                 ciphertext_sha256: "ab".repeat(32),
             },
+            thumbnail_attachment_id: None,
         }),
     )
     .await
