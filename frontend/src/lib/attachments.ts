@@ -13,6 +13,7 @@ interface UploadEncryptedAttachmentParams {
   keyVersionId: string
   keyVersion: number
   thumbnailAttachmentId?: string
+  channelKeyBytes?: Uint8Array
 }
 
 interface UploadEncryptedAttachmentResult {
@@ -29,6 +30,7 @@ interface AttachmentDownloadPayload {
     wrappedFileKey: string
     fileIv: string
   }
+  channelKeyBytes?: Uint8Array
 }
 
 function base64ToUint8Array(value: string): Uint8Array {
@@ -141,6 +143,39 @@ async function resolveUploadEtag(response: Response): Promise<string | null> {
   return null
 }
 
+async function wrapFileKey(rawKeyBytes: Uint8Array, channelKeyBytes: Uint8Array): Promise<string> {
+  const channelKey = await crypto.subtle.importKey(
+    'raw', toArrayBuffer(channelKeyBytes), { name: 'AES-GCM' }, false, ['encrypt'],
+  )
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const wrapped = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: toArrayBuffer(iv) }, channelKey, toArrayBuffer(rawKeyBytes),
+  )
+  const combined = new Uint8Array(12 + wrapped.byteLength)
+  combined.set(iv)
+  combined.set(new Uint8Array(wrapped), 12)
+  return 'w1:' + bytesToBase64(combined)
+}
+
+async function unwrapFileKey(wrappedFileKey: string, channelKeyBytes?: Uint8Array): Promise<Uint8Array> {
+  if (!wrappedFileKey.startsWith('w1:')) {
+    return base64ToUint8Array(wrappedFileKey)
+  }
+  if (!channelKeyBytes) {
+    throw new Error('Cal la clau de canal per desxifrar aquest adjunt')
+  }
+  const combined = base64ToUint8Array(wrappedFileKey.slice(3))
+  const iv = combined.slice(0, 12)
+  const ciphertext = combined.slice(12)
+  const channelKey = await crypto.subtle.importKey(
+    'raw', toArrayBuffer(channelKeyBytes), { name: 'AES-GCM' }, false, ['decrypt'],
+  )
+  const rawKey = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: toArrayBuffer(iv) }, channelKey, toArrayBuffer(ciphertext),
+  )
+  return new Uint8Array(rawKey)
+}
+
 export async function generateThumbnail(file: File, maxPx = 200): Promise<Blob | null> {
   if (!file.type.startsWith('image/')) return null
   try {
@@ -169,7 +204,7 @@ export async function decryptAttachmentToBlob(attachment: AttachmentDownloadPayl
   if (!response.ok) throw new Error(`Download de l'adjunt fallit (${response.status})`)
 
   const ciphertext = new Uint8Array(await response.arrayBuffer())
-  const fileKeyBytes = base64ToUint8Array(attachment.crypto.wrappedFileKey)
+  const fileKeyBytes = await unwrapFileKey(attachment.crypto.wrappedFileKey, attachment.channelKeyBytes)
   const ivBytes = base64ToUint8Array(attachment.crypto.fileIv)
 
   const fileKey = await crypto.subtle.importKey(
@@ -192,9 +227,13 @@ export async function decryptAttachmentToBlob(attachment: AttachmentDownloadPayl
 export async function uploadEncryptedAttachment(
   params: UploadEncryptedAttachmentParams,
 ): Promise<UploadEncryptedAttachmentResult> {
-  const { channelId, file, keyVersionId, keyVersion, thumbnailAttachmentId } = params
+  const { channelId, file, keyVersionId, keyVersion, thumbnailAttachmentId, channelKeyBytes } = params
 
   const encrypted = await encryptFile(file)
+
+  const wrappedFileKeyBase64 = channelKeyBytes
+    ? await wrapFileKey(base64ToUint8Array(encrypted.wrappedFileKeyBase64), channelKeyBytes)
+    : encrypted.wrappedFileKeyBase64
   const chunkCount = Math.max(1, Math.ceil(encrypted.ciphertext.byteLength / MULTIPART_CHUNK_SIZE))
 
   const initResult = await attachmentInit(channelId, {
@@ -256,7 +295,7 @@ export async function uploadEncryptedAttachment(
     crypto: {
       algorithm: 'aes-256-gcm',
       fileIv: encrypted.fileIvBase64,
-      wrappedFileKey: encrypted.wrappedFileKeyBase64,
+      wrappedFileKey: wrappedFileKeyBase64,
       keyVersionId,
       keyVersion,
       ciphertextSha256: encrypted.ciphertextSha256,

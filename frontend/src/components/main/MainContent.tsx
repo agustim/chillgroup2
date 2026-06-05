@@ -197,6 +197,7 @@ export function MainContent({
         const latest = await getLatestChannelKey(channel.channelId)
         const keyVersionId = channel.keyVersionId ?? latest?.keyVersionId ?? crypto.randomUUID()
         const resolvedKeyVersion = channel.keyVersion ?? latest?.keyVersion ?? keyVersion ?? 1
+        const channelKeyBytes = latest?.keyBytes ?? undefined
 
         for (const attachment of pendingAttachments) {
           setUploadingAttachmentNames([attachment.file.name])
@@ -215,6 +216,7 @@ export function MainContent({
                 file: thumbnailFile,
                 keyVersionId,
                 keyVersion: resolvedKeyVersion,
+                channelKeyBytes,
               })
               thumbnailAttachmentId = thumbUploaded.attachmentId
             }
@@ -226,6 +228,7 @@ export function MainContent({
             keyVersionId,
             keyVersion: resolvedKeyVersion,
             thumbnailAttachmentId,
+            channelKeyBytes,
           })
           attachmentIds.push(uploaded.attachmentId)
         }

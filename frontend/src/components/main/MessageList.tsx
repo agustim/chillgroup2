@@ -19,6 +19,7 @@ interface AttachmentView {
     fileIv: string
   }
   thumbnailAttachmentId?: string
+  channelKeyBytes?: Uint8Array
 }
 
 interface MessageListProps {
@@ -94,6 +95,7 @@ export function MessageList({
           wrappedFileKey: attachment.crypto.wrappedFileKey,
           fileIv: attachment.crypto.fileIv,
         },
+        channelKeyBytes: attachment.channelKeyBytes,
       })
     } catch (error) {
       logger.error('[MessageList] Error descarregant adjunt:', error)
@@ -312,6 +314,10 @@ export function MessageList({
       missingIds.map(async (attachmentId) => {
         const response = await attachmentGetDownload(channelId, attachmentId)
         if (!response.success) return null
+        const { getChannelKeyVersion } = await import('../../lib/storage')
+        const channelKeyBytes = response.data.crypto.keyVersion
+          ? (await getChannelKeyVersion(channelId, response.data.crypto.keyVersion)) ?? undefined
+          : undefined
         return {
           attachmentId,
           fileName: response.data.fileName,
@@ -323,6 +329,7 @@ export function MessageList({
             fileIv: response.data.crypto.fileIv,
           },
           thumbnailAttachmentId: response.data.thumbnail_attachment_id,
+          channelKeyBytes,
         } as AttachmentView
       }),
     )
@@ -364,6 +371,7 @@ export function MessageList({
               wrappedFileKey: response.data.crypto.wrappedFileKey,
               fileIv: response.data.crypto.fileIv,
             },
+            channelKeyBytes: attachment.channelKeyBytes,
           })
           return { attachmentId: attachment.attachmentId, blobUrl: URL.createObjectURL(blob) }
         } catch (err) {
