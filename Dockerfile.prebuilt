@@ -1,0 +1,19 @@
+# Dockerfile per a imatges de release. Pren binaris pre-compilats (amd64 + arm64)
+# i els empaqueta sense recompilar. Usat pel workflow release-build.yml.
+#
+# Context esperat (build-ctx/):
+#   chillgroup-server-amd64   — binari linux/amd64 (embedded mode)
+#   chillgroup-server-arm64   — binari linux/arm64 (embedded mode)
+
+FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS prep
+ARG TARGETARCH
+COPY chillgroup-server-amd64 chillgroup-server-arm64 /tmp/
+RUN cp /tmp/chillgroup-server-${TARGETARCH} /tmp/chillgroup-server \
+    && chmod +x /tmp/chillgroup-server
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=prep /tmp/chillgroup-server /usr/local/bin/chillgroup-server
+EXPOSE 8080
+ENTRYPOINT ["chillgroup-server"]
