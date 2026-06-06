@@ -2,14 +2,87 @@
 
 This guide explains how to run ChillGroup locally or on a server using Docker Compose.
 
-The project ships two Compose files:
+## Pre-built image
 
-| File | When to use |
-|------|-------------|
-| `docker-compose.yml` | Production or final build testing |
-| `docker-compose.dev.yml` | Daily development with hot-reload |
+Every time a new release is tagged (`vX.Y.Z`), GitHub Actions builds the Docker image and publishes it to the GitHub Container Registry:
 
-## Development mode (recommended for contributors)
+```
+ghcr.io/agustim/chillgroup2:latest
+ghcr.io/agustim/chillgroup2:vX.Y.Z
+```
+
+No local compilation is required to deploy.
+
+---
+
+## Quick deployment with the wizard
+
+The project ships an interactive setup script (`setup-deploy.sh`) that generates a `docker-compose.yml` and `.env.compose` tailored to your infrastructure.
+
+### Option A — without cloning the repository
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/agustim/chillgroup2/main/setup-deploy.sh -o setup-deploy.sh
+bash setup-deploy.sh
+```
+
+### Option B — with the repository cloned
+
+```bash
+./setup-deploy.sh
+```
+
+### Option C — pipe directly (without reviewing)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/agustim/chillgroup2/main/setup-deploy.sh | bash
+```
+
+> It is recommended to review the script before running it via direct pipe.
+
+### What the wizard asks
+
+| Section | Options |
+|---------|---------|
+| **Database** | Local PostgreSQL (container) · External PostgreSQL · SQLite |
+| **LiveKit** | Local container (dev mode) · Remote server |
+| **S3 storage** | Local RustFS (container) · External S3 (AWS, Cloudflare R2, MinIO…) |
+| **S3 proxy** | Whether the server proxies S3 uploads/downloads |
+| **App** | Port, log level, open/closed registration |
+| **Admin** | `ADMIN_USER` + `ADMIN_PASSWORD` (if registration closed) · `ONE_ADMIN_INVITATION` (optional) |
+| **Secrets** | `JWT_SECRET` and `SERVER_MASTER_KEY` (auto-generated if left blank) |
+
+The wizard writes the generated files to the directory you choose (default: `./deploy`).
+
+### Starting after the wizard
+
+```bash
+cd deploy
+docker compose pull
+docker compose up -d
+```
+
+### View logs
+
+```bash
+docker compose logs -f app
+```
+
+### Stop
+
+```bash
+docker compose down
+```
+
+### Stop and remove data volumes
+
+```bash
+docker compose down -v
+```
+
+---
+
+## Development mode (for contributors)
 
 ### Prerequisites
 
@@ -50,89 +123,46 @@ docker compose -f docker-compose.dev.yml down -v
 
 ---
 
-## Production mode
+## Environment variables
 
-### Prerequisites
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `DATABASE_URL` | Database connection URL | Yes |
+| `DATABASE_TYPE` | `postgres` or `sqlite` | Yes |
+| `JWT_SECRET` | Secret for signing JWT tokens | Yes |
+| `SERVER_MASTER_KEY` | Encryption key (32-byte hex) | Yes |
+| `LIVEKIT_HOST` | LiveKit server URL | Yes |
+| `LIVEKIT_API_KEY` | LiveKit API key | Yes |
+| `LIVEKIT_API_SECRET` | LiveKit API secret | Yes |
+| `S3_ENDPOINT` | S3 endpoint (empty = AWS) | Yes |
+| `S3_BUCKET` | Bucket name | Yes |
+| `S3_ACCESS_KEY_ID` | S3 access key | Yes |
+| `S3_SECRET_ACCESS_KEY` | S3 secret key | Yes |
+| `OPEN_REGISTER` | `true` allows open registration | No (default `true`) |
+| `ADMIN_USER` | Initial admin username | Yes if `OPEN_REGISTER=false` |
+| `ADMIN_PASSWORD` | Initial admin password | Yes if `OPEN_REGISTER=false` |
+| `ONE_ADMIN_INVITATION` | One-time code to promote a user to admin | No |
+| `SERVER_PROXY_S3` | Server acts as S3 proxy | No (default `false`) |
 
-- Docker 24+
-- Docker Compose (`docker compose` plugin)
-- Free port 8080 (app)
-- Free port 5432 (PostgreSQL)
-- Free port 7880 (LiveKit)
-
-### Quick start
-
-From the project root:
-
-```bash
-docker compose up --build
-```
-
-This starts:
-
-- `postgres` (PostgreSQL 16)
-- `livekit` (voice service)
-- `rustfs` (S3-compatible storage for attachments)
-- `app` (Rust backend with embedded frontend)
-
-## Run in background
-
-```bash
-docker compose up -d --build
-```
-
-View logs:
-
-```bash
-docker compose logs -f app
-```
-
-Stop services:
-
-```bash
-docker compose down
-```
-
-Stop and remove database volume:
-
-```bash
-docker compose down -v
-```
-
-## Important environment variables
-
-Core variables are already defined in `docker-compose.yml` for local usage.
-
-Most relevant values:
-
-- `DATABASE_URL`
-- `LIVEKIT_HOST`
-- `LIVEKIT_API_KEY`
-- `LIVEKIT_API_SECRET`
-- `JWT_SECRET`
-- `SERVER_MASTER_KEY`
-- `OPEN_REGISTER`
-- `ONE_ADMIN_INVITATION` (optional, one-time code to promote one registration to admin)
+---
 
 ## Verification
 
-When startup is successful, the app is available at:
-
-- `http://localhost:8080`
+When startup is successful, the app is available at `http://localhost:8080` (or the configured port).
 
 Logs should include messages similar to:
 
-- `Migrations PostgreSQL aplicades correctament`
+- `Migrations PostgreSQL aplicades correctament` (or SQLite equivalent)
 - `Base de dades connectada correctament`
 - `Servidor escoltant a 0.0.0.0:8080`
 
+---
+
 ## Production notes
 
-For non-local deployments:
-
-- Replace `JWT_SECRET` and `SERVER_MASTER_KEY`.
-- Do not keep `OPEN_REGISTER=true` in production.
-- If using `ONE_ADMIN_INVITATION`, remove or rotate it after first use.
+- Replace `JWT_SECRET` and `SERVER_MASTER_KEY` with strong random values before exposing the app publicly.
+- Disable `OPEN_REGISTER` once the first admin account is created.
+- If using `ONE_ADMIN_INVITATION`, remove or rotate the code after first use.
 - Review exposed ports and firewall rules.
 - If using a reverse proxy, route traffic to `app:8080`.
 
@@ -142,19 +172,19 @@ For non-local deployments:
 
 - Expose the app over HTTPS only (Nginx, Caddy, or Traefik).
 - Terminate TLS at the proxy and forward traffic to `app:8080`.
-- Enable HTTP -> HTTPS redirect and basic security headers.
+- Enable HTTP → HTTPS redirect and basic security headers.
 
 ### 2) Secrets and configuration
 
-- Do not store secrets in git or directly in production compose files.
-- Inject `JWT_SECRET`, `SERVER_MASTER_KEY`, and LiveKit credentials from a secrets manager or environment.
+- Do not store secrets in git.
+- The wizard auto-generates `JWT_SECRET` and `SERVER_MASTER_KEY` — store them in a secrets manager.
 - Use long, random values for all keys and secrets.
 
-### 3) Database operations
+### 3) Database
 
-- Keep PostgreSQL data on a persistent volume.
-- Schedule regular backups (`pg_dump`) and test restore procedures.
-- Restrict PostgreSQL network exposure (avoid public 5432 when possible).
+- PostgreSQL: keep data on a persistent volume and schedule regular backups (`pg_dump`).
+- SQLite: mount the volume to a persistent path and include it in your backup strategy.
+- Restrict PostgreSQL network exposure (avoid public port 5432 when possible).
 
 ### 4) Observability
 
@@ -164,6 +194,6 @@ For non-local deployments:
 
 ### 5) Deployment workflow
 
-- Use versioned image tags, avoid `latest` in production.
+- Use versioned image tags (`v0.1.8`) instead of `latest` for critical environments.
 - Promote changes through staging before production.
 - Define rollback steps (previous image + DB restore path when needed).

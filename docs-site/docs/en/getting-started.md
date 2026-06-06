@@ -23,7 +23,14 @@ This documentation site is intended to expose ChillGroup's project docs as a sta
 
 ## Project deployment
 
-- For Docker-based deployment, see [Docker deployment](/en/docker-deployment).
+The project publishes a pre-built Docker image on every release. To deploy, run the interactive wizard that generates a `docker-compose.yml` and `.env.compose` tailored to your infrastructure:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/agustim/chillgroup2/main/setup-deploy.sh -o setup-deploy.sh
+bash setup-deploy.sh
+```
+
+Full guide: [Docker deployment](/en/docker-deployment).
 
 ## Recommended reading order
 

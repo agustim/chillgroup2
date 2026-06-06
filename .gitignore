@@ -19,3 +19,4 @@ build/
 .pnpm-store/
 memory/
 .claude
+deploy/

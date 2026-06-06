@@ -23,7 +23,14 @@ Aquest portal serveix per publicar la documentacio de ChillGroup com a web estat
 
 ## Deploy del projecte
 
-- Per desplegar amb Docker, ves a [Deploy amb Docker](/ca/deploy-docker).
+El projecte publica una imatge Docker precompilada a cada release. Per desplegar, executa el wizard interactiu que genera el `docker-compose.yml` i el `.env.compose` adaptats a la teva infraestructura:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/agustim/chillgroup2/main/setup-deploy.sh -o setup-deploy.sh
+bash setup-deploy.sh
+```
+
+Guia completa: [Deploy amb Docker](/ca/deploy-docker).
 
 ## Per on comencar
 
