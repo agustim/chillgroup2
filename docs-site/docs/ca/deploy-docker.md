@@ -2,14 +2,16 @@
 
 Aquesta guia explica com desplegar ChillGroup en local o en un servidor fent servir Docker Compose.
 
-## Imatge precompilada
+## Imatge precompilada i multi-arquitectura
 
-Cada vegada que es publica una nova versió (tag `vX.Y.Z`) al repositori, GitHub Actions compila automàticament la imatge Docker i la publica al GitHub Container Registry:
+Cada vegada que es publica una nova versió (tag `vX.Y.Z`) al repositori, GitHub Actions compila automàticament la imatge Docker per a **`linux/amd64`** i **`linux/arm64`** i les publica com a manifest multi-arch al GitHub Container Registry:
 
 ```
 ghcr.io/agustim/chillgroup2:latest
 ghcr.io/agustim/chillgroup2:vX.Y.Z
 ```
+
+**Docker selecciona automàticament l'arquitectura correcta** en fer `docker compose pull` o `docker run`. No cal especificar cap sufixe d'arquitectura al `docker-compose.yml` — la mateixa imatge funciona tant en servidors x86_64 com en màquines ARM (Raspberry Pi, AWS Graviton, Apple Silicon via Docker Desktop, etc.).
 
 No cal compilar res localment per desplegar en producció.
 

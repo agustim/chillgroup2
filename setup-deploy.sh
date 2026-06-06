@@ -313,7 +313,7 @@ if [[ "$HAS_DEPENDS" == "1" ]]; then
     printf '%b' "$DEPENDS_BLOCK" >> "$COMPOSE_FILE"
 fi
 
-printf '    ports:\n      - "%s:8080"\n' "$SERVER_PORT" >> "$COMPOSE_FILE"
+printf '    ports:\n      - "%s:%s"\n' "$SERVER_PORT" "$SERVER_PORT" >> "$COMPOSE_FILE"
 
 # Volumes
 VOLS=()
@@ -383,6 +383,22 @@ fi
 section "Fitxers generats"
 printf '  ✅ %s\n' "$COMPOSE_FILE"
 printf '  ✅ %s\n' "$ENV_FILE"
+printf '\n'
+
+section "Valors generats automàticament — guarda'ls en un lloc segur"
+printf '  JWT_SECRET:         %s\n' "$JWT_SECRET"
+printf '  SERVER_MASTER_KEY:  %s\n' "$SERVER_MASTER_KEY"
+if [[ "$OPEN_REGISTER" == "false" && -n "$ADMIN_PASSWORD" ]]; then
+    printf '  ADMIN_USER:         %s\n' "$ADMIN_USER"
+    printf '  ADMIN_PASSWORD:     %s\n' "$ADMIN_PASSWORD"
+fi
+if [[ -n "$ONE_ADMIN_INVITATION" ]]; then
+    printf '  ONE_ADMIN_INVITATION: %s\n' "$ONE_ADMIN_INVITATION"
+fi
+if [[ "$S3_LOCAL" == "1" ]]; then
+    printf '  RUSTFS_ACCESS_KEY:  %s\n' "$S3_ADMIN_KEY"
+    printf '  RUSTFS_SECRET_KEY:  %s\n' "$S3_ADMIN_SECRET"
+fi
 printf '\n'
 printf '  ⚠️  .env.compose conté secrets — no pujar al repositori!\n'
 printf '\n'

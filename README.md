@@ -92,6 +92,8 @@ El projecte té dos fitxers Compose:
 
 **Mode producció — wizard de desplegament:**
 
+La imatge es publica com a **manifest multi-arch** (`linux/amd64` + `linux/arm64`): Docker selecciona automàticament l'arquitectura correcta del host en fer `docker compose pull`. Funciona en servidors x86_64 i màquines ARM (Raspberry Pi, AWS Graviton…) sense cap canvi al `docker-compose.yml`.
+
 El projecte inclou `setup-deploy.sh`, un wizard interactiu que genera el `docker-compose.yml` i el `.env.compose` adaptats a la teva infraestructura (base de dades, LiveKit, S3, secrets…).
 
 ```bash

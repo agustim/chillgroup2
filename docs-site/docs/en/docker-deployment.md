@@ -2,14 +2,16 @@
 
 This guide explains how to run ChillGroup locally or on a server using Docker Compose.
 
-## Pre-built image
+## Pre-built multi-architecture image
 
-Every time a new release is tagged (`vX.Y.Z`), GitHub Actions builds the Docker image and publishes it to the GitHub Container Registry:
+Every time a new release is tagged (`vX.Y.Z`), GitHub Actions cross-compiles the binary and builds Docker images for both **`linux/amd64`** and **`linux/arm64`**, publishing them as a single multi-arch manifest to the GitHub Container Registry:
 
 ```
 ghcr.io/agustim/chillgroup2:latest
 ghcr.io/agustim/chillgroup2:vX.Y.Z
 ```
+
+**Docker automatically pulls the correct image for your architecture** when you run `docker compose pull` or `docker run`. No architecture suffix is needed in your `docker-compose.yml` — the same image tag works on x86_64 servers and ARM machines (Raspberry Pi, AWS Graviton, Apple Silicon via Docker Desktop, etc.).
 
 No local compilation is required to deploy.
 
