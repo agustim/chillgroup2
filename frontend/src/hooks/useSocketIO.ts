@@ -23,13 +23,15 @@ interface UseSocketIOOptions {
   onMessage: (message: Message) => void
   onUnreadUpdated?: (channelId: string, unreadCount: number) => void
   onMessagesExpired?: (channelId: string, messageIds: string[]) => void
+  onMessageDeleted?: (messageId: string, channelId: string) => void
 }
 
-export function useSocketIO({ channelId, onMessage, onUnreadUpdated, onMessagesExpired }: UseSocketIOOptions): void {
+export function useSocketIO({ channelId, onMessage, onUnreadUpdated, onMessagesExpired, onMessageDeleted }: UseSocketIOOptions): void {
   const prevChannelIdRef = useRef<string | null>(null)
   const onMessageRef = useRef(onMessage)
   const onUnreadUpdatedRef = useRef(onUnreadUpdated)
   const onMessagesExpiredRef = useRef(onMessagesExpired)
+  const onMessageDeletedRef = useRef(onMessageDeleted)
 
   // Mantenir la referència actualitzada sense re-subscriure
   useEffect(() => {
@@ -43,6 +45,10 @@ export function useSocketIO({ channelId, onMessage, onUnreadUpdated, onMessagesE
   useEffect(() => {
     onMessagesExpiredRef.current = onMessagesExpired
   }, [onMessagesExpired])
+
+  useEffect(() => {
+    onMessageDeletedRef.current = onMessageDeleted
+  }, [onMessageDeleted])
 
   useEffect(() => {
     const socket = getSocket()
@@ -79,14 +85,20 @@ export function useSocketIO({ channelId, onMessage, onUnreadUpdated, onMessagesE
       onMessagesExpiredRef.current?.(data.channelId, data.messageIds)
     }
 
+    const handleMessageDeleted = (data: { messageId: string; channelId: string }) => {
+      onMessageDeletedRef.current?.(data.messageId, data.channelId)
+    }
+
     socket.on('message', handleMessage)
     socket.on('unread-updated', handleUnreadUpdated)
     socket.on('messages-expired', handleMessagesExpired)
+    socket.on('message-deleted', handleMessageDeleted)
 
     return () => {
       socket.off('message', handleMessage)
       socket.off('unread-updated', handleUnreadUpdated)
       socket.off('messages-expired', handleMessagesExpired)
+      socket.off('message-deleted', handleMessageDeleted)
     }
   }, [channelId])
 

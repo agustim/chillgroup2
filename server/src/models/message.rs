@@ -22,4 +22,16 @@ pub struct Message {
     pub expires_at: Option<DateTime<Utc>>,
     pub edited_at: Option<DateTime<Utc>>,
     pub deleted_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply_to_message_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reactions: Vec<MessageReaction>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageReaction {
+    pub emoji: String,
+    pub user_ids: Vec<Uuid>,
+    pub usernames: Vec<String>,
+    pub count: i64,
 }

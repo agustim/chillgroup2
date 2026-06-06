@@ -287,6 +287,13 @@ export interface ServerInfo {
   createdAt: string
 }
 
+export interface MessageReaction {
+  emoji: string
+  userIds: string[]
+  usernames: string[]
+  count: number
+}
+
 export interface Message {
   messageId: string
   channelId: string
@@ -301,6 +308,8 @@ export interface Message {
   expiresAt: string | null
   editedAt: string | null
   deletedAt: string | null
+  replyToMessageId?: string | null
+  reactions?: MessageReaction[]
 }
 
 export interface AttachmentInitRequest {
@@ -766,7 +775,8 @@ export async function messagesSend(
   keyVersion?: number,
   expiresAt?: string,
   scope?: 'server' | 'dm',
-  attachmentIds?: string[]
+  attachmentIds?: string[],
+  replyToMessageId?: string | null,
 ) {
   const path = scope === 'dm' ? `/api/dm/channels/${channelId}/messages` : `/api/channels/${channelId}/messages`
   const result = await apiRequest<any>('POST', path, {
@@ -775,12 +785,21 @@ export async function messagesSend(
     key_version: keyVersion,
     expires_at: expiresAt,
     attachment_ids: attachmentIds,
+    reply_to_message_id: replyToMessageId ?? undefined,
   })
   if (!result.success || !result.data) return result
   return {
     success: true as const,
     data: mapMessageToTypes(result.data),
   }
+}
+
+export async function messagesReact(messageId: string, emoji: string) {
+  return apiRequest<void>('POST', `/api/messages/${messageId}/reactions`, { emoji })
+}
+
+export async function messagesUnreact(messageId: string, emoji: string) {
+  return apiRequest<void>('DELETE', `/api/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`)
 }
 
 export async function attachmentInit(
@@ -1041,6 +1060,13 @@ export async function channelsMarkRead(channelId: string, lastReadMessageId?: st
 }
 
 function mapMessageToTypes(msg: any): Message {
+  const rawReactions = msg.reactions ?? []
+  const reactions = rawReactions.map((r: any) => ({
+    emoji: r.emoji,
+    userIds: r.user_ids ?? r.userIds ?? [],
+    usernames: r.usernames ?? [],
+    count: r.count ?? 0,
+  }))
   return {
     messageId: msg.id ?? msg.messageId,
     channelId: msg.channel_id ?? msg.channelId,
@@ -1055,6 +1081,8 @@ function mapMessageToTypes(msg: any): Message {
     expiresAt: msg.expires_at ?? msg.expiresAt ?? null,
     editedAt: msg.edited_at ?? msg.editedAt ?? null,
     deletedAt: msg.deleted_at ?? msg.deletedAt ?? null,
+    replyToMessageId: msg.reply_to_message_id ?? msg.replyToMessageId ?? null,
+    reactions,
   }
 }
 

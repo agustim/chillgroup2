@@ -4,7 +4,8 @@ use sqlx::{Pool, Sqlite, Postgres, Row};
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use crate::config::Config;
-use crate::models::{Attachment, Channel, ChannelType, EncryptionType, Message};
+use crate::models::{Attachment, Channel, ChannelType, EncryptionType, Message, message::MessageReaction};
+use std::collections::HashMap;
 use shared::types::{ServerInfo, ServerFullInfo, ServerLiveKitConfig, ServerMember as SharedServerMember, ServerRole};
 use tracing::{info, error};
 
@@ -4276,14 +4277,15 @@ impl DatabasePool {
         key_version: Option<i32>,
         expires_at: Option<DateTime<Utc>>,
         timestamp: DateTime<Utc>,
+        reply_to_message_id: Option<Uuid>,
     ) -> Result<(), sqlx::Error> {
         match self {
             DatabasePool::Postgres(pool) => {
                 sqlx::query(
                     "INSERT INTO messages \
                      (id, channel_id, sender_user_id, sender_username, sender_device_id, \
-                      encrypted_payload, iv, key_version, timestamp, expires_at, edited_at, deleted_at) \
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::timestamptz, NULL, NULL)",
+                      encrypted_payload, iv, key_version, timestamp, expires_at, edited_at, deleted_at, reply_to_message_id) \
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::timestamptz, NULL, NULL, $11)",
                 )
                 .bind(message_id)
                 .bind(channel_id)
@@ -4295,6 +4297,7 @@ impl DatabasePool {
                 .bind(key_version)
                 .bind(timestamp.to_rfc3339())
                 .bind(expires_at.map(|d| d.to_rfc3339()))
+                .bind(reply_to_message_id)
                 .execute(pool)
                 .await?;
             }
@@ -4302,8 +4305,8 @@ impl DatabasePool {
                 sqlx::query(
                     "INSERT INTO messages \
                      (id, channel_id, sender_user_id, sender_username, sender_device_id, \
-                      encrypted_payload, iv, key_version, timestamp, expires_at, edited_at, deleted_at) \
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)",
+                      encrypted_payload, iv, key_version, timestamp, expires_at, edited_at, deleted_at, reply_to_message_id) \
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)",
                 )
                 .bind(message_id)
                 .bind(channel_id)
@@ -4315,6 +4318,7 @@ impl DatabasePool {
                 .bind(key_version)
                 .bind(timestamp.to_rfc3339())
                 .bind(expires_at.map(|d| d.to_rfc3339()))
+                .bind(reply_to_message_id)
                 .execute(pool)
                 .await?;
             }
@@ -4356,7 +4360,8 @@ impl DatabasePool {
             DatabasePool::Postgres(pool) => {
                 let row = sqlx::query(
                     "SELECT id, channel_id, sender_user_id, sender_username, sender_device_id, \
-                     encrypted_payload, iv, key_version, timestamp::text, expires_at::text, edited_at::text, deleted_at::text \
+                     encrypted_payload, iv, key_version, timestamp::text, expires_at::text, edited_at::text, deleted_at::text, \
+                     reply_to_message_id \
                      FROM messages WHERE id = $1 AND (expires_at IS NULL OR expires_at > $2::timestamptz)",
                 )
                     .bind(message_id)
@@ -4366,6 +4371,7 @@ impl DatabasePool {
                 if let Some(row) = row {
                     let id: Uuid = row.get(0);
                     let attachment_ids = self.get_message_attachment_ids(id).await?;
+                    let reactions = self.get_reactions_for_message(id).await?;
                     Ok(Some(Message {
                         id,
                         channel_id: row.get(1),
@@ -4382,6 +4388,8 @@ impl DatabasePool {
                         expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
                         edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
                         deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(11)),
+                        reply_to_message_id: row.get(12),
+                        reactions,
                     }))
                 } else {
                     Ok(None)
@@ -4389,7 +4397,8 @@ impl DatabasePool {
             }
             DatabasePool::Sqlite(pool) => {
                 let query = "SELECT id, channel_id, sender_user_id, sender_username, sender_device_id, \
-                     encrypted_payload, iv, key_version, timestamp, expires_at, edited_at, deleted_at \
+                     encrypted_payload, iv, key_version, timestamp, expires_at, edited_at, deleted_at, \
+                     reply_to_message_id \
                      FROM messages WHERE id = $1 AND (expires_at IS NULL OR expires_at > $2)";
                 let query = query.replace("$1", "?");
                 let row = sqlx::query(&query)
@@ -4400,6 +4409,7 @@ impl DatabasePool {
                 if let Some(row) = row {
                     let id: Uuid = row.get(0);
                     let attachment_ids = self.get_message_attachment_ids(id).await?;
+                    let reactions = self.get_reactions_for_message(id).await?;
                     Ok(Some(Message {
                         id,
                         channel_id: row.get(1),
@@ -4416,6 +4426,8 @@ impl DatabasePool {
                         expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
                         edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
                         deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(11)),
+                        reply_to_message_id: row.get(12),
+                        reactions,
                     }))
                 } else {
                     Ok(None)
@@ -4475,7 +4487,8 @@ impl DatabasePool {
 
                 let query = format!(
                     "SELECT id, channel_id, sender_user_id, sender_username, sender_device_id, \
-                     encrypted_payload, iv, key_version, timestamp::text, expires_at::text, edited_at::text, deleted_at::text \
+                     encrypted_payload, iv, key_version, timestamp::text, expires_at::text, edited_at::text, deleted_at::text, \
+                     reply_to_message_id \
                      FROM messages WHERE {} {} LIMIT ${}",
                     conditions.join(" AND "),
                     order,
@@ -4491,9 +4504,15 @@ impl DatabasePool {
                 q = q.bind((limit + 1) as i32);
 
                 let rows = q.fetch_all(pool).await?;
+                let mut msg_ids: Vec<Uuid> = Vec::new();
+                for row in &rows {
+                    msg_ids.push(row.get(0));
+                }
+                let reactions_map = self.get_reactions_for_messages(&msg_ids).await?;
                 for row in rows {
                     let id: Uuid = row.get(0);
                     let attachment_ids = self.get_message_attachment_ids(id).await?;
+                    let reactions = reactions_map.get(&id).cloned().unwrap_or_default();
                     msgs.push(Message {
                         id,
                         channel_id: row.get(1),
@@ -4510,6 +4529,8 @@ impl DatabasePool {
                         expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
                         edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
                         deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(11)),
+                        reply_to_message_id: row.get(12),
+                        reactions,
                     });
                 }
             }
@@ -4539,7 +4560,8 @@ impl DatabasePool {
 
                 let query = format!(
                     "SELECT id, channel_id, sender_user_id, sender_username, sender_device_id, \
-                     encrypted_payload, iv, key_version, timestamp, expires_at, edited_at, deleted_at \
+                     encrypted_payload, iv, key_version, timestamp, expires_at, edited_at, deleted_at, \
+                     reply_to_message_id \
                      FROM messages WHERE {} {} LIMIT ?",
                     conditions.join(" AND "),
                     order
@@ -4554,9 +4576,15 @@ impl DatabasePool {
                 q = q.bind((limit + 1) as i32);
 
                 let rows = q.fetch_all(pool).await?;
+                let mut msg_ids: Vec<Uuid> = Vec::new();
+                for row in &rows {
+                    msg_ids.push(row.get(0));
+                }
+                let reactions_map = self.get_reactions_for_messages(&msg_ids).await?;
                 for row in rows {
                     let id: Uuid = row.get(0);
                     let attachment_ids = self.get_message_attachment_ids(id).await?;
+                    let reactions = reactions_map.get(&id).cloned().unwrap_or_default();
                     msgs.push(Message {
                         id,
                         channel_id: row.get(1),
@@ -4573,6 +4601,8 @@ impl DatabasePool {
                         expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
                         edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
                         deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(11)),
+                        reply_to_message_id: row.get(12),
+                        reactions,
                     });
                 }
             }
@@ -4597,7 +4627,8 @@ impl DatabasePool {
                      SET encrypted_payload = $1, iv = $2, edited_at = $3::timestamptz \
                      WHERE id = $4 \
                      RETURNING id, channel_id, sender_user_id, sender_username, sender_device_id, \
-                               encrypted_payload, iv, key_version, timestamp::text, expires_at::text, edited_at::text, deleted_at::text";
+                               encrypted_payload, iv, key_version, timestamp::text, expires_at::text, edited_at::text, deleted_at::text, \
+                               reply_to_message_id";
         match self {
             DatabasePool::Postgres(pool) => {
                 let row = sqlx::query(query)
@@ -4608,6 +4639,7 @@ impl DatabasePool {
                     .fetch_one(pool)
                     .await?;
                 let attachment_ids = self.get_message_attachment_ids(message_id).await?;
+                let reactions = self.get_reactions_for_message(message_id).await?;
                 Ok(Message {
                     id: row.get(0),
                     channel_id: row.get(1),
@@ -4624,6 +4656,8 @@ impl DatabasePool {
                     expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
                     edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
                     deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(11)),
+                    reply_to_message_id: row.get(12),
+                    reactions,
                 })
             }
             DatabasePool::Sqlite(pool) => {
@@ -4636,6 +4670,7 @@ impl DatabasePool {
                     .fetch_one(pool)
                     .await?;
                 let attachment_ids = self.get_message_attachment_ids(message_id).await?;
+                let reactions = self.get_reactions_for_message(message_id).await?;
                 Ok(Message {
                     id: row.get(0),
                     channel_id: row.get(1),
@@ -4652,9 +4687,133 @@ impl DatabasePool {
                     expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
                     edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
                     deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(11)),
+                    reply_to_message_id: row.get(12),
+                    reactions,
                 })
             }
         }
+    }
+
+    pub async fn get_reactions_for_message(&self, message_id: Uuid) -> Result<Vec<MessageReaction>, sqlx::Error> {
+        self.get_reactions_for_messages(&[message_id])
+            .await
+            .map(|mut m| m.remove(&message_id).unwrap_or_default())
+    }
+
+    pub async fn get_reactions_for_messages(&self, message_ids: &[Uuid]) -> Result<HashMap<Uuid, Vec<MessageReaction>>, sqlx::Error> {
+        if message_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let mut result: HashMap<Uuid, HashMap<String, (Vec<Uuid>, Vec<String>)>> = HashMap::new();
+
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let rows = sqlx::query(
+                    "SELECT message_id, emoji, user_id, username FROM message_reactions \
+                     WHERE message_id = ANY($1) ORDER BY message_id, emoji, created_at",
+                )
+                .bind(message_ids)
+                .fetch_all(pool)
+                .await?;
+                for row in rows {
+                    let msg_id: Uuid = row.get(0);
+                    let emoji: String = row.get(1);
+                    let user_id: Uuid = row.get(2);
+                    let username: String = row.get(3);
+                    let entry = result.entry(msg_id).or_default().entry(emoji).or_default();
+                    entry.0.push(user_id);
+                    entry.1.push(username);
+                }
+            }
+            DatabasePool::Sqlite(pool) => {
+                for &msg_id in message_ids {
+                    let rows = sqlx::query(
+                        "SELECT message_id, emoji, user_id, username FROM message_reactions \
+                         WHERE message_id = ? ORDER BY emoji, created_at",
+                    )
+                    .bind(msg_id)
+                    .fetch_all(pool)
+                    .await?;
+                    for row in rows {
+                        let mid: Uuid = row.get(0);
+                        let emoji: String = row.get(1);
+                        let user_id: Uuid = row.get(2);
+                        let username: String = row.get(3);
+                        let entry = result.entry(mid).or_default().entry(emoji).or_default();
+                        entry.0.push(user_id);
+                        entry.1.push(username);
+                    }
+                }
+            }
+        }
+
+        Ok(result.into_iter().map(|(msg_id, emoji_map)| {
+            let reactions = emoji_map.into_iter().map(|(emoji, (user_ids, usernames))| {
+                MessageReaction {
+                    count: user_ids.len() as i64,
+                    emoji,
+                    user_ids,
+                    usernames,
+                }
+            }).collect();
+            (msg_id, reactions)
+        }).collect())
+    }
+
+    pub async fn add_reaction(&self, message_id: Uuid, user_id: Uuid, username: &str, emoji: &str) -> Result<(), sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "INSERT INTO message_reactions (message_id, user_id, username, emoji) \
+                     VALUES ($1, $2, $3, $4) ON CONFLICT (message_id, user_id, emoji) DO NOTHING",
+                )
+                .bind(message_id)
+                .bind(user_id)
+                .bind(username)
+                .bind(emoji)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "INSERT OR IGNORE INTO message_reactions (message_id, user_id, username, emoji) \
+                     VALUES (?, ?, ?, ?)",
+                )
+                .bind(message_id)
+                .bind(user_id)
+                .bind(username)
+                .bind(emoji)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn remove_reaction(&self, message_id: Uuid, user_id: Uuid, emoji: &str) -> Result<(), sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "DELETE FROM message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3",
+                )
+                .bind(message_id)
+                .bind(user_id)
+                .bind(emoji)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "DELETE FROM message_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?",
+                )
+                .bind(message_id)
+                .bind(user_id)
+                .bind(emoji)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(())
     }
 
     pub async fn delete_message(&self, message_id: Uuid) -> Result<(), sqlx::Error> {

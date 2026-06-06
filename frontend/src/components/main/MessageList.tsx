@@ -3,10 +3,21 @@ import ReactMarkdown from 'react-markdown'
 import remarkBreaks from 'remark-breaks'
 import remarkGfm from 'remark-gfm'
 import { EncryptionType, Message } from '../../types'
-import { attachmentGetDownload, channelsMarkRead, messagesList } from '../../lib/api'
+import {
+  attachmentGetDownload,
+  channelsMarkRead,
+  messagesList,
+  messagesEdit,
+  messagesDelete,
+  messagesReact,
+  messagesUnreact,
+} from '../../lib/api'
 import { decryptAttachmentToBlob, downloadAndDecryptAttachment } from '../../lib/attachments'
-import { decryptMessagesForChannel } from '../../lib/channel-crypto'
+import { decryptMessagesForChannel, encryptChannelMessage } from '../../lib/channel-crypto'
 import { logger } from '../../lib/logger'
+import { useAuth } from '../../contexts/AuthContext'
+
+const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥', '👏', '🎉']
 
 interface AttachmentView {
   attachmentId: string
@@ -31,6 +42,9 @@ interface MessageListProps {
   expiringMessageIds?: Set<string>
   unreadCount?: number
   lastReadMessageId?: string | null
+  permissionLevel?: number | null
+  onReplyTo?: (msg: Message, plaintext: string) => void
+  socketDeletedMessageIds?: Set<string>
 }
 
 export function MessageList({
@@ -42,7 +56,11 @@ export function MessageList({
   expiringMessageIds,
   unreadCount = 0,
   lastReadMessageId,
+  permissionLevel,
+  onReplyTo,
+  socketDeletedMessageIds,
 }: MessageListProps) {
+  const { user, currentDeviceId } = useAuth()
   const [messages, setMessages] = useState<Message[]>([])
   const [decryptedPayloads, setDecryptedPayloads] = useState<Record<string, string>>({})
   const [attachmentById, setAttachmentById] = useState<Record<string, AttachmentView>>({})
@@ -53,6 +71,18 @@ export function MessageList({
   const [error, setError] = useState<string | null>(null)
   const [unreadDividerMessageId, setUnreadDividerMessageId] = useState<string | null>(null)
 
+  // Hover/action state
+  const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null)
+  const [emojiPickerMessageId, setEmojiPickerMessageId] = useState<string | null>(null)
+
+  // Inline edit state
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
+  const [editingText, setEditingText] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+
+  // Inline delete confirm state
+  const [confirmDeleteMessageId, setConfirmDeleteMessageId] = useState<string | null>(null)
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesTopRef = useRef<HTMLDivElement>(null)
   const unreadDividerRef = useRef<HTMLDivElement>(null)
@@ -60,6 +90,8 @@ export function MessageList({
   const atBottomRef = useRef(true)
   const lastMarkedReadIdRef = useRef<string | null>(null)
   const isEncryptedChannel = encryptionType !== 'none'
+
+  const canManage = (permissionLevel ?? 0) >= 3
 
   const renderMarkdownMessage = (text: string) => (
     <div className="message-markdown">
@@ -113,7 +145,6 @@ export function MessageList({
       : msgs
 
   // El backend retorna DESC (mes nou primer). Invertim per mostrar ASC (mes antic dalt).
-  // No usem sort() per timestamps perquè missatges enviats ràpidament poden tenir el mateix timestamp.
   const fromDesc = (msgs: Message[]) => [...msgs].reverse()
 
   const loadMessages = async () => {
@@ -132,7 +163,6 @@ export function MessageList({
       const hasUnread = unreadCount > 0 && !!lastReadMessageId
 
       if (hasUnread) {
-        // Load unread messages (after lastReadMessageId)
         const unreadResult = await messagesList(channelId, 50, undefined, scope, lastReadMessageId!)
         if (!unreadResult.success || !unreadResult.data) {
           setError('No es poden carregar els missatges')
@@ -143,7 +173,6 @@ export function MessageList({
         let contextMsgs: Message[] = []
         let prevPage = false
         if (unreadMsgs.length > 0) {
-          // Load 5 context messages just before the first unread (oldest unread = index 0 per ASC)
           const ctxResult = await messagesList(channelId, 5, unreadMsgs[0].messageId, scope)
           if (ctxResult.success && ctxResult.data) {
             contextMsgs = filterExpiring(ctxResult.data.data)
@@ -155,14 +184,12 @@ export function MessageList({
           prevPage = unreadResult.data.data.length >= 50
         }
 
-        // contextMsgs ve en DESC (before), unreadMsgs ve en ASC (after). Invertim context i mergem.
         const merged = [...fromDesc(contextMsgs), ...unreadMsgs]
         setMessages(merged)
         setHasPrevPage(prevPage)
         const decrypted = await decryptMessagesForChannel(channelId, encryptionType, merged)
         setDecryptedPayloads(decrypted)
       } else {
-        // Standard: load latest 50 (backend retorna DESC, ordenem ASC per emmagatzemar)
         const result = await messagesList(channelId, 50, undefined, scope)
         if (result.success && result.data) {
           const loaded = fromDesc(filterExpiring(result.data.data))
@@ -183,7 +210,6 @@ export function MessageList({
 
   const loadMoreMessages = useCallback(async () => {
     if (loadingMore || !hasPrevPage || messages.length === 0) return
-    // messages[0] és sempre el més antic (estat guardat en ASC)
     const oldestId = messages[0].messageId
     setLoadingMore(true)
     try {
@@ -192,7 +218,6 @@ export function MessageList({
         const older = filterExpiring(result.data.data)
         setMessages((prev) => {
           const existingIds = new Set(prev.map((m) => m.messageId))
-          // older ve en DESC del backend → invertim. Filtrem duplicats de older (no de prev).
           return [...fromDesc(older).filter((m) => !existingIds.has(m.messageId)), ...prev]
         })
         setHasPrevPage(result.data.data.length >= 50)
@@ -216,7 +241,6 @@ export function MessageList({
     setAttachmentById({})
   }, [channelId])
 
-  // Quan arriben missatges expirats, esperem la durada de l'animació i els retirem
   useEffect(() => {
     if (!expiringMessageIds || expiringMessageIds.size === 0) return
     const timer = setTimeout(() => {
@@ -230,16 +254,21 @@ export function MessageList({
     setMessages((prev) => prev.filter((m) => !expiringMessageIds.has(m.messageId)))
   }, [expiringMessageIds])
 
-  // Combinar missatges carregats (ja en ordre ASC) + nous via socket (sempre al final)
-  // No fem sort per timestamp: messages[] ja té l'ordre correcte establert manualment.
-  // socketMessages s'afegeixen al final perquè sempre son els més nous.
+  useEffect(() => {
+    if (!socketDeletedMessageIds || socketDeletedMessageIds.size === 0) return
+    setMessages((prev) => prev.map((m) =>
+      socketDeletedMessageIds.has(m.messageId) && !m.deletedAt
+        ? { ...m, deletedAt: new Date().toISOString() }
+        : m,
+    ))
+  }, [socketDeletedMessageIds])
+
   const loadedIds = new Set(messages.map((m) => m.messageId))
   const combined = [
     ...messages,
     ...socketMessages.filter((m) => !loadedIds.has(m.messageId)),
   ].filter((m) => !expiringMessageIds?.has(m.messageId))
 
-  // Desxifrar missatges combinats en temps real
   useEffect(() => {
     if (combined.length === 0) return
     let cancelled = false
@@ -250,7 +279,6 @@ export function MessageList({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelId, scope, encryptionType, messages, socketMessages, expiringMessageIds])
 
-  // Scroll inicial: al divisor de no llegits o al final
   useEffect(() => {
     if (loading) return
     if (unreadDividerRef.current) {
@@ -258,18 +286,15 @@ export function MessageList({
     } else {
       messagesEndRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior })
     }
-  // Només en canvi de canal o fi de càrrega inicial
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, channelId])
 
-  // Scroll suau al final quan arriben missatges de socket (si ja som al final)
   useEffect(() => {
     if (socketMessages.length > 0 && atBottomRef.current) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
   }, [socketMessages])
 
-  // IntersectionObserver per carregar missatges antics (scroll cap amunt)
   useEffect(() => {
     const el = messagesTopRef.current
     if (!el) return
@@ -281,7 +306,6 @@ export function MessageList({
     return () => observer.disconnect()
   }, [loadMoreMessages])
 
-  // IntersectionObserver per marcar com llegit quan s'arriba al final
   useEffect(() => {
     lastMarkedReadIdRef.current = null
   }, [channelId])
@@ -353,7 +377,6 @@ export function MessageList({
     return () => { cancelled = true }
   }, [attachmentById, channelId, combined])
 
-  // Carregar thumbnails desencriptats per imatges
   useEffect(() => {
     const pending = Object.values(attachmentById).filter(
       (a) => a.thumbnailAttachmentId && !thumbnailBlobUrls[a.attachmentId],
@@ -402,7 +425,6 @@ export function MessageList({
     return () => { cancelled = true }
   }, [attachmentById, channelId, thumbnailBlobUrls])
 
-  // Revocar blob URLs en canviar de canal
   useEffect(() => {
     return () => {
       setThumbnailBlobUrls((prev) => {
@@ -412,7 +434,106 @@ export function MessageList({
     }
   }, [channelId])
 
-  // Early returns sempre després de tots els hooks
+  // --- Actions ---
+
+  const handleEdit = (msg: Message) => {
+    const plaintext = decryptedPayloads[msg.messageId] ?? ''
+    setEditingMessageId(msg.messageId)
+    setEditingText(plaintext)
+  }
+
+  const handleEditSave = async (msg: Message) => {
+    if (!editingText.trim()) return
+    setEditSaving(true)
+    try {
+      const { encryptedPayload, iv } = await encryptChannelMessage(
+        channelId,
+        encryptionType,
+        editingText,
+        currentDeviceId ?? undefined,
+      )
+      const result = await messagesEdit(msg.messageId, encryptedPayload, iv)
+      if (result.success) {
+        setMessages((prev) => prev.map((m) =>
+          m.messageId === msg.messageId
+            ? { ...m, editedAt: new Date().toISOString() }
+            : m,
+        ))
+        setDecryptedPayloads((prev) => ({ ...prev, [msg.messageId]: editingText }))
+        setEditingMessageId(null)
+      }
+    } catch (err) {
+      logger.error('[MessageList] Error editant missatge', err)
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
+  const handleDeleteConfirm = async (msg: Message) => {
+    setConfirmDeleteMessageId(null)
+    const result = await messagesDelete(msg.messageId)
+    if (result.success) {
+      setMessages((prev) => prev.map((m) =>
+        m.messageId === msg.messageId
+          ? { ...m, deletedAt: new Date().toISOString() }
+          : m,
+      ))
+    }
+  }
+
+  const handleReact = async (msg: Message, emoji: string) => {
+    setEmojiPickerMessageId(null)
+    const existing = msg.reactions?.find((r) => r.emoji === emoji)
+    const alreadyReacted = existing?.userIds.includes(user?.userId ?? '')
+
+    if (alreadyReacted) {
+      await messagesUnreact(msg.messageId, emoji)
+      setMessages((prev) => prev.map((m) => {
+        if (m.messageId !== msg.messageId) return m
+        const reactions = (m.reactions ?? []).map((r) => {
+          if (r.emoji !== emoji) return r
+          const userIds = r.userIds.filter((id) => id !== user?.userId)
+          const usernames = r.usernames.filter((_, i) => r.userIds[i] !== user?.userId)
+          return { ...r, userIds, usernames, count: userIds.length }
+        }).filter((r) => r.count > 0)
+        return { ...m, reactions }
+      }))
+    } else {
+      await messagesReact(msg.messageId, emoji)
+      setMessages((prev) => prev.map((m) => {
+        if (m.messageId !== msg.messageId) return m
+        const reactions = [...(m.reactions ?? [])]
+        const idx = reactions.findIndex((r) => r.emoji === emoji)
+        if (idx >= 0) {
+          const r = reactions[idx]
+          reactions[idx] = {
+            ...r,
+            userIds: [...r.userIds, user?.userId ?? ''],
+            usernames: [...r.usernames, user?.username ?? ''],
+            count: r.count + 1,
+          }
+        } else {
+          reactions.push({
+            emoji,
+            userIds: [user?.userId ?? ''],
+            usernames: [user?.username ?? ''],
+            count: 1,
+          })
+        }
+        return { ...m, reactions }
+      }))
+    }
+  }
+
+  const handleReply = (msg: Message) => {
+    const plaintext = decryptedPayloads[msg.messageId] ?? msg.encryptedPayload
+    onReplyTo?.(msg, plaintext)
+  }
+
+  // Find reply-to message for display
+  const messageById = new Map(combined.map((m) => [m.messageId, m]))
+
+  // Early returns
   if (loading) {
     return (
       <div className="message-list loading">
@@ -440,8 +561,7 @@ export function MessageList({
   }
 
   return (
-    <div className="message-list">
-      {/* Sentinel per carregar missatges antics */}
+    <div className="message-list" onClick={() => setEmojiPickerMessageId(null)}>
       <div ref={messagesTopRef} className="messages-top-sentinel">
         {loadingMore && <p className="loading-more-indicator">Carregant més...</p>}
         {!loadingMore && hasPrevPage && <p className="load-more-hint">Fes scroll cap amunt per veure més</p>}
@@ -451,6 +571,15 @@ export function MessageList({
         const showDivider = unreadDividerMessageId === msg.messageId
         const showHeader =
           index === 0 || combined[index - 1].senderUserId !== msg.senderUserId || showDivider
+        const isOwnMessage = msg.senderUserId === user?.userId
+        const canDelete = isOwnMessage || canManage
+        const canEdit = isOwnMessage
+        const isEditing = editingMessageId === msg.messageId
+        const plaintext = decryptedPayloads[msg.messageId] ?? msg.encryptedPayload
+        const replyParent = msg.replyToMessageId ? messageById.get(msg.replyToMessageId) : null
+        const replyParentText = replyParent
+          ? (decryptedPayloads[replyParent.messageId] ?? replyParent.encryptedPayload)
+          : null
 
         return (
           <React.Fragment key={msg.messageId}>
@@ -460,8 +589,56 @@ export function MessageList({
               </div>
             )}
             <div
-              className={`message-bubble ${msg.deletedAt ? 'deleted' : ''} ${msg.editedAt ? 'edited' : ''} ${showHeader ? 'first-in-row' : ''} ${expiringMessageIds?.has(msg.messageId) ? 'expiring' : ''}`}
+              className={`message-bubble ${msg.deletedAt ? 'deleted' : ''} ${msg.editedAt ? 'edited' : ''} ${showHeader ? 'first-in-row' : ''} ${expiringMessageIds?.has(msg.messageId) ? 'expiring' : ''} ${hoveredMessageId === msg.messageId ? 'hovered' : ''}`}
+              onMouseEnter={() => setHoveredMessageId(msg.messageId)}
+              onMouseLeave={() => setHoveredMessageId(null)}
             >
+              {/* Menú d'accions */}
+              {hoveredMessageId === msg.messageId && !msg.deletedAt && !isEditing && (
+                <div className="message-actions" onClick={(e) => e.stopPropagation()}>
+                  {onReplyTo && (
+                    <button
+                      className="message-action-btn"
+                      title="Respondre"
+                      onClick={() => handleReply(msg)}
+                    >↩</button>
+                  )}
+                  <button
+                    className="message-action-btn"
+                    title="Reaccionar"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setEmojiPickerMessageId((prev) => prev === msg.messageId ? null : msg.messageId)
+                    }}
+                  >😀</button>
+                  {canEdit && (
+                    <button
+                      className="message-action-btn"
+                      title="Editar"
+                      onClick={() => handleEdit(msg)}
+                    >✏️</button>
+                  )}
+                  {canDelete && (
+                    <button
+                      className="message-action-btn message-action-btn--danger"
+                      title="Eliminar"
+                      onClick={() => setConfirmDeleteMessageId(msg.messageId)}
+                    >🗑</button>
+                  )}
+                  {emojiPickerMessageId === msg.messageId && (
+                    <div className="emoji-picker">
+                      {REACTION_EMOJIS.map((emoji) => (
+                        <button
+                          key={emoji}
+                          className="emoji-picker-btn"
+                          onClick={() => void handleReact(msg, emoji)}
+                        >{emoji}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {showHeader && (
                 <div className="message-sender">
                   <span className="sender-avatar">
@@ -475,11 +652,48 @@ export function MessageList({
                   )}
                 </div>
               )}
+
               <div className="message-content">
+                {/* Reply-to context */}
+                {replyParent && replyParentText && !msg.deletedAt && (
+                  <div className="message-reply-context">
+                    <span className="message-reply-sender">{replyParent.senderUsername}</span>
+                    <span className="message-reply-text">
+                      {replyParentText.slice(0, 100)}{replyParentText.length > 100 ? '…' : ''}
+                    </span>
+                  </div>
+                )}
+
                 {msg.deletedAt ? (
                   <p className="deleted-message">Missatge eliminat</p>
+                ) : isEditing ? (
+                  <div className="message-edit-form">
+                    <input
+                      className="message-edit-input"
+                      value={editingText}
+                      onChange={(e) => setEditingText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void handleEditSave(msg) }
+                        if (e.key === 'Escape') setEditingMessageId(null)
+                      }}
+                      autoFocus
+                      disabled={editSaving}
+                    />
+                    <div className="message-edit-actions">
+                      <button
+                        className="message-edit-save"
+                        onClick={() => void handleEditSave(msg)}
+                        disabled={editSaving}
+                      >Desar</button>
+                      <button
+                        className="message-edit-cancel"
+                        onClick={() => setEditingMessageId(null)}
+                        disabled={editSaving}
+                      >Cancel·lar</button>
+                    </div>
+                  </div>
                 ) : (
-                  renderMarkdownMessage(decryptedPayloads[msg.messageId] ?? msg.encryptedPayload)
+                  renderMarkdownMessage(plaintext)
                 )}
 
                 {(msg.attachmentIds?.length ?? 0) > 0 && (
@@ -521,7 +735,42 @@ export function MessageList({
                     })}
                   </div>
                 )}
+
+                {/* Reactions display */}
+                {(msg.reactions?.length ?? 0) > 0 && !msg.deletedAt && (
+                  <div className="message-reactions">
+                    {msg.reactions!.map((reaction) => {
+                      const reacted = reaction.userIds.includes(user?.userId ?? '')
+                      return (
+                        <button
+                          key={reaction.emoji}
+                          className={`reaction-chip ${reacted ? 'reaction-chip--active' : ''}`}
+                          title={reaction.usernames.join(', ')}
+                          onClick={() => void handleReact(msg, reaction.emoji)}
+                        >
+                          {reaction.emoji} {reaction.count}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
+
+              {/* Confirmació d'esborrar inline */}
+              {confirmDeleteMessageId === msg.messageId && (
+                <div className="message-delete-confirm" onClick={(e) => e.stopPropagation()}>
+                  <span className="message-delete-confirm-text">Eliminar aquest missatge?</span>
+                  <button
+                    className="message-delete-confirm-yes"
+                    onClick={() => void handleDeleteConfirm(msg)}
+                  >Eliminar</button>
+                  <button
+                    className="message-delete-confirm-no"
+                    onClick={() => setConfirmDeleteMessageId(null)}
+                  >Cancel·lar</button>
+                </div>
+              )}
+
               <div className="message-timestamp">
                 {new Date(msg.timestamp).toLocaleTimeString('ca-ES', {
                   hour: '2-digit',
@@ -544,7 +793,6 @@ export function MessageList({
         )
       })}
 
-      {/* Sentinel per detectar que l'usuari és al final (mark-as-read) */}
       <div ref={messagesEndRef} />
     </div>
   )

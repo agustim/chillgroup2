@@ -20,6 +20,8 @@ interface MessageInputProps {
   encryptionType: EncryptionType
   isBusy?: boolean
   focusKey?: string
+  replyTo?: { messageId: string; senderUsername: string; text: string } | null
+  onClearReplyTo?: () => void
 }
 
 function formatFileSize(size: number): string {
@@ -40,6 +42,8 @@ export function MessageInput({
   encryptionType,
   isBusy = false,
   focusKey,
+  replyTo,
+  onClearReplyTo,
 }: MessageInputProps) {
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const textInputRef = useRef<HTMLInputElement>(null)
@@ -75,6 +79,12 @@ export function MessageInput({
 
   return (
     <div className="message-input">
+      {replyTo && (
+        <div className="reply-to-bar">
+          <span className="reply-to-label">Responent a <strong>{replyTo.senderUsername}</strong>: {replyTo.text.slice(0, 80)}{replyTo.text.length > 80 ? '…' : ''}</span>
+          <button type="button" className="reply-to-clear" onClick={onClearReplyTo} aria-label="Cancel·lar resposta">×</button>
+        </div>
+      )}
       {pendingAttachments.length > 0 && (
         <div className="message-attachments-preview">
           {pendingAttachments.map((attachment) => (

@@ -58,7 +58,9 @@ export function MainContent({
   const [pendingAttachments, setPendingAttachments] = useState<ComposerAttachment[]>([])
   const [socketMessages, setSocketMessages] = useState<Message[]>([])
   const [expiringMessageIds, setExpiringMessageIds] = useState<Set<string>>(new Set())
+  const [socketDeletedMessageIds, setSocketDeletedMessageIds] = useState<Set<string>>(new Set())
   const [focusTrigger, setFocusTrigger] = useState(0)
+  const [replyTo, setReplyTo] = useState<{ messageId: string; senderUsername: string; text: string } | null>(null)
 
   useEffect(() => {
     setFocusTrigger((n) => n + 1)
@@ -70,6 +72,10 @@ export function MainContent({
       if (prev.some((m) => m.messageId === msg.messageId)) return prev
       return [...prev, msg]
     })
+  }, [])
+
+  const handleMessageDeleted = useCallback((messageId: string) => {
+    setSocketDeletedMessageIds((prev) => new Set([...prev, messageId]))
   }, [])
 
   const handleMessagesExpired = useCallback((_channelId: string, messageIds: string[]) => {
@@ -90,12 +96,14 @@ export function MainContent({
     onMessage: handleSocketMessage,
     onUnreadUpdated,
     onMessagesExpired: handleMessagesExpired,
+    onMessageDeleted: handleMessageDeleted,
   })
 
   // Netejar missatges de socket quan canviem de canal
   const channelId = channel?.channelId
   React.useEffect(() => {
     setSocketMessages([])
+    setSocketDeletedMessageIds(new Set())
   }, [channelId])
 
   // Quan obrim un canal encriptat, intentar obtenir la clau del servidor si no la tenim
@@ -246,10 +254,12 @@ export function MainContent({
         undefined,
         channel.scope,
         attachmentIds,
+        replyTo?.messageId ?? null,
       )
       if (response.success) {
         setMessage('')
         setPendingAttachments([])
+        setReplyTo(null)
         setRefreshKey((current) => current + 1)
         setFocusTrigger((n) => n + 1)
       } else {
@@ -339,6 +349,12 @@ export function MainContent({
               expiringMessageIds={expiringMessageIds}
               unreadCount={channel.unreadCount ?? 0}
               lastReadMessageId={channel.lastReadMessageId}
+              permissionLevel={channel.permissionLevel}
+              socketDeletedMessageIds={socketDeletedMessageIds}
+              onReplyTo={(msg, text) => {
+                setReplyTo({ messageId: msg.messageId, senderUsername: msg.senderUsername, text })
+                setFocusTrigger((n) => n + 1)
+              }}
             />
             {sendError && <div className="message-send-error">{sendError}</div>}
             <MessageInput
@@ -357,6 +373,8 @@ export function MainContent({
               encryptionType={channel.encryptionType}
               isBusy={sending}
               focusKey={String(focusTrigger)}
+              replyTo={replyTo}
+              onClearReplyTo={() => setReplyTo(null)}
             />
             {uploadingAttachmentNames.length > 0 && (
               <div className="message-send-info">

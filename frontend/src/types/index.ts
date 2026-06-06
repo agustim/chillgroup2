@@ -94,6 +94,13 @@ export interface Channel {
   createdAt: string
 }
 
+export interface MessageReaction {
+  emoji: string
+  userIds: string[]
+  usernames: string[]
+  count: number
+}
+
 export interface Message {
   messageId: string
   channelId: string
@@ -108,6 +115,8 @@ export interface Message {
   expiresAt: string | null
   editedAt: string | null
   deletedAt: string | null
+  replyToMessageId?: string | null
+  reactions?: MessageReaction[]
 }
 
 export interface VoiceParticipant {

@@ -11,7 +11,7 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use crate::{
-    db::{CHANNEL_PERMISSION_READ, CHANNEL_PERMISSION_WRITE},
+    db::{CHANNEL_PERMISSION_READ, CHANNEL_PERMISSION_WRITE, CHANNEL_PERMISSION_MANAGE},
     middleware::{AppState, AuthClaims},
     error::AppError,
     models::{EncryptionType, Message},
@@ -31,6 +31,13 @@ pub struct SendMessageRequest {
     pub recipient_user_id: Option<Uuid>,
     #[serde(default, alias = "attachmentIds")]
     pub attachment_ids: Vec<Uuid>,
+    #[serde(default)]
+    pub reply_to_message_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AddReactionRequest {
+    pub emoji: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -306,6 +313,7 @@ pub async fn send_message(
         key_version,
         expires_at,
         timestamp,
+        req.reply_to_message_id,
     ).await.map_err(|e| {
         tracing::error!("Error saving message to DB: {}", e);
         AppError::InternalError
@@ -338,6 +346,8 @@ pub async fn send_message(
         expires_at,
         edited_at: None,
         deleted_at: None,
+        reply_to_message_id: req.reply_to_message_id,
+        reactions: vec![],
     };
 
     // Broadcast via Socket.IO a tots els clients del canal
@@ -436,21 +446,35 @@ pub async fn delete_message(
             AppError::InternalError
         })?;
 
-    match existing {
+    let channel_id = match existing {
         Some(msg) => {
-            // Verify the sender is the current user
             if msg.sender_user_id != claims.user_id {
-                return Err(AppError::NotMessageSender);
+                // Allow channel admin (MANAGE level) to delete any message
+                let permission_level = state.db
+                    .get_channel_permission_level(msg.channel_id, claims.user_id)
+                    .await
+                    .map_err(|_| AppError::InternalError)?
+                    .unwrap_or(0);
+                if permission_level < CHANNEL_PERMISSION_MANAGE {
+                    return Err(AppError::NotMessageSender);
+                }
             }
+            msg.channel_id
         }
         None => return Err(AppError::MessageNotFound),
-    }
+    };
 
     state.db.delete_message(message_id).await
         .map_err(|e| {
             tracing::error!("Error deleting message: {}", e);
             AppError::InternalError
         })?;
+
+    let room = format!("channel:{}", channel_id);
+    let event = serde_json::json!({ "messageId": message_id, "channelId": channel_id });
+    if let Err(e) = state.io.to(room).emit("message-deleted", &event).await {
+        tracing::warn!("Error broadcast message-deleted: {:?}", e);
+    }
 
     Ok(StatusCode::OK)
 }
@@ -486,6 +510,7 @@ pub async fn send_direct_message(
         key_version,
         expires_at,
         timestamp,
+        None,
     ).await.map_err(|e| {
         tracing::error!("Error saving DM to DB: {}", e);
         AppError::InternalError
@@ -507,6 +532,8 @@ pub async fn send_direct_message(
         expires_at,
         edited_at: None,
         deleted_at: None,
+        reply_to_message_id: None,
+        reactions: vec![],
     };
 
     Ok((StatusCode::CREATED, Json(message)))
@@ -851,6 +878,7 @@ pub async fn send_dm_channel_message(
             key_version,
             expires_at,
             timestamp,
+            None,
         )
         .await
         .map_err(AppError::DatabaseError)?;
@@ -877,6 +905,8 @@ pub async fn send_dm_channel_message(
         expires_at,
         edited_at: None,
         deleted_at: None,
+        reply_to_message_id: None,
+        reactions: vec![],
     };
 
     let room = format!("channel:{}", channel_id);
@@ -985,10 +1015,65 @@ pub async fn rotate_dm_channel_key(
     }))
 }
 
+pub async fn add_reaction(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path(message_id): Path<Uuid>,
+    Json(req): Json<AddReactionRequest>,
+) -> Result<StatusCode, AppError> {
+    if req.emoji.chars().count() > 10 {
+        return Err(AppError::BadRequest);
+    }
+
+    let message = state.db.get_message(message_id).await
+        .map_err(|_| AppError::InternalError)?
+        .ok_or(AppError::MessageNotFound)?;
+
+    let permission_level = state.db
+        .get_channel_permission_level(message.channel_id, claims.user_id)
+        .await
+        .map_err(|_| AppError::InternalError)?
+        .unwrap_or(0);
+    if permission_level < CHANNEL_PERMISSION_READ {
+        return Err(AppError::Forbidden);
+    }
+
+    state.db.add_reaction(message_id, claims.user_id, &claims.username, &req.emoji).await
+        .map_err(|_| AppError::InternalError)?;
+
+    Ok(StatusCode::OK)
+}
+
+pub async fn remove_reaction(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path((message_id, emoji)): Path<(Uuid, String)>,
+) -> Result<StatusCode, AppError> {
+    let message = state.db.get_message(message_id).await
+        .map_err(|_| AppError::InternalError)?
+        .ok_or(AppError::MessageNotFound)?;
+
+    let permission_level = state.db
+        .get_channel_permission_level(message.channel_id, claims.user_id)
+        .await
+        .map_err(|_| AppError::InternalError)?
+        .unwrap_or(0);
+    if permission_level < CHANNEL_PERMISSION_READ {
+        return Err(AppError::Forbidden);
+    }
+
+    state.db.remove_reaction(message_id, claims.user_id, &emoji).await
+        .map_err(|_| AppError::InternalError)?;
+
+    Ok(StatusCode::OK)
+}
+
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/channels/{channel_id}/messages", get(list_messages).post(send_message))
         .route("/api/messages/{message_id}", get(get_message).put(edit_message).delete(delete_message))
+        .route("/api/messages/{message_id}/reactions", post(add_reaction))
+        .route("/api/messages/{message_id}/reactions/{emoji}", axum::routing::delete(remove_reaction))
         .route("/api/channels/{channel_id}/messages/check-new", get(check_new_messages))
     .route("/api/dm/channels/open", post(open_dm_channel))
     .route("/api/dm/channels", get(list_dm_channels))
@@ -1227,6 +1312,7 @@ mod tests {
                 None,
                 None,
                 now,
+                None,
             )
             .await
             .expect("create message");
@@ -1291,6 +1377,7 @@ mod tests {
                 None,
                 None,
                 now,
+                None,
             )
             .await
             .expect("create message");
@@ -1346,6 +1433,7 @@ mod tests {
                 None,
                 None,
                 now,
+                None,
             )
             .await
             .expect("create message");
