@@ -58,6 +58,7 @@ export function MessageList({
   const unreadDividerRef = useRef<HTMLDivElement>(null)
   const expiringMessageIdsRef = useRef<Set<string> | undefined>(expiringMessageIds)
   const atBottomRef = useRef(true)
+  const lastMarkedReadIdRef = useRef<string | null>(null)
   const isEncryptedChannel = encryptionType !== 'none'
 
   const renderMarkdownMessage = (text: string) => (
@@ -282,6 +283,10 @@ export function MessageList({
 
   // IntersectionObserver per marcar com llegit quan s'arriba al final
   useEffect(() => {
+    lastMarkedReadIdRef.current = null
+  }, [channelId])
+
+  useEffect(() => {
     const el = messagesEndRef.current
     if (!el) return
     const observer = new IntersectionObserver(
@@ -289,7 +294,8 @@ export function MessageList({
         atBottomRef.current = entry.isIntersecting
         if (entry.isIntersecting) {
           const lastMsg = combined[combined.length - 1]
-          if (lastMsg) {
+          if (lastMsg && lastMsg.messageId !== lastMarkedReadIdRef.current) {
+            lastMarkedReadIdRef.current = lastMsg.messageId
             channelsMarkRead(channelId, lastMsg.messageId).catch(() => {})
             setUnreadDividerMessageId(null)
           }
