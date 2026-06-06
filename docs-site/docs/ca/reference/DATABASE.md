@@ -290,6 +290,56 @@ CREATE INDEX idx_messages_expires ON messages(expires_at) WHERE expires_at IS NO
 CREATE INDEX idx_messages_sender ON messages(sender_user_id);
 ```
 
+### Migració 20260123 — Attachments
+
+```sql
+-- migrations/20260123000000_create_attachments.sql
+
+CREATE TABLE IF NOT EXISTS attachments (
+    id UUID PRIMARY KEY,
+    channel_id UUID NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    uploader_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    uploader_device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    file_name TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    size_bytes BIGINT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    object_key TEXT NOT NULL,
+    status TEXT NOT NULL,          -- 'pending' | 'ready' | 'failed'
+    upload_id TEXT NOT NULL,       -- S3 multipart upload ID
+    chunk_size_bytes BIGINT NOT NULL,
+    chunk_count INTEGER NOT NULL,
+    algorithm TEXT,                -- 'aes-256-gcm'
+    file_iv TEXT,                  -- Base64 nonce
+    wrapped_file_key TEXT,         -- Base64 clau xifrada amb la clau del canal
+    key_version_id UUID REFERENCES channel_key_versions(id),
+    key_version INTEGER,
+    ciphertext_sha256 TEXT,        -- SHA-256 del ciphertext per integritat
+    completed_at TIMESTAMPTZ,
+    thumbnail_attachment_id UUID REFERENCES attachments(id) -- Self-ref: thumbnail de la imatge
+);
+
+CREATE INDEX IF NOT EXISTS idx_attachments_channel_id ON attachments(channel_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_status ON attachments(status);
+CREATE INDEX IF NOT EXISTS idx_attachments_key_version_id ON attachments(key_version_id);
+
+-- Taula de relació N:M entre missatges i adjunts
+CREATE TABLE IF NOT EXISTS message_attachments (
+    message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    attachment_id UUID NOT NULL REFERENCES attachments(id) ON DELETE CASCADE,
+    PRIMARY KEY (message_id, attachment_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_message_attachments_attachment_id ON message_attachments(attachment_id);
+```
+
+**Notes:**
+- `thumbnail_attachment_id` és una FK a la mateixa taula `attachments`. El thumbnail s'emmagatzema com un adjunt independent (xifrat), i l'adjunt original hi apunta.
+- Un thumbnail **no té** `thumbnail_attachment_id` (és `NULL`) per evitar recursió.
+- El TTL cleanup esborra primer els thumbnails (via `thumbnail_attachment_id`) i després els adjunts originals.
+
+---
+
 ### Migració 20260129 — Reply to Message
 
 ```sql

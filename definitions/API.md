@@ -2081,11 +2081,14 @@ Tancar l'upload multipart i persistir metadades criptogràfiques de l'adjunt.
     "keyVersionId": "550e8400-e29b-41d4-a716-446655440030",
     "keyVersion": 2,
     "ciphertextSha256": "hex-sha256-ciphertext"
-  }
+  },
+  "thumbnail_attachment_id": "550e8400-e29b-41d4-a716-4466554400f2"  // opcional, UUID del thumbnail
 }
 ```
 
 **Nota:** `parts` és obligatori i ha de contenir els `partNumber` + `etag` retornats pel multipart upload.
+
+**Thumbnails:** Si l'adjunt és una imatge, el client genera un thumbnail prèviament i el puja com un adjunt independent (sense `thumbnail_attachment_id` propi). Llavors passa el seu `attachmentId` com a `thumbnail_attachment_id` en aquesta request. Veure flux complet a `FRONTEND.md § Thumbnails`.
 
 **Response 200 OK:**
 ```json

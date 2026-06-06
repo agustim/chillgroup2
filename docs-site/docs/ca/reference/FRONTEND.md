@@ -46,6 +46,36 @@ Comportament UX esperat:
 - No hi ha descàrrega automatica en render.
 - Es mostra titol/mida de l'adjunt i la descàrrega s'activa nomes al clic.
 
+### Thumbnails d'imatges
+
+Per adjunts d'imatge (`image/*`), el client genera i puja un thumbnail **abans** de pujar el fitxer original.
+
+**Generació (client-side, `generateThumbnail` a `lib/attachments.ts`):**
+- Només per `file.type.startsWith('image/')`.
+- Usa `createImageBitmap` + `OffscreenCanvas` per redimensionar.
+- Màxim 200×200 px (manté aspect ratio).
+- Exporta com `image/jpeg` amb qualitat 0.7.
+- Si falla (format no suportat, etc.), continua sense thumbnail.
+
+**Flux d'upload del thumbnail:**
+1. `generateThumbnail(file)` → `Blob | null`
+2. Si no és null, crea `File` amb nom `thumb_{originalName}` i `type: 'image/jpeg'`.
+3. Puja via `uploadEncryptedAttachment` (mateix flux multipart xifrat), **sense** `thumbnailAttachmentId`.
+4. Guarda el `thumbnailAttachmentId` resultant.
+5. Puja el fitxer original amb `thumbnailAttachmentId` inclòs al `complete` request.
+
+**Emmagatzematge:**
+- El thumbnail és un adjunt independent a la taula `attachments`, xifrat amb la mateixa clau de canal.
+- L'adjunt original té `thumbnail_attachment_id` → FK self-referencing a `attachments`.
+- El thumbnail NO té `thumbnail_attachment_id` (evita recursió).
+
+**Visualització (`MessageList.tsx`):**
+- En render, detecta adjunts amb `thumbnailAttachmentId`.
+- Per cada un, crida `attachmentGetDownload(channelId, thumbId)` → `decryptAttachmentToBlob` → `URL.createObjectURL`.
+- Blob URLs es guarden a l'estat local `thumbnailBlobUrls` (clau: `attachmentId` principal).
+- Es mostren inline al missatge com a previsualització clicable; en clicar es descarrega el fitxer original.
+- En desmuntar el component, es criden `URL.revokeObjectURL` per alliberar memòria.
+
 Detall important en mode proxy:
 
 - Si `downloadUrl` es `/api/.../download-proxy`, la descàrrega s'ha de fer via `fetch` amb `Authorization: Bearer ...`.
