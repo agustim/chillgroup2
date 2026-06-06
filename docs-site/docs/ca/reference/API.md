@@ -1727,10 +1727,13 @@ Llistar missatges d'un canal. Només retorna missatges que l'usuari pot desxifra
       "senderDeviceId": "550e8400-e29b-41d4-a716-446655440001",
       "encryptedPayload": "base64-encrypted-or-plain-text",
       "iv": "base64-initialization-vector",
+      "attachmentIds": [],
       "timestamp": "2026-05-13T10:30:00Z",
       "expiresAt": null,
       "editedAt": null,
-      "deletedAt": null
+      "deletedAt": null,
+      "replyToMessageId": null,
+      "reactions": []
     }
   ],
   "pagination": {
@@ -1756,7 +1759,8 @@ Enviar un missatge a un canal.
   "attachmentIds": [
     "550e8400-e29b-41d4-a716-4466554400f1"
   ],
-  "expiresAt": null                // "2026-05-13T11:00:00Z" | null
+  "expiresAt": null,               // "2026-05-13T11:00:00Z" | null
+  "reply_to_message_id": null      // UUID del missatge al qual es respon | null
 }
 ```
 
@@ -1787,7 +1791,7 @@ Enviar un missatge a un canal.
 
 ### PUT `/api/messages/:messageId`
 
-Editar un missatge (només el remitent, dins dels 5 minuts).
+Editar un missatge (només el remitent original). No té límit de temps.
 
 **Headers:** `Authorization: Bearer <JWT>`
 **Path Params:** `{ "messageId": "string" }`
@@ -1799,36 +1803,46 @@ Editar un missatge (només el remitent, dins dels 5 minuts).
 }
 ```
 
-**Response 200 OK:**
+**Response 200 OK** — retorna el `Message` complet actualitzat:
 ```json
 {
-  "success": true,
-  "data": {
-    "messageId": "550e8400-e29b-41d4-a716-446655440040",
-    "editedAt": "2026-05-13T10:35:00Z"
-  }
+  "messageId": "550e8400-e29b-41d4-a716-446655440040",
+  "channelId": "550e8400-e29b-41d4-a716-446655440020",
+  "senderUserId": "550e8400-e29b-41d4-a716-446655440000",
+  "senderUsername": "agusti",
+  "senderDeviceId": "550e8400-e29b-41d4-a716-446655440001",
+  "encryptedPayload": "base64-new-encrypted-text",
+  "iv": "base64-new-nonce",
+  "attachmentIds": [],
+  "timestamp": "2026-05-13T10:30:00Z",
+  "expiresAt": null,
+  "editedAt": "2026-05-13T10:35:00Z",
+  "deletedAt": null,
+  "replyToMessageId": null,
+  "reactions": []
 }
 ```
+
+**Nota:** Aquest endpoint **no emet** l'event `message-edited` via Socket.IO. Altres clients han de fer poll per detectar edicions.
+
+**Response 403 Forbidden:** Usuari no és el remitent original.
+**Response 404 Not Found:** Missatge no trobat.
 
 ---
 
 ### DELETE `/api/messages/:messageId`
 
-Eliminar un missatge (soft delete).
+Eliminar un missatge (soft delete). El remitent original sempre pot esborrar el seu missatge. Un usuari amb permís `MANAGE` al canal també pot esborrar qualsevol missatge.
 
 **Headers:** `Authorization: Bearer <JWT>`
 **Path Params:** `{ "messageId": "string" }`
 
-**Response 200 OK:**
-```json
-{
-  "success": true,
-  "data": {
-    "messageId": "550e8400-e29b-41d4-a716-446655440040",
-    "deletedAt": "2026-05-13T10:40:00Z"
-  }
-}
-```
+**Response 200 OK** — cos buit (sense JSON).
+
+**Efectes secundaris:** Emet l'event Socket.IO `message-deleted` a la room `channel:{channelId}`.
+
+**Response 403 Forbidden:** Ni remitent ni admin del canal.
+**Response 404 Not Found:** Missatge no trobat.
 
 ---
 
@@ -1863,7 +1877,16 @@ Recuperar un missatge concret pel seu ID.
     "timestamp": "2026-05-13T10:30:00Z",
     "expiresAt": null,
     "editedAt": null,
-    "deletedAt": null
+    "deletedAt": null,
+    "replyToMessageId": null,
+    "reactions": [
+      {
+        "emoji": "👍",
+        "userIds": ["550e8400-e29b-41d4-a716-446655440000"],
+        "usernames": ["agusti"],
+        "count": 1
+      }
+    ]
   }
 }
 ```
@@ -1878,6 +1901,43 @@ Recuperar un missatge concret pel seu ID.
   }
 }
 ```
+
+---
+
+### POST `/api/messages/:messageId/reactions`
+
+Afegir una reacció emoji a un missatge. L'usuari ha de tenir permís `READ` al canal.
+
+**Headers:** `Authorization: Bearer <JWT>`
+**Path Params:** `{ "messageId": "string" }`
+**Request Body:**
+```json
+{
+  "emoji": "👍"   // màx 10 caràcters unicode
+}
+```
+
+**Response 200 OK** — cos buit.
+
+**Nota:** Cada combinació `(message_id, user_id, emoji)` és única — afegir el mateix emoji dues vegades no fa res.
+
+**Response 400 Bad Request:** Emoji massa llarg (> 10 chars).
+**Response 403 Forbidden:** Sense permís de lectura al canal.
+**Response 404 Not Found:** Missatge no trobat.
+
+---
+
+### DELETE `/api/messages/:messageId/reactions/:emoji`
+
+Eliminar la pròpia reacció emoji d'un missatge.
+
+**Headers:** `Authorization: Bearer <JWT>`
+**Path Params:** `{ "messageId": "string", "emoji": "string" }` (emoji URL-encoded)
+
+**Response 200 OK** — cos buit.
+
+**Response 403 Forbidden:** Sense permís de lectura al canal.
+**Response 404 Not Found:** Missatge no trobat.
 
 ---
 

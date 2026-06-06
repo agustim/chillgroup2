@@ -89,7 +89,9 @@ socket.on('reconnected', (data) => {
   "iv": "base64-nonce",
   "timestamp": "2026-05-13T10:30:00Z",
   "editedAt": null,
-  "deletedAt": null
+  "deletedAt": null,
+  "replyToMessageId": null,
+  "reactions": []
 }
 ```
 
@@ -114,11 +116,11 @@ socket.on('message', (msg) => {
 
 #### `message-edited` — Missatge editat
 
-**Emès quan:** Un usuari edita el seu propi missatge.
+> ⚠️ **Gap d'implementació:** El servidor actualment **no emet** aquest event quan s'edita un missatge via `PUT /api/messages/:messageId`. Els clients han de fer polling o refetch manual per detectar edicions. Aquest event queda documentat per implementació futura.
 
-**Target:** Clients de la room `channel:{channelId}`
+**Target previst:** Clients de la room `channel:{channelId}`
 
-**Payload:**
+**Payload previst:**
 ```json
 {
   "messageId": "550e8400-e29b-41d4-a716-446655440040",
@@ -131,9 +133,15 @@ socket.on('message', (msg) => {
 
 ---
 
+#### `message-reactions-updated` — Reaccions actualitzades
+
+> ⚠️ **No implementat:** `POST/DELETE /api/messages/:id/reactions` no emeten cap event Socket.IO. Els clients han de refetchar el missatge per veure les reaccions actualitzades.
+
+---
+
 #### `message-deleted` — Missatge eliminat
 
-**Emès quan:** Un usuari elimina el seu propi missatge o un admin.
+**Emès quan:** Un usuari elimina el seu propi missatge o un admin de canal (permís `MANAGE`).
 
 **Target:** Clients de la room `channel:{channelId}`
 

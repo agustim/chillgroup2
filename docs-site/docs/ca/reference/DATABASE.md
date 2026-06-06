@@ -290,6 +290,36 @@ CREATE INDEX idx_messages_expires ON messages(expires_at) WHERE expires_at IS NO
 CREATE INDEX idx_messages_sender ON messages(sender_user_id);
 ```
 
+### Migració 20260129 — Reply to Message
+
+```sql
+-- migrations/20260129000000_add_reply_to_message_id.sql
+
+ALTER TABLE messages ADD COLUMN reply_to_message_id UUID REFERENCES messages(id) ON DELETE SET NULL;
+```
+
+---
+
+### Migració 20260130 — Message Reactions
+
+```sql
+-- migrations/20260130000000_create_message_reactions.sql
+
+CREATE TABLE message_reactions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    username TEXT NOT NULL,
+    emoji TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_message_user_emoji UNIQUE (message_id, user_id, emoji)
+);
+
+CREATE INDEX idx_message_reactions_message ON message_reactions(message_id);
+```
+
+---
+
 ### Migració 8 — Plans (SaaS Tiers)
 
 ```sql
