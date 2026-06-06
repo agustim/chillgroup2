@@ -84,10 +84,7 @@ services:
     restart: "no"
 
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: runtime
+    image: ghcr.io/agustim/chillgroup2:latest
     env_file:
       - .env.compose
       - .env.compose.local
