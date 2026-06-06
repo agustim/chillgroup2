@@ -87,38 +87,39 @@ El projecte té dos fitxers Compose:
 
 | Fitxer | Ús |
 |--------|----|
-| `docker-compose.yml` | **Producció** — compila imatge Docker i serveix tot des del binari |
+| `docker-compose.yml` | **Producció** — usa la imatge precompilada de GitHub Container Registry |
 | `docker-compose.dev.yml` | **Desenvolupament** — frontend Vite + backend `cargo watch` amb hot-reload |
 
-Config d'entorn (recomanat per equip):
+**Mode producció — wizard de desplegament:**
 
-1. Fitxer base compartit: `.env.compose`
-2. Overrides locals (no versionats): `.env.compose.local`
-3. Plantilla de referència: `.env.compose.example`
+El projecte inclou `setup-deploy.sh`, un wizard interactiu que genera el `docker-compose.yml` i el `.env.compose` adaptats a la teva infraestructura (base de dades, LiveKit, S3, secrets…).
 
-`docker-compose.yml` i `docker-compose.dev.yml` carreguen primer `.env.compose` i després `.env.compose.local`.
-Si una variable existeix als dos fitxers, preval el valor de `.env.compose.local`.
+```bash
+# Sense clonar el repositori:
+curl -fsSL https://raw.githubusercontent.com/agustim/chillgroup2/main/setup-deploy.sh -o setup-deploy.sh
+bash setup-deploy.sh
 
-Configuració recomanada per adjunts S3 en local:
+# O amb el repositori clonat:
+./setup-deploy.sh
+```
 
-- `S3_ENDPOINT=http://rustfs:9000` (endpoint intern que veu el contenidor `app`)
-- `S3_PUBLIC_ENDPOINT=http://localhost:9000` (endpoint públic que veu el navegador)
-- `SERVER_PROXY_S3=false` (per defecte: frontend puja/baixa directament contra RustFS amb URL signada)
+El wizard pregunta:
+- **BD**: PostgreSQL local · PostgreSQL extern · SQLite
+- **LiveKit**: container local · servidor remot
+- **S3**: RustFS local · S3 extern (AWS, R2, MinIO…)
+- **App**: port, logs, registre obert/tancat, credencials admin, `ONE_ADMIN_INVITATION`, secrets JWT i master key
 
-Mode alternatiu de proxy per backend:
+Després d'executar el wizard:
 
-- `SERVER_PROXY_S3=true`: el frontend puja/baixa fitxers passant pel backend (`/api/.../upload-part` i `/api/.../download-proxy`), i el backend reenvia a RustFS.
-- Aquest mode és útil quan el navegador no pot resoldre l'host de RustFS o hi ha restriccions de xarxa/CORS.
+```bash
+cd deploy
+docker compose pull
+docker compose up -d
+```
 
-Taula de decisió ràpida:
+Guia completa: [docs/ca/deploy-docker](docs-site/docs/ca/deploy-docker.md)
 
-| Escenari | Valor recomanat | Motiu |
-|----------|------------------|-------|
-| Entorn local estàndard (browser veu `localhost:9000`) | `SERVER_PROXY_S3=false` | Menys càrrega al backend i flux directe amb URLs signades |
-| El navegador no resol l'host S3 (p. ex. `rustfs`) | `SERVER_PROXY_S3=true` | El backend fa de pont i evita problemes DNS al client |
-| Restriccions CORS o polítiques de xarxa entre browser i S3 | `SERVER_PROXY_S3=true` | El trànsit d'upload/download passa pel backend autenticat |
-| Vols rendiment màxim en transferència de fitxers | `SERVER_PROXY_S3=false` | Evita un salt extra frontend -> backend -> S3 |
-| Vols centralitzar control/auditoria de transferències | `SERVER_PROXY_S3=true` | El backend intermedia totes les pujades i descàrregues |
+---
 
 **Mode desenvolupament (recomanat per contribuir):**
 
@@ -128,16 +129,31 @@ docker compose -f docker-compose.dev.yml up
 
 Aixeca PostgreSQL, LiveKit, RustFS, el backend amb `cargo watch` (port 8080) i el frontend amb `pnpm dev` (port 5173). La primera arrencada compila `cargo-watch`; les següents reutilitzen la caché del volum.
 
-**Mode producció** (imatge construïda des de `build.sh`):
+Config d'entorn per a dev (recomanat per equip):
 
-```bash
-cd server
-cargo run -- --generate-env-example ../.env
-cd ..
-docker compose up --build
-```
+1. Fitxer base compartit: `.env.compose`
+2. Overrides locals (no versionats): `.env.compose.local`
+3. Plantilla de referència: `.env.compose.example`
 
-Aixeca PostgreSQL, LiveKit, RustFS i el backend Rust amb el frontend incrustat al binari.
+`docker-compose.dev.yml` carrega primer `.env.compose` i després `.env.compose.local`. Si una variable existeix als dos fitxers, preval `.env.compose.local`.
+
+Configuració recomanada per adjunts S3 en local:
+
+- `S3_ENDPOINT=http://rustfs:9000` (endpoint intern que veu el contenidor `app`)
+- `S3_PUBLIC_ENDPOINT=http://localhost:9000` (endpoint públic que veu el navegador)
+- `SERVER_PROXY_S3=false` (per defecte: frontend puja/baixa directament contra RustFS amb URL signada)
+
+Mode alternatiu de proxy per backend:
+
+- `SERVER_PROXY_S3=true`: el frontend puja/baixa fitxers passant pel backend, i el backend reenvia a RustFS. Útil quan el navegador no pot resoldre l'host S3 o hi ha restriccions CORS.
+
+| Escenari | Valor recomanat |
+|----------|-----------------|
+| Browser veu `localhost:9000` | `false` |
+| Browser no resol l'host S3 | `true` |
+| Restriccions CORS/xarxa | `true` |
+| Màxim rendiment de transferència | `false` |
+| Auditoria centralitzada de pujades | `true` |
 
 ### 4. Arrancar el backend manualment
 
