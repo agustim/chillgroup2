@@ -470,14 +470,18 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
             .map_err(|e| format!("Error creant taula: {}", e))?;
     }
 
+    migrate_sqlite_devices_add_kem_dsa_keys(pool).await?;
     migrate_sqlite_users_add_role_and_plan(pool).await?;
     migrate_sqlite_channels_for_dm(pool).await?;
     migrate_sqlite_channel_members_permissions(pool).await?;
     migrate_sqlite_messages_add_key_version(pool).await?;
+    migrate_sqlite_messages_add_sender_username(pool).await?;
     migrate_sqlite_invitations_add_server_id(pool).await?;
     migrate_sqlite_servers_add_livekit_override(pool).await?;
     migrate_sqlite_plans_add_s3_quotas(pool).await?;
     migrate_sqlite_plans_add_streaming_quota(pool).await?;
+    migrate_sqlite_messages_add_reply_to(pool).await?;
+    migrate_sqlite_create_message_reactions(pool).await?;
 
     for idx in [
         "CREATE INDEX IF NOT EXISTS idx_channels_scope ON channels(scope)",
@@ -6215,6 +6219,124 @@ async fn migrate_sqlite_plans_add_s3_quotas(pool: &sqlx::SqlitePool) -> Result<(
         .map_err(|e| {
             format!("Error afegint max_transfer_bytes_monthly a plans SQLite: {}", e)
         })?;
+    }
+
+    Ok(())
+}
+
+async fn migrate_sqlite_messages_add_reply_to(pool: &sqlx::SqlitePool) -> Result<(), String> {
+    let table_info = sqlx::query("PRAGMA table_info(messages)")
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("Error llegint schema de messages SQLite: {}", e))?;
+
+    if table_info.is_empty() {
+        return Ok(());
+    }
+
+    let has_col = table_info
+        .iter()
+        .any(|r| r.get::<String, _>(1) == "reply_to_message_id");
+
+    if !has_col {
+        sqlx::query("ALTER TABLE messages ADD COLUMN reply_to_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL")
+            .execute(pool)
+            .await
+            .map_err(|e| format!("Error afegint reply_to_message_id a messages SQLite: {}", e))?;
+    }
+
+    Ok(())
+}
+
+async fn migrate_sqlite_create_message_reactions(pool: &sqlx::SqlitePool) -> Result<(), String> {
+    sqlx::query(
+        r#"CREATE TABLE IF NOT EXISTS message_reactions (
+            id TEXT PRIMARY KEY,
+            message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            username TEXT NOT NULL,
+            emoji TEXT NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT uq_message_user_emoji UNIQUE (message_id, user_id, emoji)
+        )"#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| format!("Error creant message_reactions SQLite: {}", e))?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_message_reactions_message ON message_reactions(message_id)",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| format!("Error creant índex message_reactions SQLite: {}", e))?;
+
+    Ok(())
+}
+
+async fn migrate_sqlite_devices_add_kem_dsa_keys(pool: &sqlx::SqlitePool) -> Result<(), String> {
+    let table_info = sqlx::query("PRAGMA table_info(devices)")
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("Error llegint schema de devices SQLite: {}", e))?;
+
+    if table_info.is_empty() {
+        return Ok(());
+    }
+
+    let mut has_kem = false;
+    let mut has_dsa = false;
+    for row in &table_info {
+        match row.get::<String, _>(1).as_str() {
+            "kem_public_key" => has_kem = true,
+            "dsa_public_key" => has_dsa = true,
+            _ => {}
+        }
+    }
+
+    if !has_kem {
+        sqlx::query("ALTER TABLE devices ADD COLUMN kem_public_key TEXT NOT NULL DEFAULT ''")
+            .execute(pool)
+            .await
+            .map_err(|e| format!("Error afegint kem_public_key a devices SQLite: {}", e))?;
+    }
+
+    if !has_dsa {
+        sqlx::query("ALTER TABLE devices ADD COLUMN dsa_public_key TEXT NOT NULL DEFAULT ''")
+            .execute(pool)
+            .await
+            .map_err(|e| format!("Error afegint dsa_public_key a devices SQLite: {}", e))?;
+    }
+
+    Ok(())
+}
+
+async fn migrate_sqlite_messages_add_sender_username(pool: &sqlx::SqlitePool) -> Result<(), String> {
+    let table_info = sqlx::query("PRAGMA table_info(messages)")
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("Error llegint schema de messages SQLite: {}", e))?;
+
+    if table_info.is_empty() {
+        return Ok(());
+    }
+
+    let has_col = table_info
+        .iter()
+        .any(|r| r.get::<String, _>(1) == "sender_username");
+
+    if !has_col {
+        sqlx::query("ALTER TABLE messages ADD COLUMN sender_username TEXT NOT NULL DEFAULT ''")
+            .execute(pool)
+            .await
+            .map_err(|e| format!("Error afegint sender_username a messages SQLite: {}", e))?;
+
+        sqlx::query(
+            "UPDATE messages SET sender_username = (SELECT username FROM users WHERE users.id = messages.sender_user_id) WHERE sender_username = ''",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| format!("Error omplint sender_username a messages SQLite: {}", e))?;
     }
 
     Ok(())
