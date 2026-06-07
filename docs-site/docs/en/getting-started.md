@@ -30,6 +30,8 @@ curl -fsSL https://raw.githubusercontent.com/agustim/chillgroup2/main/setup-depl
 bash setup-deploy.sh
 ```
 
+The wizard covers database, LiveKit, S3, and secrets. It also offers **built-in HTTPS** via Caddy (automatic Let's Encrypt) or Cloudflare Tunnel — required for remote access, since browsers block the Web Crypto API over plain HTTP.
+
 Full guide: [Docker deployment](/en/docker-deployment).
 
 ## Recommended reading order

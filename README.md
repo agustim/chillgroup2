@@ -106,10 +106,13 @@ bash setup-deploy.sh
 ```
 
 El wizard pregunta:
+- **HTTPS**: sense (HTTP local/dev) · Caddy amb Let's Encrypt (cal domini) · Cloudflare Tunnel (sense obrir ports)
 - **BD**: PostgreSQL local · PostgreSQL extern · SQLite
 - **LiveKit**: container local · servidor remot
 - **S3**: RustFS local · S3 extern (AWS, R2, MinIO…)
 - **App**: port, logs, registre obert/tancat, credencials admin, `ONE_ADMIN_INVITATION`, secrets JWT i master key
+
+> **Nota:** L'API de criptografia del navegador (`crypto.subtle`) requereix context segur (HTTPS o localhost). Sense HTTPS l'app no funcionarà des de màquines remotes.
 
 Després d'executar el wizard:
 

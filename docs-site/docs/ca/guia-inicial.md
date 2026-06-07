@@ -30,6 +30,8 @@ curl -fsSL https://raw.githubusercontent.com/agustim/chillgroup2/main/setup-depl
 bash setup-deploy.sh
 ```
 
+El wizard configura la base de dades, LiveKit, S3 i els secrets automàticament. També inclou opcions d'**HTTPS integrat** (Caddy amb Let's Encrypt o Cloudflare Tunnel) — necessari per accedir des de màquines remotes, ja que el navegador requereix HTTPS per usar l'API de criptografia.
+
 Guia completa: [Deploy amb Docker](/ca/deploy-docker).
 
 ## Per on comencar

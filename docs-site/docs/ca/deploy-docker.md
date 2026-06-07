@@ -46,6 +46,7 @@ curl -fsSL https://raw.githubusercontent.com/agustim/chillgroup2/main/setup-depl
 
 | Secció | Opcions |
 |--------|---------|
+| **HTTPS** | Cap (HTTP local/dev) · Caddy + Let's Encrypt · Cloudflare Tunnel |
 | **Base de dades** | PostgreSQL local (container) · PostgreSQL extern · SQLite |
 | **LiveKit** | Container local (mode dev) · Servidor remot |
 | **S3** | RustFS local (container) · S3 extern (AWS, Cloudflare R2, MinIO…) |
@@ -53,6 +54,45 @@ curl -fsSL https://raw.githubusercontent.com/agustim/chillgroup2/main/setup-depl
 | **App** | Port, nivell de logs, registre obert/tancat |
 | **Admin** | `ADMIN_USER` + `ADMIN_PASSWORD` (si registre tancat) · `ONE_ADMIN_INVITATION` (opcional) |
 | **Secrets** | `JWT_SECRET` i `SERVER_MASTER_KEY` (genera automàticament si es deixa buit) |
+
+### HTTPS i accés remot
+
+::: warning Web Crypto API
+L'API de criptografia del navegador (`crypto.subtle`) requereix un **context segur**. Funciona a `localhost` però **no funciona via HTTP des d'una màquina remota**. Si vols accedir a l'app des d'una altra màquina, necessites HTTPS.
+:::
+
+El wizard ofereix dues opcions integrades:
+
+#### Opció A — Caddy (Let's Encrypt automàtic)
+
+Caddy obté i renova el certificat TLS automàticament. Requisits:
+- Un **domini** que apunti a la IP del servidor (registre DNS A)
+- Ports **80 i 443 oberts** al firewall
+
+El wizard genera un `Caddyfile` al directori de desplegament i afegeix el servei `caddy` al compose:
+
+```
+chillgroup.example.com {
+    reverse_proxy app:8080
+}
+```
+
+#### Opció B — Cloudflare Tunnel
+
+Cloudflare Tunnel crea un túnel xifrat des del servidor cap a la xarxa de Cloudflare sense necessitat d'obrir ports ni tenir IP pública.
+
+Requisits:
+- Compte Cloudflare (pla gratuït suficient)
+- Token de túnel obtingut a [one.dash.cloudflare.com](https://one.dash.cloudflare.com/) → Zero Trust → Tunnels
+
+El wizard afegeix el servei `cloudflared` i guarda `CF_TUNNEL_TOKEN` al `.env.compose`. Cal configurar la ruta al dashboard de Cloudflare per redirigir cap a `http://app:8080`.
+
+| | Caddy | Cloudflare Tunnel |
+|---|---|---|
+| Domini propi necessari | Sí | Opcional (`*.trycloudflare.com` gratuït) |
+| Ports 80/443 oberts | Sí | No |
+| Funciona darrera NAT | No | Sí |
+| Certificat TLS | Let's Encrypt automàtic | Cloudflare (gestionat per CF) |
 
 El wizard genera els fitxers al directori que tries (per defecte `./deploy`).
 
@@ -172,9 +212,10 @@ Als logs hauries de veure:
 
 ### 1) Reverse proxy i TLS
 
-- Publica només HTTPS (Nginx, Caddy o Traefik).
-- Termina TLS al proxy i reenvía tràfic a `app:8080`.
+- **Opció recomanada**: usa el wizard (`setup-deploy.sh`) i tria Caddy o Cloudflare Tunnel — configuren HTTPS automàticament.
+- Si prefereixes un proxy propi (Nginx, Traefik…): termina TLS al proxy i reenvía tràfic a `app:8080`.
 - Activa redirecció HTTP → HTTPS i capçaleres de seguretat bàsiques.
+- L'API de criptografia del navegador (`crypto.subtle`) no funciona sense HTTPS fora de `localhost`.
 
 ### 2) Secrets i configuració
 

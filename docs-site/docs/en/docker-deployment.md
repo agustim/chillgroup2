@@ -46,6 +46,7 @@ curl -fsSL https://raw.githubusercontent.com/agustim/chillgroup2/main/setup-depl
 
 | Section | Options |
 |---------|---------|
+| **HTTPS** | None (HTTP local/dev) · Caddy + Let's Encrypt · Cloudflare Tunnel |
 | **Database** | Local PostgreSQL (container) · External PostgreSQL · SQLite |
 | **LiveKit** | Local container (dev mode) · Remote server |
 | **S3 storage** | Local RustFS (container) · External S3 (AWS, Cloudflare R2, MinIO…) |
@@ -53,6 +54,43 @@ curl -fsSL https://raw.githubusercontent.com/agustim/chillgroup2/main/setup-depl
 | **App** | Port, log level, open/closed registration |
 | **Admin** | `ADMIN_USER` + `ADMIN_PASSWORD` (if registration closed) · `ONE_ADMIN_INVITATION` (optional) |
 | **Secrets** | `JWT_SECRET` and `SERVER_MASTER_KEY` (auto-generated if left blank) |
+
+### HTTPS and remote access
+
+> **Warning:** The browser's Web Crypto API (`crypto.subtle`) requires a **secure context**. It works on `localhost` but **does not work over plain HTTP from a remote machine**. HTTPS is required for remote access.
+
+The wizard provides two built-in options:
+
+#### Option A — Caddy (automatic Let's Encrypt)
+
+Caddy automatically obtains and renews a TLS certificate. Requirements:
+- A **domain name** pointing to your server's IP (DNS A record)
+- Ports **80 and 443** open in the firewall
+
+The wizard generates a `Caddyfile` in the deploy directory and adds a `caddy` service to the compose file:
+
+```
+chillgroup.example.com {
+    reverse_proxy app:8080
+}
+```
+
+#### Option B — Cloudflare Tunnel
+
+Cloudflare Tunnel creates an encrypted outbound connection from your server to Cloudflare's network — no open ports or public IP required.
+
+Requirements:
+- A Cloudflare account (free plan is sufficient)
+- A tunnel token from [one.dash.cloudflare.com](https://one.dash.cloudflare.com/) → Zero Trust → Tunnels
+
+The wizard adds a `cloudflared` service and stores `CF_TUNNEL_TOKEN` in `.env.compose`. You configure the route in the Cloudflare dashboard to point to `http://app:8080`.
+
+| | Caddy | Cloudflare Tunnel |
+|---|---|---|
+| Own domain required | Yes | Optional (free `*.trycloudflare.com`) |
+| Ports 80/443 open | Yes | No |
+| Works behind NAT | No | Yes |
+| TLS certificate | Auto Let's Encrypt | Managed by Cloudflare |
 
 The wizard writes the generated files to the directory you choose (default: `./deploy`).
 
@@ -172,9 +210,10 @@ Logs should include messages similar to:
 
 ### 1) Reverse proxy and TLS
 
-- Expose the app over HTTPS only (Nginx, Caddy, or Traefik).
-- Terminate TLS at the proxy and forward traffic to `app:8080`.
+- **Recommended**: use the wizard (`setup-deploy.sh`) and choose Caddy or Cloudflare Tunnel — both set up HTTPS automatically.
+- If you prefer your own proxy (Nginx, Traefik…): terminate TLS there and forward traffic to `app:8080`.
 - Enable HTTP → HTTPS redirect and basic security headers.
+- The browser Web Crypto API (`crypto.subtle`) does not work without HTTPS outside of `localhost`.
 
 ### 2) Secrets and configuration
 
