@@ -7,12 +7,13 @@ export function LoginScreen() {
   const { login, register, registerWithInvitation, isLoading, error } = useAuth()
   const openRegisterEnv = (__OPEN_REGISTER__ ?? 'true').toString().toLowerCase()
   const initialOpenRegister = openRegisterEnv === 'true' || openRegisterEnv === '1' || openRegisterEnv === 'yes' || openRegisterEnv === 'on'
-  const [isLogin, setIsLogin] = useState(true)
+  const urlInvite = new URLSearchParams(window.location.search).get('invite') ?? ''
+  const [isLogin, setIsLogin] = useState(urlInvite ? false : true)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [isOpenRegister, setIsOpenRegister] = useState(initialOpenRegister)
-  const [invitationCode, setInvitationCode] = useState('')
+  const [invitationCode, setInvitationCode] = useState(urlInvite)
   const [validationError, setValidationError] = useState('')
   const [backupStatus, setBackupStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [isImportingBackup, setIsImportingBackup] = useState(false)

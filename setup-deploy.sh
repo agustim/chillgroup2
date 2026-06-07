@@ -82,6 +82,39 @@ printf '  → %s\n' "$OUT_DIR"
 COMPOSE_FILE="$OUT_DIR/docker-compose.yml"
 ENV_FILE="$OUT_DIR/.env.compose"
 
+# ── HTTPS / Accés extern ──────────────────────────────────────────────────────
+section "HTTPS / Accés extern"
+printf '  1) Cap (HTTP directe — només local o dev)\n'
+printf '  2) Caddy  (Let'"'"'s Encrypt automàtic, cal domini i ports 80/443)\n'
+printf '  3) Cloudflare Tunnel (no cal obrir ports, pot funcionar sense domini)\n'
+HTTPS_CHOICE="$(ask_choice "Tria" "1" "1" "2" "3")"
+
+HTTPS_MODE="none"
+CADDY_DOMAIN=""
+CF_TUNNEL_TOKEN=""
+APP_PUBLIC_URL=""
+
+case "$HTTPS_CHOICE" in
+  2)
+    HTTPS_MODE="caddy"
+    CADDY_DOMAIN="$(ask "Domini (p.ex. chillgroup.example.com)")"
+    APP_PUBLIC_URL="https://${CADDY_DOMAIN}"
+    printf '  → %s\n' "$APP_PUBLIC_URL"
+    ;;
+  3)
+    HTTPS_MODE="cloudflare"
+    printf '\n  Obtén el token a: https://one.dash.cloudflare.com/ → Zero Trust → Tunnels\n' >&2
+    CF_TUNNEL_TOKEN="$(ask "Cloudflare Tunnel Token")"
+    APP_PUBLIC_URL="$(ask "URL pública del túnel (p.ex. https://chillgroup.example.com o https://xxx.trycloudflare.com)")"
+    printf '  → %s\n' "$APP_PUBLIC_URL"
+    ;;
+  *)
+    HTTPS_MODE="none"
+    APP_PUBLIC_URL=""
+    printf '  → HTTP directe (recorda que Web Crypto API no funciona fora de localhost sense HTTPS)\n'
+    ;;
+esac
+
 # ── Base de dades ─────────────────────────────────────────────────────────────
 section "Base de dades"
 printf '  1) PostgreSQL local (container Docker)\n'
@@ -145,11 +178,13 @@ if [[ "$S3_CHOICE" == "1" ]]; then
     S3_ADMIN_SECRET="$(ask "Secret d'admin RustFS" "rustfsadmin")"
     S3_ENDPOINT_INTERNAL="http://rustfs:9000"
     S3_PUBLIC_ENDPOINT="$(ask "URL pública del S3 (des del navegador)" "http://localhost:9000")"
+    printf '  ℹ️  Si uses Caddy o Cloudflare Tunnel considera activar SERVER_PROXY_S3=true per evitar exposar el port S3.\n' >&2
     S3_REGION="us-east-1"
     S3_ACCESS_KEY="$S3_ADMIN_KEY"
     S3_SECRET_KEY="$S3_ADMIN_SECRET"
     S3_FORCE_PATH="true"
-    S3_CORS_1="$(ask "CORS origen 1 (URL de l'app)" "http://localhost:8080")"
+    S3_CORS_DEFAULT="${APP_PUBLIC_URL:-http://localhost:8080}"
+    S3_CORS_1="$(ask "CORS origen 1 (URL de l'app)" "$S3_CORS_DEFAULT")"
     S3_CORS_2="$(ask "CORS origen 2 (opcional)" "$S3_CORS_1")"
     SERVER_PROXY_S3="$(ask_choice "Proxy S3 a través del servidor (SERVER_PROXY_S3)" "false" "true" "false")"
 else
@@ -313,13 +348,63 @@ if [[ "$HAS_DEPENDS" == "1" ]]; then
     printf '%b' "$DEPENDS_BLOCK" >> "$COMPOSE_FILE"
 fi
 
-printf '    ports:\n      - "%s:%s"\n' "$SERVER_PORT" "$SERVER_PORT" >> "$COMPOSE_FILE"
+if [[ "$HTTPS_MODE" == "none" ]]; then
+    printf '    ports:\n      - "%s:%s"\n' "$SERVER_PORT" "$SERVER_PORT" >> "$COMPOSE_FILE"
+else
+    # Proxy gestiona l'accés extern; app exposa només internament
+    printf '    expose:\n      - "%s"\n' "$SERVER_PORT" >> "$COMPOSE_FILE"
+fi
+
+# Caddy
+if [[ "$HTTPS_MODE" == "caddy" ]]; then
+    cat >> "$COMPOSE_FILE" << EOF
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_started
+EOF
+
+    cat > "$OUT_DIR/Caddyfile" << EOF
+${CADDY_DOMAIN} {
+    reverse_proxy app:${SERVER_PORT}
+}
+EOF
+    printf '  ✅ %s\n' "$OUT_DIR/Caddyfile"
+fi
+
+# Cloudflare Tunnel
+if [[ "$HTTPS_MODE" == "cloudflare" ]]; then
+    cat >> "$COMPOSE_FILE" << 'EOF'
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CF_TUNNEL_TOKEN}
+    depends_on:
+      app:
+        condition: service_started
+EOF
+fi
 
 # Volumes
 VOLS=()
 [[ "$DB_TYPE" == "postgres_local" ]] && VOLS+=("pgdata")
 [[ "$DB_TYPE" == "sqlite" ]]         && VOLS+=("sqlitedata")
 [[ "$S3_LOCAL" == "1" ]]             && VOLS+=("rustfsdata")
+[[ "$HTTPS_MODE" == "caddy" ]]       && VOLS+=("caddy_data") && VOLS+=("caddy_config")
 
 if [[ ${#VOLS[@]} -gt 0 ]]; then
     printf '\nvolumes:\n' >> "$COMPOSE_FILE"
@@ -377,6 +462,11 @@ fi
     printf 'S3_CORS_ALLOWED_ORIGIN_1=%s\n' "$S3_CORS_1"
     printf 'S3_CORS_ALLOWED_ORIGIN_2=%s\n' "$S3_CORS_2"
     printf 'SERVER_PROXY_S3=%s\n' "$SERVER_PROXY_S3"
+
+    if [[ "$HTTPS_MODE" == "cloudflare" ]]; then
+        printf '\n# Cloudflare Tunnel\n'
+        printf 'CF_TUNNEL_TOKEN=%s\n' "$CF_TUNNEL_TOKEN"
+    fi
 } > "$ENV_FILE"
 
 # ── Resum ─────────────────────────────────────────────────────────────────────
@@ -402,8 +492,30 @@ fi
 printf '\n'
 printf '  ⚠️  .env.compose conté secrets — no pujar al repositori!\n'
 printf '\n'
+
+case "$HTTPS_MODE" in
+  caddy)
+    printf '  ℹ️  Caddy: assegura'"'"'t que el domini %s apunta a aquesta màquina\n' "$CADDY_DOMAIN"
+    printf '           i que els ports 80 i 443 estan oberts al firewall.\n'
+    printf '           Let'"'"'s Encrypt generarà el certificat automàticament.\n'
+    ;;
+  cloudflare)
+    printf '  ℹ️  Cloudflare Tunnel: configura el túnel al dashboard de CF\n'
+    printf '           per redirigir cap a http://app:%s\n' "$SERVER_PORT"
+    ;;
+  none)
+    printf '  ⚠️  Sense HTTPS: crypto.subtle no funciona fora de localhost.\n'
+    printf '           Afegeix un proxy TLS o usa Cloudflare Tunnel per accés remot.\n'
+    ;;
+esac
+
+printf '\n'
 printf '  Per arrencar:\n'
 printf '    cd %s\n' "$OUT_DIR"
 printf '    docker compose pull\n'
 printf '    docker compose up -d\n'
+if [[ -n "$APP_PUBLIC_URL" ]]; then
+    printf '\n'
+    printf '  App disponible a: %s\n' "$APP_PUBLIC_URL"
+fi
 printf '\n'
