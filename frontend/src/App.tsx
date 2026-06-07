@@ -2,11 +2,14 @@ import React from 'react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { LoginScreen } from './components/LoginScreen'
 import { AppLayout } from './components/AppLayout'
+import { MobileLayout } from './components/MobileLayout'
 import { DeviceUnlockScreen } from './components/DeviceUnlockScreen'
 import { hasLocalVault, isLocalVaultUnlocked, lockLocalVault } from './lib/local-vault'
+import { useIsMobile } from './hooks/useIsMobile'
 
 function AppContent() {
   const { isAuthenticated, user, isLoading, logout } = useAuth()
+  const isMobile = useIsMobile()
   const [vaultConfigured, setVaultConfigured] = React.useState<boolean>(() => hasLocalVault())
   const [vaultUnlocked, setVaultUnlocked] = React.useState<boolean>(() => isLocalVaultUnlocked())
 
@@ -52,7 +55,9 @@ function AppContent() {
       )
     }
 
-    return <AppLayout username={user.username} />
+    return isMobile
+      ? <MobileLayout username={user.username} />
+      : <AppLayout username={user.username} />
   }
 
   return <LoginScreen />

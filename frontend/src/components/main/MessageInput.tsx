@@ -46,7 +46,7 @@ export function MessageInput({
   onClearReplyTo,
 }: MessageInputProps) {
   const fileInputRef = React.useRef<HTMLInputElement>(null)
-  const textInputRef = useRef<HTMLInputElement>(null)
+  const textInputRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     if (focusKey !== undefined) {
@@ -54,11 +54,28 @@ export function MessageInput({
     }
   }, [focusKey])
 
+  // Auto-resize textarea as content grows
+  useEffect(() => {
+    const el = textInputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [value])
+
   const handleSubmit = () => {
     if (isBusy) return
     if (onSubmit && (value.trim() || pendingAttachments.length > 0)) {
       onSubmit()
     }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSubmit()
+      return
+    }
+    onKeyDown?.(e)
   }
 
   const handlePickFiles = () => {
@@ -125,34 +142,33 @@ export function MessageInput({
           onChange={handleFilesChanged}
         />
 
-      <div className="message-input-content">
-        <input
-          ref={textInputRef}
-          type="text"
-          className="message-input-field"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={onKeyDown}
-          onSubmit={handleSubmit}
-          placeholder={placeholder || 'Escriu un missatge...'}
-          autoComplete="off"
-          disabled={isBusy}
-        />
-        {cryptoIndicator && (
-          <span className="input-crypto-indicator" title={`Encriptació ${encryptionType}`}>
-            {cryptoIndicator}
-          </span>
-        )}
-      </div>
-      <Button
-        variant="primary"
-        size="sm"
-        onClick={handleSubmit}
-        disabled={isBusy || (!value.trim() && pendingAttachments.length === 0)}
-        className="send-button"
-      >
-        📤
-      </Button>
+        <div className="message-input-content">
+          <textarea
+            ref={textInputRef}
+            className="message-input-field"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={placeholder || 'Escriu un missatge...'}
+            autoComplete="off"
+            disabled={isBusy}
+            rows={1}
+          />
+          {cryptoIndicator && (
+            <span className="input-crypto-indicator" title={`Encriptació ${encryptionType}`}>
+              {cryptoIndicator}
+            </span>
+          )}
+        </div>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={handleSubmit}
+          disabled={isBusy || (!value.trim() && pendingAttachments.length === 0)}
+          className="send-button"
+        >
+          📤
+        </Button>
       </div>
     </div>
   )

@@ -1422,7 +1422,7 @@ body {
 .message-input-content {
   flex: 1;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   position: relative;
   background: var(--bg-input);
   border-radius: var(--input-radius);
@@ -1438,6 +1438,10 @@ body {
   font-size: 14px;
   font-family: inherit;
   padding: 10px 0;
+  resize: none;
+  max-height: 120px;
+  overflow-y: auto;
+  line-height: 1.4;
 }
 
 .input-crypto-indicator {
@@ -2476,4 +2480,230 @@ body {
 
 .deafened-dot {
   font-size: 10px;
+}
+
+/* ── Mobile Layout ──────────────────────────────── */
+
+.mobile-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+  position: relative;
+}
+
+.mobile-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Drawer overlay (darkens content behind) */
+.mobile-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 200;
+}
+
+/* Drawer slides in from left */
+.mobile-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: row;
+  z-index: 201;
+  transform: translateX(-100%);
+  transition: transform 0.25s ease;
+  max-width: 85vw;
+}
+
+.mobile-drawer.open {
+  transform: translateX(0);
+}
+
+/* Mobile top header bar */
+.mobile-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  height: 48px;
+  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--bg-active);
+  flex-shrink: 0;
+}
+
+.mobile-hamburger {
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 8px;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--input-radius);
+}
+
+.mobile-hamburger:hover {
+  background: var(--bg-hover);
+}
+
+.mobile-header-title {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-header-back {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 8px;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Panel content area on mobile (scrollable) */
+.mobile-panel-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  min-height: 0;
+}
+
+.mobile-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 0 12px;
+}
+
+.mobile-open-drawer-btn {
+  margin-top: 16px;
+  padding: 12px 24px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: var(--input-radius);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+/* Ensure MainContent fills available space in mobile */
+.mobile-main .main-content {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── Mobile-specific overrides ─────────────────── */
+
+/* ChannelHeader: hide info (name already in mobile-header), keep actions */
+.mobile-layout .channel-header-info {
+  display: none;
+}
+
+.mobile-layout .channel-header {
+  height: auto;
+  min-height: 0;
+  padding: 4px 12px;
+  justify-content: flex-end;
+}
+
+/* Hide entirely when there are no actions at all */
+.mobile-layout .channel-header:not(:has(button, .voice-status)) {
+  display: none;
+}
+
+/* Confirmation/TTL banners inside channel header still full-width */
+.mobile-layout .channel-header ~ .feedback-banner {
+  margin: 0;
+  border-radius: 0;
+}
+
+/* Bigger touch targets for mobile message input */
+.mobile-layout .message-input {
+  padding: 8px 12px;
+  padding-bottom: env(safe-area-inset-bottom, 8px);
+}
+
+.mobile-layout .message-input-field {
+  font-size: 16px; /* prevents iOS zoom on focus */
+  min-height: 40px;
+}
+
+.mobile-layout .attach-button,
+.mobile-layout .send-button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* Panel components: full-width on mobile */
+.mobile-panel-content .panel,
+.mobile-panel-content .admin-users-panel {
+  max-width: 100%;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+}
+
+/* Message list: tighter padding on mobile */
+.mobile-layout .message-list {
+  padding: 8px 12px;
+}
+
+/* Message bubbles: smaller gap on mobile */
+.mobile-layout .message-group {
+  gap: 4px;
+}
+
+/* Voice area: compact on mobile */
+.mobile-layout .voice-panel {
+  max-height: 40%;
+}
+
+/* Ensure drawer channel-list has correct height */
+.mobile-drawer .channel-list {
+  flex: 1;
+  overflow-y: auto;
+  height: 100%;
+}
+
+/* Hide disabled voice controls in drawer (not in call) */
+.mobile-drawer .channel-list-bottom-controls button:disabled {
+  display: none;
+}
+
+.mobile-drawer .channel-list-bottom-controls:not(:has(button:not([disabled]))) {
+  display: none;
+}
+
+/* Message actions: always show on mobile when hovered (touch-activated) */
+@media (hover: none) {
+  .message-bubble.hovered .message-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }

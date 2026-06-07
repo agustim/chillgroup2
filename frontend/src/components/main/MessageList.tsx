@@ -561,7 +561,7 @@ export function MessageList({
   }
 
   return (
-    <div className="message-list" onClick={() => setEmojiPickerMessageId(null)}>
+    <div className="message-list" onClick={() => setEmojiPickerMessageId(null)} onTouchStart={() => setHoveredMessageId(null)}>
       <div ref={messagesTopRef} className="messages-top-sentinel">
         {loadingMore && <p className="loading-more-indicator">Carregant més...</p>}
         {!loadingMore && hasPrevPage && <p className="load-more-hint">Fes scroll cap amunt per veure més</p>}
@@ -592,6 +592,7 @@ export function MessageList({
               className={`message-bubble ${msg.deletedAt ? 'deleted' : ''} ${msg.editedAt ? 'edited' : ''} ${showHeader ? 'first-in-row' : ''} ${expiringMessageIds?.has(msg.messageId) ? 'expiring' : ''} ${hoveredMessageId === msg.messageId ? 'hovered' : ''}`}
               onMouseEnter={() => setHoveredMessageId(msg.messageId)}
               onMouseLeave={() => setHoveredMessageId(null)}
+              onTouchStart={(e) => { e.stopPropagation(); setHoveredMessageId(msg.messageId) }}
             >
               {/* Menú d'accions */}
               {hoveredMessageId === msg.messageId && !msg.deletedAt && !isEditing && (

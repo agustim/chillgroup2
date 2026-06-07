@@ -277,7 +277,7 @@ describe('Voice Channel Users Presence', () => {
       avatar: `https://example.com/avatars/${userId}.jpg`,
       joinedAt,
       isDeafened: false,
-      isSuppressed: Math.random() > 0.7,
+      isSuppressed: false,
     }
   }
 

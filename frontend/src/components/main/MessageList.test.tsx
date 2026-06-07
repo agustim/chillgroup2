@@ -36,6 +36,13 @@ vi.mock('../../lib/logger', () => ({
   },
 }))
 
+vi.mock('../../contexts/AuthContext', () => ({
+  useAuth: vi.fn(() => ({
+    user: { userId: 'user-1', username: 'testuser', isAdmin: false, devices: [], quotas: {} },
+    currentDeviceId: 'dev-1',
+  })),
+}))
+
 import { messagesList, attachmentGetDownload } from '../../lib/api'
 import { decryptMessagesForChannel } from '../../lib/channel-crypto'
 import { decryptAttachmentToBlob } from '../../lib/attachments'
