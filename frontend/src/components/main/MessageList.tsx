@@ -748,7 +748,7 @@ export function MessageList({
                   >
                     <span className="message-reply-sender">{replyParent.senderUsername}</span>
                     <span className="message-reply-text">
-                      {replyParentText.slice(0, 100)}{replyParentText.length > 100 ? '…' : ''}
+                      {replyParentText?.slice(0, 100)}{(replyParentText?.length ?? 0) > 100 ? '…' : ''}
                     </span>
                   </div>
                 )}
