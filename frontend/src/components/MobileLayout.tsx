@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react'
 import { ServerBar } from './sidebar/ServerBar'
 import { ChannelList } from './sidebar/ChannelList'
 import { MainContent } from './main/MainContent'
@@ -27,6 +27,7 @@ interface MobileLayoutProps {
 
 export function MobileLayout({ username }: MobileLayoutProps) {
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const mediaFileInputRef = useRef<HTMLInputElement>(null)
 
   const {
     user,
@@ -49,8 +50,12 @@ export function MobileLayout({ username }: MobileLayoutProps) {
     liveKitDeafened,
     liveKitCameraOn,
     liveKitScreenSharing,
+    liveKitMediaFileSharing,
     localVideoTrack,
     localScreenTrack,
+    localMediaFileTrack,
+    mediaFileName,
+    mediaFileElementRef,
     remoteVideoTracks,
     liveKitError,
     voicePresenceByChannel,
@@ -101,6 +106,9 @@ export function MobileLayout({ username }: MobileLayoutProps) {
     handleToggleDeafen,
     handleToggleCamera,
     handleToggleScreenShare,
+    handleStartMediaFileShare,
+    handleStopMediaFileShare,
+    handleSetParticipantLocalMuted,
     handleCreateServer,
     handleCreateServerSubmit,
     handleCreateTextChannel,
@@ -142,6 +150,14 @@ export function MobileLayout({ username }: MobileLayoutProps) {
     closeDrawer()
   }
 
+  const handleMediaFileShareToggle = () => {
+    if (liveKitMediaFileSharing) {
+      handleStopMediaFileShare()
+    } else {
+      mediaFileInputRef.current?.click()
+    }
+  }
+
   const isPanelOpen = panel !== 'none'
   const activeChannel = resolvedSelectedChannel ?? activeVoiceChannel ?? null
   const channelName = activeChannel?.name ?? null
@@ -152,6 +168,17 @@ export function MobileLayout({ username }: MobileLayoutProps) {
 
   return (
     <div className="mobile-layout">
+      <input
+        ref={mediaFileInputRef}
+        type="file"
+        accept="audio/*,video/*"
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file) void handleStartMediaFileShare(file)
+          e.target.value = ''
+        }}
+      />
       {/* Drawer overlay */}
       {drawerOpen && (
         <div className="mobile-drawer-overlay" onClick={closeDrawer} />
@@ -179,10 +206,12 @@ export function MobileLayout({ username }: MobileLayoutProps) {
             isDeafened={liveKitDeafened}
             isCameraOn={liveKitCameraOn}
             isScreenSharing={liveKitScreenSharing}
+            isMediaFileSharing={liveKitMediaFileSharing}
             onToggleMute={handleToggleMute}
             onToggleDeafen={handleToggleDeafen}
             onToggleCamera={() => { void handleToggleCamera() }}
             onToggleScreenShare={() => { void handleToggleScreenShare() }}
+            onToggleMediaFileShare={handleMediaFileShareToggle}
             onSelectChannel={handleChannelSelect}
             onStartDirectMessage={(uid, uname) => { handleStartDirectMessage(uid, uname); closeDrawer() }}
             onConfigureChannel={handleConfigureChannel}
@@ -358,6 +387,12 @@ export function MobileLayout({ username }: MobileLayoutProps) {
             onUnreadUpdated={handleUnreadUpdated}
             localVideoTrack={localVideoTrack}
             localScreenTrack={localScreenTrack}
+            localMediaFileTrack={localMediaFileTrack}
+            mediaFileName={mediaFileName}
+            mediaFileElementRef={mediaFileElementRef}
+            onStopMediaFileShare={handleStopMediaFileShare}
+            onSetParticipantLocalMuted={handleSetParticipantLocalMuted}
+            isMediaFileSharing={liveKitMediaFileSharing}
             remoteVideoTracks={remoteVideoTracks}
             voiceAsTextMode={voiceAsTextMode}
             onToggleVoiceAsTextMode={toggleVoiceAsTextMode}
@@ -375,6 +410,12 @@ export function MobileLayout({ username }: MobileLayoutProps) {
             onLeaveVoice={handleLeaveVoiceChannel}
             localVideoTrack={localVideoTrack}
             localScreenTrack={localScreenTrack}
+            localMediaFileTrack={localMediaFileTrack}
+            mediaFileName={mediaFileName}
+            mediaFileElementRef={mediaFileElementRef}
+            onStopMediaFileShare={handleStopMediaFileShare}
+            onSetParticipantLocalMuted={handleSetParticipantLocalMuted}
+            isMediaFileSharing={liveKitMediaFileSharing}
             remoteVideoTracks={remoteVideoTracks}
             voiceAsTextMode={voiceAsTextMode}
             onToggleVoiceAsTextMode={toggleVoiceAsTextMode}

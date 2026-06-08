@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, MutableRefObject } from 'react'
 import { Channel, Message, VoiceConnection } from '../../types'
 import { messagesSend } from '../../lib/api'
 import { encryptChannelMessage, ensureChannelKey, distributeChannelKey } from '../../lib/channel-crypto'
@@ -25,6 +25,12 @@ interface MainContentProps {
   onUnreadUpdated?: (channelId: string, unreadCount: number) => void
   localVideoTrack?: any
   localScreenTrack?: any
+  localMediaFileTrack?: any
+  mediaFileName?: string | null
+  mediaFileElementRef?: MutableRefObject<HTMLVideoElement | null>
+  onStopMediaFileShare?: () => void
+  onSetParticipantLocalMuted?: (identity: string, muted: boolean) => void
+  isMediaFileSharing?: boolean
   remoteVideoTracks?: Record<string, any[]>
   onRepairKey?: (channel: Channel) => Promise<void>
   onRotateKey?: (channel: Channel) => Promise<void>
@@ -43,6 +49,12 @@ export function MainContent({
   onUnreadUpdated,
   localVideoTrack,
   localScreenTrack,
+  localMediaFileTrack,
+  mediaFileName,
+  mediaFileElementRef,
+  onStopMediaFileShare,
+  onSetParticipantLocalMuted,
+  isMediaFileSharing = false,
   remoteVideoTracks = {},
   onRepairKey,
   onRotateKey,
@@ -338,6 +350,12 @@ export function MainContent({
             onToggleVoiceAsTextMode={onToggleVoiceAsTextMode}
             localVideoTrack={localVideoTrack}
             localScreenTrack={localScreenTrack}
+            localMediaFileTrack={localMediaFileTrack}
+            mediaFileName={mediaFileName}
+            mediaFileElementRef={mediaFileElementRef}
+            onStopMediaFileShare={onStopMediaFileShare}
+            onSetParticipantLocalMuted={onSetParticipantLocalMuted}
+            isMediaFileSharing={isMediaFileSharing}
             remoteVideoTracks={remoteVideoTracks}
           />
         </div>

@@ -91,8 +91,12 @@ export function useAppState() {
     isDeafened: liveKitDeafened,
     isCameraOn: liveKitCameraOn,
     isScreenSharing: liveKitScreenSharing,
+    isMediaFileSharing: liveKitMediaFileSharing,
     localVideoTrack,
     localScreenTrack,
+    localMediaFileTrack,
+    mediaFileName,
+    mediaFileElementRef,
     remoteVideoTracks,
     participants: liveKitParticipants,
     connectToChannel: connectLiveKit,
@@ -101,6 +105,9 @@ export function useAppState() {
     toggleDeafen: toggleLiveKitDeafen,
     toggleCamera: toggleLiveKitCamera,
     toggleScreenShare: toggleLiveKitScreenShare,
+    startMediaFileShare: startLiveKitMediaFileShare,
+    stopMediaFileShare: stopLiveKitMediaFileShare,
+    setParticipantLocalMuted: setLiveKitParticipantLocalMuted,
     error: liveKitError,
   } = useLiveKit()
 
@@ -647,6 +654,9 @@ export function useAppState() {
   const handleToggleDeafen = () => { toggleLiveKitDeafen() }
   const handleToggleCamera = async () => { await toggleLiveKitCamera() }
   const handleToggleScreenShare = async () => { await toggleLiveKitScreenShare() }
+  const handleStartMediaFileShare = async (file: File) => { await startLiveKitMediaFileShare(file) }
+  const handleStopMediaFileShare = () => { void stopLiveKitMediaFileShare() }
+  const handleSetParticipantLocalMuted = (identity: string, muted: boolean) => { setLiveKitParticipantLocalMuted(identity, muted) }
 
   const handleCreateServer = async () => {
     if (!canCreateServer) {
@@ -987,8 +997,12 @@ export function useAppState() {
     liveKitDeafened,
     liveKitCameraOn,
     liveKitScreenSharing,
+    liveKitMediaFileSharing,
     localVideoTrack,
     localScreenTrack,
+    localMediaFileTrack,
+    mediaFileName,
+    mediaFileElementRef,
     remoteVideoTracks,
     liveKitError,
     // Presence
@@ -1046,6 +1060,9 @@ export function useAppState() {
     handleToggleDeafen,
     handleToggleCamera,
     handleToggleScreenShare,
+    handleStartMediaFileShare,
+    handleStopMediaFileShare,
+    handleSetParticipantLocalMuted,
     handleCreateServer,
     handleCreateServerSubmit,
     handleCreateTextChannel,
