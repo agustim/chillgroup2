@@ -1030,6 +1030,7 @@ mod tests {
                 Some(1),
                 None,
                 Utc::now(),
+                None,
             )
             .await
             .expect("create message");

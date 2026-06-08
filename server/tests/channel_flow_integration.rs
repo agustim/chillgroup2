@@ -196,6 +196,7 @@ async fn channel_flow_message_send_and_list() {
             None,
             None,
             chrono::Utc::now(),
+            None,
         )
         .await
         .expect("create message");

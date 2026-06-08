@@ -3036,9 +3036,7 @@ impl DatabasePool {
                     };
                     let is_private: bool = row.get(6);
                     let created_at_str: String = row.get(7);
-                    let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
-                        .map(|dt| dt.with_timezone(&chrono::Utc))
-                        .unwrap_or_else(|_| chrono::Utc::now());
+                    let created_at = parse_datetime_required(&created_at_str);
                     let channel_id: Uuid = row.get(0);
                     let (key_version_id, key_version) = self
                         .get_channel_key_version_metadata(channel_id)
@@ -3099,9 +3097,7 @@ impl DatabasePool {
                     };
                     let is_private: i64 = row.get(6);
                     let created_at_str: String = row.get(7);
-                    let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
-                        .map(|dt| dt.with_timezone(&chrono::Utc))
-                        .unwrap_or_else(|_| chrono::Utc::now());
+                    let created_at = parse_datetime_required(&created_at_str);
                     let channel_id: Uuid = row.get(0);
                     let (key_version_id, key_version) = self
                         .get_channel_key_version_metadata(channel_id)
@@ -3770,9 +3766,7 @@ impl DatabasePool {
                     };
                     let is_private: bool = row.get(6);
                     let created_at_str: String = row.get(7);
-                    let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
-                        .map(|dt| dt.with_timezone(&chrono::Utc))
-                        .unwrap_or_else(|_| chrono::Utc::now());
+                    let created_at = parse_datetime_required(&created_at_str);
                     let (key_version_id, key_version) = self
                         .get_channel_key_version_metadata(channel_id)
                         .await?
@@ -3817,9 +3811,7 @@ impl DatabasePool {
                     };
                     let is_private: i64 = row.get(6);
                     let created_at_str: String = row.get(7);
-                    let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
-                        .map(|dt| dt.with_timezone(&chrono::Utc))
-                        .unwrap_or_else(|_| chrono::Utc::now());
+                    let created_at = parse_datetime_required(&created_at_str);
                     let (key_version_id, key_version) = self
                         .get_channel_key_version_metadata(channel_id)
                         .await?
@@ -4078,9 +4070,7 @@ impl DatabasePool {
                     file_name: row.get(4),
                     mime_type: row.get(5),
                     size_bytes: row.get(6),
-                    created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(7))
-                        .map(|d| d.with_timezone(&Utc))
-                        .unwrap_or_else(|_| Utc::now()),
+                    created_at: parse_datetime_required(&row.get::<String, _>(7)),
                     object_key: row.get(8),
                     status: row.get(9),
                     upload_id: row.get(10),
@@ -4117,9 +4107,7 @@ impl DatabasePool {
                     file_name: row.get(4),
                     mime_type: row.get(5),
                     size_bytes: row.get(6),
-                    created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(7))
-                        .map(|d| d.with_timezone(&Utc))
-                        .unwrap_or_else(|_| Utc::now()),
+                    created_at: parse_datetime_required(&row.get::<String, _>(7)),
                     object_key: row.get(8),
                     status: row.get(9),
                     upload_id: row.get(10),
@@ -4386,9 +4374,7 @@ impl DatabasePool {
                         iv: row.get(6),
                         attachment_ids,
                         key_version: row.get(7),
-                        timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(8))
-                            .map(|d| d.with_timezone(&Utc))
-                            .unwrap_or_else(|_| chrono::Utc::now()),
+                        timestamp: parse_datetime_required(&row.get::<String, _>(8)),
                         expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
                         edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
                         deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(11)),
@@ -4424,9 +4410,7 @@ impl DatabasePool {
                         iv: row.get(6),
                         attachment_ids,
                         key_version: row.get(7),
-                        timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(8))
-                            .map(|d| d.with_timezone(&Utc))
-                            .unwrap_or_else(|_| chrono::Utc::now()),
+                        timestamp: parse_datetime_required(&row.get::<String, _>(8)),
                         expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
                         edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
                         deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(11)),
@@ -4527,9 +4511,7 @@ impl DatabasePool {
                         iv: row.get(6),
                         attachment_ids,
                         key_version: row.get(7),
-                        timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(8))
-                            .map(|d| d.with_timezone(&Utc))
-                            .unwrap_or_else(|_| chrono::Utc::now()),
+                        timestamp: parse_datetime_required(&row.get::<String, _>(8)),
                         expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
                         edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
                         deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(11)),
@@ -4599,9 +4581,7 @@ impl DatabasePool {
                         iv: row.get(6),
                         attachment_ids,
                         key_version: row.get(7),
-                        timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(8))
-                            .map(|d| d.with_timezone(&Utc))
-                            .unwrap_or_else(|_| chrono::Utc::now()),
+                        timestamp: parse_datetime_required(&row.get::<String, _>(8)),
                         expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
                         edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
                         deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(11)),
@@ -4654,9 +4634,7 @@ impl DatabasePool {
                     iv: row.get(6),
                     attachment_ids,
                     key_version: row.get(7),
-                    timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(8))
-                        .map(|d| d.with_timezone(&Utc))
-                        .unwrap_or_else(|_| chrono::Utc::now()),
+                    timestamp: parse_datetime_required(&row.get::<String, _>(8)),
                     expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
                     edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
                     deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(11)),
@@ -4685,9 +4663,7 @@ impl DatabasePool {
                     iv: row.get(6),
                     attachment_ids,
                     key_version: row.get(7),
-                    timestamp: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>(8))
-                        .map(|d| d.with_timezone(&Utc))
-                        .unwrap_or_else(|_| chrono::Utc::now()),
+                    timestamp: parse_datetime_required(&row.get::<String, _>(8)),
                     expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
                     edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
                     deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(11)),
@@ -4869,19 +4845,37 @@ impl DatabasePool {
                     }
                 }
 
-                // Esborrar thumbnails primer (self-referència)
+                // Recollir thumbnail IDs ABANS de nullejar (el FK ja no existirà després)
+                let thumbnail_ids: Vec<Uuid> = sqlx::query_scalar(
+                    "SELECT a.thumbnail_attachment_id \
+                     FROM message_attachments ma \
+                     JOIN attachments a ON a.id = ma.attachment_id \
+                     WHERE ma.message_id IN (SELECT id FROM messages WHERE expires_at IS NOT NULL AND expires_at <= $1::timestamptz) \
+                     AND a.thumbnail_attachment_id IS NOT NULL",
+                )
+                .bind(&now)
+                .fetch_all(pool)
+                .await?;
+
+                // Trencar la referència thumbnail_attachment_id→attachments(id) abans d'esborrar
                 sqlx::query(
-                    "DELETE FROM attachments WHERE id IN ( \
-                       SELECT a.thumbnail_attachment_id \
-                       FROM message_attachments ma \
-                       JOIN attachments a ON a.id = ma.attachment_id \
+                    "UPDATE attachments SET thumbnail_attachment_id = NULL \
+                     WHERE id IN ( \
+                       SELECT ma.attachment_id FROM message_attachments ma \
                        WHERE ma.message_id IN (SELECT id FROM messages WHERE expires_at IS NOT NULL AND expires_at <= $1::timestamptz) \
-                       AND a.thumbnail_attachment_id IS NOT NULL \
                      )",
                 )
                 .bind(&now)
                 .execute(pool)
                 .await?;
+
+                // Esborrar thumbnails per ID (ja sense referenciadors)
+                if !thumbnail_ids.is_empty() {
+                    sqlx::query("DELETE FROM attachments WHERE id = ANY($1)")
+                        .bind(&thumbnail_ids as &[Uuid])
+                        .execute(pool)
+                        .await?;
+                }
 
                 // Esborrar attachments principals
                 sqlx::query(
@@ -4935,18 +4929,34 @@ impl DatabasePool {
                         }
                     }
 
+                    let sqlite_thumb_ids: Vec<String> = sqlx::query_scalar(
+                        "SELECT a.thumbnail_attachment_id \
+                         FROM message_attachments ma \
+                         JOIN attachments a ON a.id = ma.attachment_id \
+                         WHERE ma.message_id IN (SELECT id FROM messages WHERE expires_at IS NOT NULL AND expires_at <= ?) \
+                         AND a.thumbnail_attachment_id IS NOT NULL",
+                    )
+                    .bind(&now)
+                    .fetch_all(pool)
+                    .await?;
+
                     sqlx::query(
-                        "DELETE FROM attachments WHERE id IN ( \
-                           SELECT a.thumbnail_attachment_id \
-                           FROM message_attachments ma \
-                           JOIN attachments a ON a.id = ma.attachment_id \
+                        "UPDATE attachments SET thumbnail_attachment_id = NULL \
+                         WHERE id IN ( \
+                           SELECT ma.attachment_id FROM message_attachments ma \
                            WHERE ma.message_id IN (SELECT id FROM messages WHERE expires_at IS NOT NULL AND expires_at <= ?) \
-                           AND a.thumbnail_attachment_id IS NOT NULL \
                          )",
                     )
                     .bind(&now)
                     .execute(pool)
                     .await?;
+
+                    for tid in &sqlite_thumb_ids {
+                        sqlx::query("DELETE FROM attachments WHERE id = ?")
+                            .bind(tid)
+                            .execute(pool)
+                            .await?;
+                    }
 
                     sqlx::query(
                         "DELETE FROM attachments WHERE id IN ( \
@@ -6342,12 +6352,28 @@ async fn migrate_sqlite_messages_add_sender_username(pool: &sqlx::SqlitePool) ->
     Ok(())
 }
 
+fn normalize_pg_dt(s: &str) -> String {
+    let mut norm = s.replace(' ', "T");
+    if let Some(t_pos) = norm.find('T') {
+        if let Some(tz_rel) = norm[t_pos..].rfind(['+', '-']) {
+            let tz_abs = t_pos + tz_rel;
+            if norm[tz_abs..].len() == 3 {
+                norm.push_str(":00");
+            }
+        }
+    }
+    norm
+}
+
+fn parse_datetime_required(s: &str) -> DateTime<Utc> {
+    chrono::DateTime::parse_from_rfc3339(s)
+        .or_else(|_| chrono::DateTime::parse_from_rfc3339(&normalize_pg_dt(s)))
+        .map(|d| d.with_timezone(&Utc))
+        .unwrap_or_else(|_| Utc::now())
+}
+
 fn parse_datetime_utc(val: &Option<String>) -> Option<DateTime<Utc>> {
-    val.as_ref().and_then(|s| {
-        chrono::DateTime::parse_from_rfc3339(s)
-            .ok()
-            .map(|d| d.with_timezone(&Utc))
-    })
+    val.as_ref().map(|s| parse_datetime_required(s))
 }
 
 

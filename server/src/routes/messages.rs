@@ -1182,6 +1182,7 @@ mod tests {
                 is_direct: None,
                 recipient_user_id: None,
                 attachment_ids: vec![],
+                reply_to_message_id: None,
             }),
         )
         .await;
@@ -1234,6 +1235,7 @@ mod tests {
                 is_direct: None,
                 recipient_user_id: None,
                 attachment_ids: vec![],
+                reply_to_message_id: None,
             }),
         )
         .await;
@@ -1262,6 +1264,7 @@ mod tests {
                 is_direct: None,
                 recipient_user_id: None,
                 attachment_ids: vec![],
+                reply_to_message_id: None,
             }),
         )
         .await;
@@ -1579,6 +1582,7 @@ mod tests {
                 is_direct: None,
                 recipient_user_id: None,
                 attachment_ids: vec![],
+                reply_to_message_id: None,
             }),
         )
         .await

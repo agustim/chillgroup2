@@ -47,6 +47,28 @@ interface MessageListProps {
   socketDeletedMessageIds?: Set<string>
 }
 
+function MessageCountdown({ expiresAt }: { expiresAt: string }) {
+  const [remaining, setRemaining] = useState('')
+  useEffect(() => {
+    const update = () => {
+      const diff = new Date(expiresAt).getTime() - Date.now()
+      if (diff <= 0) { setRemaining('Expirat'); return }
+      const s = Math.floor(diff / 1000)
+      const m = Math.floor(s / 60)
+      const h = Math.floor(m / 60)
+      const d = Math.floor(h / 24)
+      if (d > 0) setRemaining(`${d}d ${h % 24}h ${m % 60}m`)
+      else if (h > 0) setRemaining(`${h}h ${m % 60}m ${s % 60}s`)
+      else if (m > 0) setRemaining(`${m}m ${s % 60}s`)
+      else setRemaining(`${s}s`)
+    }
+    update()
+    const timer = setInterval(update, 1000)
+    return () => clearInterval(timer)
+  }, [expiresAt])
+  return <span>{remaining}</span>
+}
+
 export function MessageList({
   channelId,
   scope,
@@ -82,6 +104,9 @@ export function MessageList({
 
   // Inline delete confirm state
   const [confirmDeleteMessageId, setConfirmDeleteMessageId] = useState<string | null>(null)
+
+  // Info popover state
+  const [infoMessageId, setInfoMessageId] = useState<string | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesTopRef = useRef<HTMLDivElement>(null)
@@ -625,6 +650,42 @@ export function MessageList({
                       title="Eliminar"
                       onClick={() => setConfirmDeleteMessageId(msg.messageId)}
                     >🗑</button>
+                  )}
+                  <button
+                    className="message-action-btn"
+                    title="Informació"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setInfoMessageId((prev) => prev === msg.messageId ? null : msg.messageId)
+                    }}
+                  >ℹ️</button>
+                  {infoMessageId === msg.messageId && (
+                    <div className="message-info-popover">
+                      <div className="message-info-row">
+                        <span className="message-info-label">Enviat</span>
+                        <span className="message-info-value">{new Date(msg.timestamp).toLocaleString('ca-ES')}</span>
+                      </div>
+                      {msg.editedAt && (
+                        <div className="message-info-row">
+                          <span className="message-info-label">Editat</span>
+                          <span className="message-info-value">{new Date(msg.editedAt).toLocaleString('ca-ES')}</span>
+                        </div>
+                      )}
+                      {msg.expiresAt && (
+                        <div className="message-info-row">
+                          <span className="message-info-label">⏱ S'elimina en</span>
+                          <span className="message-info-value message-info-expiry">
+                            <MessageCountdown expiresAt={msg.expiresAt} />
+                          </span>
+                        </div>
+                      )}
+                      {msg.keyVersion != null && (
+                        <div className="message-info-row">
+                          <span className="message-info-label">Clau</span>
+                          <span className="message-info-value">v{msg.keyVersion}</span>
+                        </div>
+                      )}
+                    </div>
                   )}
                   {emojiPickerMessageId === msg.messageId && (
                     <div className="emoji-picker">

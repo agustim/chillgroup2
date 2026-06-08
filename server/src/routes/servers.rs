@@ -937,6 +937,7 @@ mod tests {
                 Some(1),
                 None,
                 Utc::now(),
+                None,
             )
             .await
             .expect("message should be created");

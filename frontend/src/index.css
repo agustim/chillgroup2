@@ -1128,6 +1128,44 @@ body {
   color: #dc3545;
 }
 
+/* Message info popover */
+.message-info-popover {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--bg-active);
+  border-radius: 8px;
+  padding: 8px 12px;
+  min-width: 210px;
+  z-index: 20;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  font-size: 12px;
+}
+
+.message-info-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+}
+
+.message-info-label {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.message-info-value {
+  color: var(--text-primary);
+  text-align: right;
+}
+
+.message-info-expiry {
+  color: #f59e0b;
+  font-weight: 600;
+}
+
 /* Emoji picker */
 .emoji-picker {
   position: absolute;

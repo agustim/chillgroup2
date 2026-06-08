@@ -181,6 +181,7 @@ async fn postgres_message_read_flow_roundtrip() {
         Some(1),
         Some(expires_at),
         timestamp,
+        None,
     )
     .await
     .expect("create message");
@@ -263,13 +264,13 @@ async fn postgres_expired_message_cleanup_roundtrip() {
         Some(1),
         Some(expires_at),
         timestamp,
+        None,
     )
     .await
     .expect("create expired message");
 
-    let deleted = db.delete_expired_messages().await.expect("delete expired messages");
-    assert_eq!(deleted.len(), 1);
-    assert_eq!(deleted[0].0, message_id);
+    let (deleted, _) = db.delete_expired_messages().await.expect("delete expired messages");
+    assert!(deleted.iter().any(|(id, _)| *id == message_id));
 }
 
 #[tokio::test]
@@ -309,4 +310,153 @@ async fn postgres_dm_channel_creation_roundtrip() {
     assert_eq!(channel.encryption_type, EncryptionType::Asymmetric);
     assert_eq!(channel.message_ttl, Some(120));
     assert!(channel.is_private);
+}
+
+// ── TTL cleanup edge-case tests ───────────────────────────────────────────────
+
+async fn setup_channel(db: &DatabasePool, suffix: &str) -> (Uuid, Uuid, Uuid) {
+    let user_id = db
+        .create_user_with_role(&format!("user-{suffix}"), "password-hash", "user")
+        .await
+        .expect("create user");
+    let device_id = db
+        .upsert_device_for_user(user_id, &format!("dev-{suffix}"), None)
+        .await
+        .expect("create device");
+    let server_id = Uuid::new_v4();
+    db.create_server_with_owner(server_id, &format!("srv-{suffix}"), None, user_id)
+        .await
+        .expect("create server");
+    let channel_id = Uuid::new_v4();
+    db.create_channel(channel_id, server_id, "ch", "text", "none", None, false)
+        .await
+        .expect("create channel");
+    (user_id, device_id, channel_id)
+}
+
+#[tokio::test]
+async fn postgres_ttl_cleanup_with_thumbnail_attachment_no_fk_violation() {
+    let pool = test_pool().await;
+    let db = DatabasePool::Postgres(pool.clone());
+    let suffix = Uuid::new_v4().simple().to_string();
+    let (user_id, device_id, channel_id) = setup_channel(&db, &suffix).await;
+
+    let message_id = Uuid::new_v4();
+    db.create_message(
+        message_id, channel_id, user_id, "sender", device_id,
+        "payload", "iv", None,
+        Some(Utc::now() - Duration::minutes(1)),
+        Utc::now() - Duration::hours(2),
+        None,
+    ).await.expect("create expired message");
+
+    let thumb_id = Uuid::new_v4();
+    let main_id = Uuid::new_v4();
+
+    sqlx::query(
+        "INSERT INTO attachments \
+         (id, channel_id, uploader_user_id, uploader_device_id, file_name, mime_type, \
+          size_bytes, created_at, object_key, status, upload_id, chunk_size_bytes, chunk_count) \
+         VALUES ($1,$2,$3,$4,'thumb.jpg','image/jpeg',100,NOW(),'thumb-key-tst','linked','u1',1024,1)",
+    )
+    .bind(thumb_id).bind(channel_id).bind(user_id).bind(device_id)
+    .execute(&pool).await.expect("insert thumbnail attachment");
+
+    sqlx::query(
+        "INSERT INTO attachments \
+         (id, channel_id, uploader_user_id, uploader_device_id, file_name, mime_type, \
+          size_bytes, created_at, object_key, status, upload_id, chunk_size_bytes, chunk_count, \
+          thumbnail_attachment_id) \
+         VALUES ($1,$2,$3,$4,'main.jpg','image/jpeg',1000,NOW(),'main-key-tst','linked','u2',1024,1,$5)",
+    )
+    .bind(main_id).bind(channel_id).bind(user_id).bind(device_id).bind(thumb_id)
+    .execute(&pool).await.expect("insert main attachment with thumbnail ref");
+
+    sqlx::query("INSERT INTO message_attachments (message_id, attachment_id) VALUES ($1,$2)")
+        .bind(message_id).bind(main_id)
+        .execute(&pool).await.expect("link attachment to message");
+
+    let (deleted, _) = db.delete_expired_messages().await
+        .expect("TTL cleanup must not fail with FK violation on thumbnail_attachment_id");
+
+    assert!(deleted.iter().any(|(id, _)| *id == message_id), "expired message deleted");
+
+    let (main_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM attachments WHERE id=$1")
+        .bind(main_id).fetch_one(&pool).await.unwrap();
+    assert_eq!(main_count, 0, "main attachment deleted");
+
+    let (thumb_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM attachments WHERE id=$1")
+        .bind(thumb_id).fetch_one(&pool).await.unwrap();
+    assert_eq!(thumb_count, 0, "thumbnail attachment deleted");
+}
+
+#[tokio::test]
+async fn postgres_ttl_cleanup_cascades_reactions() {
+    let pool = test_pool().await;
+    let db = DatabasePool::Postgres(pool.clone());
+    let suffix = Uuid::new_v4().simple().to_string();
+    let (user_id, device_id, channel_id) = setup_channel(&db, &suffix).await;
+
+    let message_id = Uuid::new_v4();
+    db.create_message(
+        message_id, channel_id, user_id, "sender", device_id,
+        "payload", "iv", None,
+        Some(Utc::now() - Duration::minutes(1)),
+        Utc::now() - Duration::hours(2),
+        None,
+    ).await.expect("create expired message");
+
+    db.add_reaction(message_id, user_id, &format!("user-{suffix}"), "👍")
+        .await.expect("add reaction");
+
+    let reactions = db.get_reactions_for_message(message_id).await.unwrap();
+    assert!(!reactions.is_empty(), "reaction must exist before cleanup");
+
+    let (deleted, _) = db.delete_expired_messages().await
+        .expect("TTL cleanup must succeed");
+    assert!(deleted.iter().any(|(id, _)| *id == message_id));
+
+    let (count,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM message_reactions WHERE message_id=$1",
+    )
+    .bind(message_id).fetch_one(&pool).await.unwrap();
+    assert_eq!(count, 0, "reactions deleted via ON DELETE CASCADE");
+}
+
+#[tokio::test]
+async fn postgres_ttl_cleanup_nulls_reply_to_on_surviving_messages() {
+    let pool = test_pool().await;
+    let db = DatabasePool::Postgres(pool.clone());
+    let suffix = Uuid::new_v4().simple().to_string();
+    let (user_id, device_id, channel_id) = setup_channel(&db, &suffix).await;
+
+    let msg_a = Uuid::new_v4();
+    db.create_message(
+        msg_a, channel_id, user_id, "sender", device_id,
+        "payload-a", "iv", None,
+        Some(Utc::now() - Duration::minutes(1)),
+        Utc::now() - Duration::hours(2),
+        None,
+    ).await.expect("create expired message A");
+
+    let msg_b = Uuid::new_v4();
+    db.create_message(
+        msg_b, channel_id, user_id, "sender", device_id,
+        "payload-b", "iv", None,
+        None,
+        Utc::now() - Duration::hours(1),
+        Some(msg_a),
+    ).await.expect("create non-expired message B replying to A");
+
+    let (deleted, _) = db.delete_expired_messages().await
+        .expect("TTL cleanup must succeed");
+
+    assert!(deleted.iter().any(|(id, _)| *id == msg_a), "message A deleted");
+    assert!(!deleted.iter().any(|(id, _)| *id == msg_b), "message B NOT deleted");
+
+    let (reply_to,): (Option<Uuid>,) = sqlx::query_as(
+        "SELECT reply_to_message_id FROM messages WHERE id=$1",
+    )
+    .bind(msg_b).fetch_one(&pool).await.unwrap();
+    assert_eq!(reply_to, None, "reply_to_message_id nulled via ON DELETE SET NULL");
 }
