@@ -926,6 +926,16 @@ body {
   pointer-events: none;
 }
 
+.message-bubble.highlighted {
+  animation: message-highlight 1.5s ease-out forwards;
+  border-radius: 4px;
+}
+
+@keyframes message-highlight {
+  0%   { background: var(--accent-muted, rgba(88, 101, 242, 0.3)); }
+  100% { background: transparent; }
+}
+
 @keyframes message-expire {
   0%   { opacity: 1;   transform: scaleY(1);    max-height: 200px; margin-top: inherit; }
   40%  { opacity: 0.3; transform: scaleY(0.85); max-height: 200px; }
@@ -1242,6 +1252,16 @@ body {
   font-size: 12px;
   color: var(--text-muted);
   cursor: default;
+}
+
+.message-reply-context--clickable {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.message-reply-context--clickable:hover {
+  background: var(--bg-hover, var(--bg-active));
+  filter: brightness(1.1);
 }
 
 .message-reply-sender {

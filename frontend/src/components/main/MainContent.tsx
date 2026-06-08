@@ -59,6 +59,7 @@ export function MainContent({
   const [socketMessages, setSocketMessages] = useState<Message[]>([])
   const [expiringMessageIds, setExpiringMessageIds] = useState<Set<string>>(new Set())
   const [socketDeletedMessageIds, setSocketDeletedMessageIds] = useState<Set<string>>(new Set())
+  const [socketEditedMessages, setSocketEditedMessages] = useState<Record<string, Message>>({})
   const [focusTrigger, setFocusTrigger] = useState(0)
   const [replyTo, setReplyTo] = useState<{ messageId: string; senderUsername: string; text: string } | null>(null)
 
@@ -76,6 +77,19 @@ export function MainContent({
 
   const handleMessageDeleted = useCallback((messageId: string) => {
     setSocketDeletedMessageIds((prev) => new Set([...prev, messageId]))
+  }, [])
+
+  const handleMessageEdited = useCallback((msg: Message) => {
+    setSocketMessages((prev) => {
+      const idx = prev.findIndex((m) => m.messageId === msg.messageId)
+      if (idx !== -1) {
+        const next = [...prev]
+        next[idx] = msg
+        return next
+      }
+      return prev
+    })
+    setSocketEditedMessages((prev) => ({ ...prev, [msg.messageId]: msg }))
   }, [])
 
   const handleMessagesExpired = useCallback((_channelId: string, messageIds: string[]) => {
@@ -97,6 +111,7 @@ export function MainContent({
     onUnreadUpdated,
     onMessagesExpired: handleMessagesExpired,
     onMessageDeleted: handleMessageDeleted,
+    onMessageEdited: handleMessageEdited,
   })
 
   // Netejar missatges de socket quan canviem de canal
@@ -351,6 +366,7 @@ export function MainContent({
               lastReadMessageId={channel.lastReadMessageId}
               permissionLevel={channel.permissionLevel}
               socketDeletedMessageIds={socketDeletedMessageIds}
+              socketEditedMessages={socketEditedMessages}
               onReplyTo={(msg, text) => {
                 setReplyTo({ messageId: msg.messageId, senderUsername: msg.senderUsername, text })
                 setFocusTrigger((n) => n + 1)
