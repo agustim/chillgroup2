@@ -45,6 +45,7 @@ interface MessageListProps {
   permissionLevel?: number | null
   onReplyTo?: (msg: Message, plaintext: string) => void
   socketDeletedMessageIds?: Set<string>
+  socketEditedMessages?: Record<string, Message>
 }
 
 function MessageCountdown({ expiresAt }: { expiresAt: string }) {
@@ -81,6 +82,7 @@ export function MessageList({
   permissionLevel,
   onReplyTo,
   socketDeletedMessageIds,
+  socketEditedMessages,
 }: MessageListProps) {
   const { user, currentDeviceId } = useAuth()
   const [messages, setMessages] = useState<Message[]>([])
@@ -107,6 +109,7 @@ export function MessageList({
 
   // Info popover state
   const [infoMessageId, setInfoMessageId] = useState<string | null>(null)
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesTopRef = useRef<HTMLDivElement>(null)
@@ -287,6 +290,13 @@ export function MessageList({
         : m,
     ))
   }, [socketDeletedMessageIds])
+
+  useEffect(() => {
+    if (!socketEditedMessages || Object.keys(socketEditedMessages).length === 0) return
+    setMessages((prev) => prev.map((m) =>
+      socketEditedMessages[m.messageId] ? socketEditedMessages[m.messageId] : m,
+    ))
+  }, [socketEditedMessages])
 
   const loadedIds = new Set(messages.map((m) => m.messageId))
   const combined = [
@@ -550,9 +560,19 @@ export function MessageList({
     }
   }
 
+  const handleScrollToMessage = (messageId: string) => {
+    const el = document.querySelector(`[data-message-id="${messageId}"]`)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      setHighlightedMessageId(messageId)
+      setTimeout(() => setHighlightedMessageId(null), 1500)
+    }
+  }
+
   const handleReply = (msg: Message) => {
     const plaintext = decryptedPayloads[msg.messageId] ?? msg.encryptedPayload
-    onReplyTo?.(msg, plaintext)
+    const text = plaintext || (msg.attachmentIds?.length ? '[Imatge]' : '')
+    onReplyTo?.(msg, text)
   }
 
   // Find reply-to message for display
@@ -602,8 +622,11 @@ export function MessageList({
         const isEditing = editingMessageId === msg.messageId
         const plaintext = decryptedPayloads[msg.messageId] ?? msg.encryptedPayload
         const replyParent = msg.replyToMessageId ? messageById.get(msg.replyToMessageId) : null
-        const replyParentText = replyParent
+        const replyParentRaw = replyParent
           ? (decryptedPayloads[replyParent.messageId] ?? replyParent.encryptedPayload)
+          : null
+        const replyParentText = replyParent
+          ? (replyParentRaw || (replyParent.attachmentIds?.length ? '[Imatge]' : ''))
           : null
 
         return (
@@ -614,7 +637,8 @@ export function MessageList({
               </div>
             )}
             <div
-              className={`message-bubble ${msg.deletedAt ? 'deleted' : ''} ${msg.editedAt ? 'edited' : ''} ${showHeader ? 'first-in-row' : ''} ${expiringMessageIds?.has(msg.messageId) ? 'expiring' : ''} ${hoveredMessageId === msg.messageId ? 'hovered' : ''}`}
+              data-message-id={msg.messageId}
+              className={`message-bubble ${msg.deletedAt ? 'deleted' : ''} ${msg.editedAt ? 'edited' : ''} ${showHeader ? 'first-in-row' : ''} ${expiringMessageIds?.has(msg.messageId) ? 'expiring' : ''} ${hoveredMessageId === msg.messageId ? 'hovered' : ''} ${highlightedMessageId === msg.messageId ? 'highlighted' : ''}`}
               onMouseEnter={() => setHoveredMessageId(msg.messageId)}
               onMouseLeave={() => setHoveredMessageId(null)}
               onTouchStart={(e) => { e.stopPropagation(); setHoveredMessageId(msg.messageId) }}
@@ -717,8 +741,11 @@ export function MessageList({
 
               <div className="message-content">
                 {/* Reply-to context */}
-                {replyParent && replyParentText && !msg.deletedAt && (
-                  <div className="message-reply-context">
+                {replyParent && !msg.deletedAt && (
+                  <div
+                    className="message-reply-context message-reply-context--clickable"
+                    onClick={() => handleScrollToMessage(replyParent.messageId)}
+                  >
                     <span className="message-reply-sender">{replyParent.senderUsername}</span>
                     <span className="message-reply-text">
                       {replyParentText.slice(0, 100)}{replyParentText.length > 100 ? '…' : ''}

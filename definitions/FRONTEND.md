@@ -232,6 +232,34 @@ frontend/
 - El canal actiu mostra una indicació visual (fons verd, icona animada)
 - Els usuaris dins del canal es mostren a la llista de canals
 
+#### Controls de Veu (barra inferior del sidebar)
+
+| Botó | Icona | Acció |
+|------|-------|-------|
+| Micròfon | 🎤 | Toggle mute/unmute local |
+| Altaveu | 🔊 | Toggle deafen (silencia tots els remots) |
+| Càmera | 🎥 | Toggle càmera local |
+| Pantalla | 🖥️ | Toggle screen share |
+| Fitxer media | 🎬 | Compartir fitxer d'àudio o vídeo al canal |
+
+#### Compartir Fitxer de Media
+- Clic a 🎬 obre el selector de fitxers del sistema operatiu (`audio/*`, `video/*`)
+- El fitxer es reprodueix localment i l'stream s'envia als altres membres via LiveKit
+- El propietari veu un **reproductor flotant** (`MediaFilePlayer`) a la VoiceArea amb:
+  - Preview de vídeo (si el fitxer és vídeo)
+  - Barra de seek + temps actual/total
+  - Botó play/pause
+  - Botó mute local (silencia la reproducció local sense aturar l'stream)
+  - Botó ✕ per aturar i tancar
+- Si el fitxer és àudio sense vídeo, apareix igualment un **tile** a la graella de participants amb badge `FILE`
+- Quan el fitxer acaba, l'share s'atura automàticament
+- Mecanisme tècnic: `HTMLVideoElement.captureStream()` → `LocalVideoTrack` + `LocalAudioTrack` → LiveKit `publishTrack`
+
+#### Silenciar Streams Localment
+Qualsevol tile de participant (remot o fitxer media local) té un botó 🔊/🔇 al costat de 📌 i ⛶:
+- **Participant remot**: muta el seu `HTMLAudioElement` local (no afecta l'stream)
+- **Tile FILE local**: muta la reproducció local del fitxer (equivalent al botó del `MediaFilePlayer`)
+
 ## Sistema de Temes (Dark/Light)
 
 ### CSS Variables — Tema Dark (Per defecte)
@@ -917,98 +945,50 @@ export const ChannelHeader: React.FC<ChannelHeaderProps> = ({
 
 ### `VoiceArea` — Àrea de Veu
 
-```tsx
-// components/main/VoiceArea.tsx
+`components/main/VoiceArea.tsx`
 
-interface VoiceAreaProps {
-  channelName: string
-  encryptionType: 'none' | 'symmetric' | 'asymmetric'
-  micEnabled: boolean
-  cameraEnabled: boolean
-  screenShareEnabled: boolean
-  connectionStatus: string
-  onToggleMic: () => void
-  onToggleCamera: () => void
-  onToggleScreenShare: () => void
-  onLeave: () => void
-  participants: VoiceParticipant[]
-}
+Props principals:
 
-interface VoiceParticipant {
-  identity: string
-  isMicrophoneEnabled: boolean
-  isSpeaking: boolean
-  hasVideo: boolean
-}
+| Prop | Tipus | Descripció |
+|------|-------|------------|
+| `connection` | `VoiceConnection \| null` | Estat de la connexió activa |
+| `localVideoTrack` | `any` | Track de càmera local |
+| `localScreenTrack` | `any` | Track de screen share local |
+| `localMediaFileTrack` | `any` | Track de vídeo del fitxer media (null si àudio-only) |
+| `isMediaFileSharing` | `boolean` | Indica si s'està compartint un fitxer (inclou àudio-only) |
+| `mediaFileName` | `string \| null` | Nom del fitxer que s'està compartint |
+| `mediaFileElementRef` | `MutableRefObject<HTMLVideoElement \| null>` | Ref a l'element DOM per al reproductor |
+| `onStopMediaFileShare` | `() => void` | Callback per aturar el file share |
+| `onSetParticipantLocalMuted` | `(identity, muted) => void` | Mute local d'un participant remot |
+| `remoteVideoTracks` | `Record<string, any[]>` | Tracks de vídeo remots per userId |
 
-export const VoiceArea: React.FC<VoiceAreaProps> = ({
-  channelName,
-  encryptionType,
-  micEnabled,
-  cameraEnabled,
-  screenShareEnabled,
-  connectionStatus,
-  onToggleMic,
-  onToggleCamera,
-  onToggleScreenShare,
-  onLeave,
-  participants,
-}) => {
-  return (
-    <div className="voice-area">
-      {/* Header del canal de veu */}
-      <div className="voice-channel-header">
-        <span>🔊 {channelName}</span>
-        <span className="voice-participant-count">{participants.length} participants</span>
-      </div>
+**Tiles de participants** — La graella construeix `ParticipantRenderItem[]` amb:
+- Participant local (càmera si activa)
+- Tile `SCREEN` local (si screen share actiu)
+- Tile `FILE` local (si `isMediaFileSharing`, sense vídeo si és àudio-only)
+- Un tile per cada track remot (badge `CAM` o `SCREEN` segons source)
 
-      {/* Grid de participants */}
-      <div className="video-grid">
-        {participants.map(p => (
-          <div
-            key={p.identity}
-            className={`video-tile ${p.isSpeaking ? 'speaking' : ''}`}
-          >
-            <div className="video-tile-label">{p.identity}</div>
-            {/* LiveKit track es renderitza aquí via hook */}
-            {p.hasVideo && <VideoElement participant={p} />}
-            {p.isMicrophoneEnabled ? (
-              <span className="status">🎤</span>
-            ) : (
-              <span className="status muted">🔇</span>
-            )}
-          </div>
-        ))}
-      </div>
+**Modes de visualització:** `mosaic` (graella automàtica) | `focus` (un participant gran + strip lateral)
 
-      {/* Controls */}
-      <div className="voice-controls">
-        <button
-          className={`voice-btn-mic ${micEnabled ? '' : 'muted'}`}
-          onClick={onToggleMic}
-        >
-          {micEnabled ? '🎤 Activat' : '🎤 Mut'}
-        </button>
-        <button
-          className={`voice-btn-camera ${cameraEnabled ? 'active' : ''}`}
-          onClick={onToggleCamera}
-        >
-          {cameraEnabled ? '📷 Activada' : '📷 Càmera'}
-        </button>
-        <button
-          className={`voice-btn-screen ${screenShareEnabled ? 'active' : ''}`}
-          onClick={onToggleScreenShare}
-        >
-          {screenShareEnabled ? '🖥️ Compartint' : '🖥️ Pantalla'}
-        </button>
-        <button className="voice-btn-leave" onClick={onLeave}>
-          🚪 Deixa
-        </button>
-      </div>
-    </div>
-  )
-}
-```
+**Mute local per stream:** cada tile té botó 🔊/🔇. L'estat es gestiona amb `localMutedStreamIds: Set<string>` intern a `VoiceArea`.
+
+### `MediaFilePlayer` — Reproductor Flotant
+
+`components/main/MediaFilePlayer.tsx`
+
+Overlay posicionat `absolute` a la cantonada inferior dreta de `VoiceArea`. Apareix quan `mediaFileName` és no-nul.
+
+| Prop | Tipus | Descripció |
+|------|-------|------------|
+| `mediaFileElementRef` | `MutableRefObject<HTMLVideoElement \| null>` | Ref a l'element DOM font |
+| `fileName` | `string` | Nom del fitxer (truncat a 28 chars) |
+| `onStop` | `() => void` | Atura i tanca el reproductor |
+
+Comportament intern:
+- Mou l'element `<video>` DOM al contenidor del reproductor per mostrar el preview
+- En desmuntar, retorna l'element al `document.body` (ocult) perquè el hook pugui netejar-lo
+- Detecta si és vídeo via `el.videoWidth > 0` (event `loadedmetadata`)
+- Controls: play/pause, seek (input range), mute local, aturar
 
 ### `MessageList` — Llista de Missatges
 
@@ -1100,6 +1080,55 @@ export const MessageList: React.FC<MessageListProps> = ({
    └─> MessageList es renderitza amb missatge nou
   └─> Si E2EE → desencripta amb channelKey recuperada des de IndexedDB (requereix vault local desbloquejat)
 ```
+
+## Flux de Compartir Fitxer de Media
+
+```
+1. USUARI CLICA 🎬 (sidebar bottom controls)
+   └─> Si isMediaFileSharing → stopMediaFileShare() i end
+   └─> Si no → obre <input type="file" accept="audio/*,video/*">
+
+2. USUARI SELECCIONA FITXER
+   └─> startMediaFileShare(file) a useLiveKit
+
+3. CREACIÓ DE L'ELEMENT DOM
+   └─> document.createElement('video')
+   └─> el.src = URL.createObjectURL(file)
+   └─> el.style = hidden (position:absolute; left:-9999px)
+   └─> document.body.appendChild(el)
+   └─> await el.play()
+
+4. CAPTURA DE L'STREAM
+   └─> stream = el.captureStream()
+   └─> videoTrack = stream.getVideoTracks()[0]  (null si àudio-only)
+   └─> audioTrack = stream.getAudioTracks()[0]  (null si vídeo sense so)
+
+5. PUBLICACIÓ A LIVEKIT
+   └─> Si videoTrack → new LocalVideoTrack(videoMediaTrack, undefined, true)
+       └─> room.localParticipant.publishTrack(lvTrack)
+   └─> Si audioTrack → new LocalAudioTrack(audioMediaTrack, undefined, true)
+       └─> room.localParticipant.publishTrack(laTrack)
+
+6. ESTAT ACTUALITZAT
+   └─> isMediaFileSharing = true
+   └─> mediaFileName = file.name
+   └─> localMediaFileTrack = lvTrack (o null si àudio-only)
+   └─> VoiceArea mostra tile FILE + MediaFilePlayer overlay
+
+7. FI DE L'SHARE
+   └─> Automàtic: event 'ended' de l'element → stopMediaFileShare()
+   └─> Manual: clic ✕ al MediaFilePlayer o 🎬 al sidebar
+
+8. NETEJA
+   └─> unpublishTrack per cada track publicat
+   └─> el.pause() + el.src = '' + el.remove()
+   └─> URL.revokeObjectURL(objectUrl)
+   └─> Estat resetejat
+```
+
+**Nota:** `captureStream()` no és suportat a Safari. A Firefox i Chrome funciona correctament.
+
+**Limitació actual:** els participants remots NO veuen un tile FILE per streams d'àudio-only (necessitaria un event Socket.IO out-of-band). Pendent per iteració futura.
 
 ## Flux de Connexió a Veu
 

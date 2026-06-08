@@ -4643,8 +4643,12 @@ impl DatabasePool {
                 })
             }
             DatabasePool::Sqlite(pool) => {
-                let query = query.replace("$1", "?").replace("$2", "?").replace("$3", "?").replace("$4", "?");
-                let row = sqlx::query(&query)
+                let sqlite_query = "UPDATE messages SET encrypted_payload = ?, iv = ?, edited_at = ? \
+                                    WHERE id = ? \
+                                    RETURNING id, channel_id, sender_user_id, sender_username, sender_device_id, \
+                                              encrypted_payload, iv, key_version, timestamp, expires_at, edited_at, deleted_at, \
+                                              reply_to_message_id";
+                let row = sqlx::query(sqlite_query)
                     .bind(payload)
                     .bind(iv)
                     .bind(edited_at.to_rfc3339())

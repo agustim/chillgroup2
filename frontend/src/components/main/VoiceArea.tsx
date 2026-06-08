@@ -1,5 +1,6 @@
-import React, { useRef, useEffect, useState } from 'react'
+import React, { useRef, useEffect, useState, MutableRefObject } from 'react'
 import { VoiceConnection } from '../../types'
+import { MediaFilePlayer } from './MediaFilePlayer'
 
 type ViewMode = 'mosaic' | 'focus'
 
@@ -19,6 +20,12 @@ interface VoiceAreaProps {
   onToggleVoiceAsTextMode?: () => void
   localVideoTrack?: any
   localScreenTrack?: any
+  localMediaFileTrack?: any
+  mediaFileName?: string | null
+  mediaFileElementRef?: MutableRefObject<HTMLVideoElement | null>
+  onStopMediaFileShare?: () => void
+  onSetParticipantLocalMuted?: (identity: string, muted: boolean) => void
+  isMediaFileSharing?: boolean
   remoteVideoTracks?: Record<string, any[]>
 }
 
@@ -29,16 +36,22 @@ function ParticipantTile({
   streamBadge,
   isLocal = false,
   isPinned = false,
+  isLocallyMuted = false,
+  showMuteBtn = false,
   onTogglePin,
   onOpenPopout,
+  onToggleLocalMute,
 }: {
   participant: { userId: string; username: string; isSpeaking: boolean; isDeafened: boolean; isSuppressed: boolean }
   videoTrack?: any
   streamBadge?: string
   isLocal?: boolean
   isPinned?: boolean
+  isLocallyMuted?: boolean
+  showMuteBtn?: boolean
   onTogglePin?: () => void
   onOpenPopout?: () => void
+  onToggleLocalMute?: () => void
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
 
@@ -67,6 +80,15 @@ function ParticipantTile({
         >
           ⛶
         </button>
+        {showMuteBtn && (
+          <button
+            className={`participant-action-btn ${isLocallyMuted ? 'active-off' : ''}`}
+            onClick={onToggleLocalMute}
+            title={isLocallyMuted ? 'Activar so localment' : 'Silenciar localment'}
+          >
+            {isLocallyMuted ? '🔇' : '🔊'}
+          </button>
+        )}
       </div>
       {videoTrack ? (
         <video
@@ -98,6 +120,12 @@ export function VoiceArea({
   onToggleVoiceAsTextMode,
   localVideoTrack,
   localScreenTrack,
+  localMediaFileTrack,
+  mediaFileName,
+  mediaFileElementRef,
+  onStopMediaFileShare,
+  onSetParticipantLocalMuted,
+  isMediaFileSharing = false,
   remoteVideoTracks = {},
 }: VoiceAreaProps) {
   if (!connection) return null
@@ -109,6 +137,23 @@ export function VoiceArea({
   const [participantZoom, setParticipantZoom] = useState(DEFAULT_ZOOM)
   const [viewMode, setViewMode] = useState<ViewMode>('mosaic')
   const [pinnedParticipantId, setPinnedParticipantId] = useState<string | null>(null)
+  const [localMutedStreamIds, setLocalMutedStreamIds] = useState<Set<string>>(new Set())
+
+  const toggleLocalMute = (item: ParticipantRenderItem) => {
+    const wasMuted = localMutedStreamIds.has(item.id)
+    const newMuted = !wasMuted
+    if (item.isLocal && item.id.endsWith('-file')) {
+      if (mediaFileElementRef?.current) mediaFileElementRef.current.muted = newMuted
+    } else if (!item.isLocal) {
+      onSetParticipantLocalMuted?.(item.participant.userId, newMuted)
+    }
+    setLocalMutedStreamIds(prev => {
+      const next = new Set(prev)
+      if (newMuted) next.add(item.id)
+      else next.delete(item.id)
+      return next
+    })
+  }
 
   const conn = connection
   const localParticipant = conn.participants[0]
@@ -149,6 +194,17 @@ export function VoiceArea({
         streamBadge: 'SCREEN',
         isLocal: true,
         isScreen: true,
+      })
+    }
+
+    if (isMediaFileSharing) {
+      renderParticipants.push({
+        id: `${localParticipant.userId}-file`,
+        participant: localParticipant,
+        videoTrack: localMediaFileTrack ?? undefined,
+        streamBadge: 'FILE',
+        isLocal: true,
+        isScreen: false,
       })
     }
   }
@@ -336,8 +392,11 @@ export function VoiceArea({
                 streamBadge={focusedParticipant.streamBadge}
                 isLocal={focusedParticipant.isLocal}
                 isPinned={pinnedParticipantId === focusedParticipant.id}
+                isLocallyMuted={localMutedStreamIds.has(focusedParticipant.id)}
+                showMuteBtn={!focusedParticipant.isLocal || focusedParticipant.id.endsWith('-file')}
                 onTogglePin={() => togglePinParticipant(focusedParticipant.id)}
                 onOpenPopout={() => openParticipantPopout(focusedParticipant)}
+                onToggleLocalMute={() => toggleLocalMute(focusedParticipant)}
               />
             </div>
             <div className="participants-focus-strip">
@@ -349,8 +408,11 @@ export function VoiceArea({
                   streamBadge={item.streamBadge}
                   isLocal={item.isLocal}
                   isPinned={pinnedParticipantId === item.id}
+                  isLocallyMuted={localMutedStreamIds.has(item.id)}
+                  showMuteBtn={!item.isLocal || item.id.endsWith('-file')}
                   onTogglePin={() => togglePinParticipant(item.id)}
                   onOpenPopout={() => openParticipantPopout(item)}
+                  onToggleLocalMute={() => toggleLocalMute(item)}
                 />
               ))}
             </div>
@@ -365,13 +427,26 @@ export function VoiceArea({
                 streamBadge={item.streamBadge}
                 isLocal={item.isLocal}
                 isPinned={pinnedParticipantId === item.id}
+                isLocallyMuted={localMutedStreamIds.has(item.id)}
+                showMuteBtn={!item.isLocal || item.id.endsWith('-file')}
                 onTogglePin={() => togglePinParticipant(item.id)}
                 onOpenPopout={() => openParticipantPopout(item)}
+                onToggleLocalMute={() => toggleLocalMute(item)}
               />
             ))}
           </div>
         )}
       </div>
+
+      {mediaFileElementRef?.current && mediaFileName && (
+        <div className="media-file-player-overlay">
+          <MediaFilePlayer
+            mediaFileElementRef={mediaFileElementRef}
+            fileName={mediaFileName}
+            onStop={onStopMediaFileShare ?? (() => {})}
+          />
+        </div>
+      )}
     </div>
   )
 }

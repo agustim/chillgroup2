@@ -428,6 +428,27 @@ pub async fn edit_message(
             AppError::InternalError
         })?;
 
+    let room = format!("channel:{}", updated.channel_id);
+    let socket_event = serde_json::json!({
+        "messageId": updated.id,
+        "channelId": updated.channel_id,
+        "senderUserId": updated.sender_user_id,
+        "senderUsername": updated.sender_username,
+        "senderDeviceId": updated.sender_device_id,
+        "encryptedPayload": updated.encrypted_payload,
+        "iv": updated.iv,
+        "attachmentIds": updated.attachment_ids,
+        "keyVersion": updated.key_version,
+        "timestamp": updated.timestamp,
+        "expiresAt": updated.expires_at,
+        "editedAt": updated.edited_at,
+        "deletedAt": updated.deleted_at,
+        "replyToMessageId": updated.reply_to_message_id,
+    });
+    if let Err(e) = state.io.to(room).emit("message-edited", &socket_event).await {
+        tracing::warn!("Error broadcast message-edited: {:?}", e);
+    }
+
     Ok(Json(updated))
 }
 

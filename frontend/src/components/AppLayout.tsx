@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useRef } from 'react'
 import { ServerBar } from './sidebar/ServerBar'
 import { ChannelList } from './sidebar/ChannelList'
 import { MainContent } from './main/MainContent'
@@ -50,8 +50,12 @@ export function AppLayout({ username }: AppLayoutProps) {
     liveKitDeafened,
     liveKitCameraOn,
     liveKitScreenSharing,
+    liveKitMediaFileSharing,
     localVideoTrack,
     localScreenTrack,
+    localMediaFileTrack,
+    mediaFileName,
+    mediaFileElementRef,
     remoteVideoTracks,
     liveKitError,
     voicePresenceByChannel,
@@ -103,6 +107,9 @@ export function AppLayout({ username }: AppLayoutProps) {
     handleToggleDeafen,
     handleToggleCamera,
     handleToggleScreenShare,
+    handleStartMediaFileShare,
+    handleStopMediaFileShare,
+    handleSetParticipantLocalMuted,
     handleCreateServer,
     handleCreateServerSubmit,
     handleCreateTextChannel,
@@ -133,6 +140,16 @@ export function AppLayout({ username }: AppLayoutProps) {
     refreshServers,
   } = useAppState()
 
+  const mediaFileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleMediaFileShareToggle = () => {
+    if (liveKitMediaFileSharing) {
+      handleStopMediaFileShare()
+    } else {
+      mediaFileInputRef.current?.click()
+    }
+  }
+
   return (
     <div className="app-layout">
       <ServerBar
@@ -146,6 +163,18 @@ export function AppLayout({ username }: AppLayoutProps) {
         onServerAction={handleServerMenuAction}
       />
 
+      <input
+        ref={mediaFileInputRef}
+        type="file"
+        accept="audio/*,video/*"
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file) void handleStartMediaFileShare(file)
+          e.target.value = ''
+        }}
+      />
+
       {selectedServer && !isChannelListCollapsed && (
         <ChannelList
           channels={channels}
@@ -156,10 +185,12 @@ export function AppLayout({ username }: AppLayoutProps) {
           isDeafened={liveKitDeafened}
           isCameraOn={liveKitCameraOn}
           isScreenSharing={liveKitScreenSharing}
+          isMediaFileSharing={liveKitMediaFileSharing}
           onToggleMute={handleToggleMute}
           onToggleDeafen={handleToggleDeafen}
           onToggleCamera={() => { void handleToggleCamera() }}
           onToggleScreenShare={() => { void handleToggleScreenShare() }}
+          onToggleMediaFileShare={handleMediaFileShareToggle}
           onSelectChannel={(channel) => {
             if (channel.type === 'voice') {
               handleVoiceChannelClick(channel)
@@ -381,6 +412,12 @@ export function AppLayout({ username }: AppLayoutProps) {
             onUnreadUpdated={handleUnreadUpdated}
             localVideoTrack={localVideoTrack}
             localScreenTrack={localScreenTrack}
+            localMediaFileTrack={localMediaFileTrack}
+            mediaFileName={mediaFileName}
+            mediaFileElementRef={mediaFileElementRef}
+            onStopMediaFileShare={handleStopMediaFileShare}
+            onSetParticipantLocalMuted={handleSetParticipantLocalMuted}
+            isMediaFileSharing={liveKitMediaFileSharing}
             remoteVideoTracks={remoteVideoTracks}
             voiceAsTextMode={voiceAsTextMode}
             onToggleVoiceAsTextMode={toggleVoiceAsTextMode}
@@ -398,6 +435,12 @@ export function AppLayout({ username }: AppLayoutProps) {
             onLeaveVoice={handleLeaveVoiceChannel}
             localVideoTrack={localVideoTrack}
             localScreenTrack={localScreenTrack}
+            localMediaFileTrack={localMediaFileTrack}
+            mediaFileName={mediaFileName}
+            mediaFileElementRef={mediaFileElementRef}
+            onStopMediaFileShare={handleStopMediaFileShare}
+            onSetParticipantLocalMuted={handleSetParticipantLocalMuted}
+            isMediaFileSharing={liveKitMediaFileSharing}
             remoteVideoTracks={remoteVideoTracks}
             voiceAsTextMode={voiceAsTextMode}
             onToggleVoiceAsTextMode={toggleVoiceAsTextMode}

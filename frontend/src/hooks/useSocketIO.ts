@@ -24,14 +24,16 @@ interface UseSocketIOOptions {
   onUnreadUpdated?: (channelId: string, unreadCount: number) => void
   onMessagesExpired?: (channelId: string, messageIds: string[]) => void
   onMessageDeleted?: (messageId: string, channelId: string) => void
+  onMessageEdited?: (message: Message) => void
 }
 
-export function useSocketIO({ channelId, onMessage, onUnreadUpdated, onMessagesExpired, onMessageDeleted }: UseSocketIOOptions): void {
+export function useSocketIO({ channelId, onMessage, onUnreadUpdated, onMessagesExpired, onMessageDeleted, onMessageEdited }: UseSocketIOOptions): void {
   const prevChannelIdRef = useRef<string | null>(null)
   const onMessageRef = useRef(onMessage)
   const onUnreadUpdatedRef = useRef(onUnreadUpdated)
   const onMessagesExpiredRef = useRef(onMessagesExpired)
   const onMessageDeletedRef = useRef(onMessageDeleted)
+  const onMessageEditedRef = useRef(onMessageEdited)
 
   // Mantenir la referència actualitzada sense re-subscriure
   useEffect(() => {
@@ -49,6 +51,10 @@ export function useSocketIO({ channelId, onMessage, onUnreadUpdated, onMessagesE
   useEffect(() => {
     onMessageDeletedRef.current = onMessageDeleted
   }, [onMessageDeleted])
+
+  useEffect(() => {
+    onMessageEditedRef.current = onMessageEdited
+  }, [onMessageEdited])
 
   useEffect(() => {
     const socket = getSocket()
@@ -89,16 +95,37 @@ export function useSocketIO({ channelId, onMessage, onUnreadUpdated, onMessagesE
       onMessageDeletedRef.current?.(data.messageId, data.channelId)
     }
 
+    const handleMessageEdited = (data: SocketMessage & { replyToMessageId?: string | null }) => {
+      const message: Message = {
+        messageId: data.messageId,
+        channelId: data.channelId,
+        senderUserId: data.senderUserId,
+        senderUsername: data.senderUsername ?? '',
+        senderDeviceId: data.senderDeviceId,
+        encryptedPayload: data.encryptedPayload,
+        iv: data.iv,
+        attachmentIds: data.attachmentIds ?? [],
+        keyVersion: data.keyVersion ?? null,
+        timestamp: data.timestamp,
+        expiresAt: data.expiresAt ?? null,
+        editedAt: data.editedAt,
+        deletedAt: data.deletedAt,
+      }
+      onMessageEditedRef.current?.(message)
+    }
+
     socket.on('message', handleMessage)
     socket.on('unread-updated', handleUnreadUpdated)
     socket.on('messages-expired', handleMessagesExpired)
     socket.on('message-deleted', handleMessageDeleted)
+    socket.on('message-edited', handleMessageEdited)
 
     return () => {
       socket.off('message', handleMessage)
       socket.off('unread-updated', handleUnreadUpdated)
       socket.off('messages-expired', handleMessagesExpired)
       socket.off('message-deleted', handleMessageDeleted)
+      socket.off('message-edited', handleMessageEdited)
     }
   }, [channelId])
 

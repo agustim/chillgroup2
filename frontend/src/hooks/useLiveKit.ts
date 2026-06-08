@@ -17,6 +17,8 @@ import {
   isE2EESupported,
   createLocalScreenTracks,
   createLocalVideoTrack,
+  LocalVideoTrack,
+  LocalAudioTrack,
 } from 'livekit-client'
 import E2EEWorker from 'livekit-client/e2ee-worker?worker'
 import { logger } from '../lib/logger'
@@ -37,10 +39,18 @@ interface UseLiveKitResult {
   isCameraOn: boolean
   /** Compartint pantalla */
   isScreenSharing: boolean
+  /** Compartint fitxer de media */
+  isMediaFileSharing: boolean
   /** Track de vídeo local (per previsualitzar) */
   localVideoTrack: any | null
   /** Track local de compartir pantalla */
   localScreenTrack: any | null
+  /** Track local del fitxer de media (vídeo, si el fitxer és vídeo) */
+  localMediaFileTrack: any | null
+  /** Nom del fitxer de media que s'està compartint */
+  mediaFileName: string | null
+  /** Referència a l'element de media (per al reproductor) */
+  mediaFileElementRef: React.MutableRefObject<HTMLVideoElement | null>
   /** Tracks de vídeo remots (identity -> track) */
   remoteVideoTracks: Record<string, any[]>
   /** Participants remots a la sala */
@@ -61,6 +71,12 @@ interface UseLiveKitResult {
   toggleCamera: () => Promise<void>
   /** Toggle compartir pantalla */
   toggleScreenShare: () => Promise<void>
+  /** Iniciar compartir fitxer de media */
+  startMediaFileShare: (file: File) => Promise<void>
+  /** Aturar compartir fitxer de media */
+  stopMediaFileShare: () => Promise<void>
+  /** Silenciar/dessilenciar localment l'àudio d'un participant remot */
+  setParticipantLocalMuted: (identity: string, muted: boolean) => void
   /** Error de connexió */
   error: string | null
 }
@@ -91,14 +107,21 @@ export function useLiveKit(): UseLiveKitResult {
   const isDeafenedRef = useRef(false)
   const isCameraOnRef = useRef(false)
   const isScreenSharingRef = useRef(false)
+  const mediaFileElementRef = useRef<HTMLVideoElement | null>(null)
+  const mediaFileObjectUrlRef = useRef<string | null>(null)
+  const localMediaFileVideoTrackRef = useRef<any>(null)
+  const localMediaFileAudioTrackRef = useRef<any>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [isPublishing, setIsPublishing] = useState(false)
   const [isMuted, setIsMuted] = useState(true)
   const [isDeafened, setIsDeafened] = useState(false)
   const [isCameraOn, setIsCameraOn] = useState(false)
   const [isScreenSharing, setIsScreenSharing] = useState(false)
+  const [isMediaFileSharing, setIsMediaFileSharing] = useState(false)
   const [localVideoTrack, setLocalVideoTrack] = useState<any>(null)
   const [localScreenTrack, setLocalScreenTrack] = useState<any>(null)
+  const [localMediaFileTrack, setLocalMediaFileTrack] = useState<any>(null)
+  const [mediaFileName, setMediaFileName] = useState<string | null>(null)
   const [remoteVideoTracks, setRemoteVideoTracks] = useState<Record<string, any[]>>({})
   const [participants, setParticipants] = useState<VoiceParticipant[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -106,12 +129,21 @@ export function useLiveKit(): UseLiveKitResult {
   // Netejar quan es desmunta
   useEffect(() => {
     return () => {
-      // Eliminar tots els elements d'àudio remots
       audioElementsRef.current.forEach(el => {
         el.srcObject = null
         el.remove()
       })
       audioElementsRef.current.clear()
+      if (mediaFileElementRef.current) {
+        mediaFileElementRef.current.pause()
+        mediaFileElementRef.current.src = ''
+        try { mediaFileElementRef.current.remove() } catch (_) {}
+        mediaFileElementRef.current = null
+      }
+      if (mediaFileObjectUrlRef.current) {
+        URL.revokeObjectURL(mediaFileObjectUrlRef.current)
+        mediaFileObjectUrlRef.current = null
+      }
       roomRef.current?.disconnect()
       roomRef.current = null
       localAudioTrackRef.current = null
@@ -322,6 +354,107 @@ export function useLiveKit(): UseLiveKitResult {
     }
   }, [])
 
+  const setParticipantLocalMuted = useCallback((identity: string, muted: boolean) => {
+    if (!roomRef.current) return
+    for (const participant of roomRef.current.remoteParticipants.values()) {
+      if (participant.identity === identity) {
+        const el = audioElementsRef.current.get(participant.sid)
+        if (el) el.muted = muted
+        break
+      }
+    }
+  }, [])
+
+  const stopMediaFileShare = useCallback(async () => {
+    try {
+      if (localMediaFileVideoTrackRef.current) {
+        if (roomRef.current?.localParticipant) {
+          try { await roomRef.current.localParticipant.unpublishTrack(localMediaFileVideoTrackRef.current) } catch (_) {}
+        }
+        try { localMediaFileVideoTrackRef.current.stop() } catch (_) {}
+        localMediaFileVideoTrackRef.current = null
+        setLocalMediaFileTrack(null)
+      }
+      if (localMediaFileAudioTrackRef.current) {
+        if (roomRef.current?.localParticipant) {
+          try { await roomRef.current.localParticipant.unpublishTrack(localMediaFileAudioTrackRef.current) } catch (_) {}
+        }
+        try { localMediaFileAudioTrackRef.current.stop() } catch (_) {}
+        localMediaFileAudioTrackRef.current = null
+      }
+      if (mediaFileElementRef.current) {
+        mediaFileElementRef.current.pause()
+        mediaFileElementRef.current.src = ''
+        try { mediaFileElementRef.current.remove() } catch (_) {}
+        mediaFileElementRef.current = null
+      }
+      if (mediaFileObjectUrlRef.current) {
+        URL.revokeObjectURL(mediaFileObjectUrlRef.current)
+        mediaFileObjectUrlRef.current = null
+      }
+    } catch (e: any) {
+      logger.error('Error aturant media file share:', e)
+    } finally {
+      setIsMediaFileSharing(false)
+      setMediaFileName(null)
+    }
+  }, [])
+
+  const startMediaFileShare = useCallback(async (file: File) => {
+    if (!roomRef.current?.localParticipant) return
+
+    if (localMediaFileVideoTrackRef.current || mediaFileElementRef.current) {
+      await stopMediaFileShare()
+    }
+
+    try {
+      const objectUrl = URL.createObjectURL(file)
+      mediaFileObjectUrlRef.current = objectUrl
+
+      const el = document.createElement('video')
+      el.src = objectUrl
+      el.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;'
+      el.muted = false
+      document.body.appendChild(el)
+      mediaFileElementRef.current = el
+
+      await el.play()
+
+      const stream = (el as any).captureStream() as MediaStream
+      const videoMediaTrack = stream.getVideoTracks()[0]
+      const audioMediaTrack = stream.getAudioTracks()[0]
+
+      if (videoMediaTrack) {
+        const lvTrack = new LocalVideoTrack(videoMediaTrack, undefined, true)
+        await roomRef.current.localParticipant.publishTrack(lvTrack)
+        localMediaFileVideoTrackRef.current = lvTrack
+        setLocalMediaFileTrack(lvTrack)
+      }
+
+      if (audioMediaTrack) {
+        const laTrack = new LocalAudioTrack(audioMediaTrack, undefined, true)
+        await roomRef.current.localParticipant.publishTrack(laTrack)
+        localMediaFileAudioTrackRef.current = laTrack
+      }
+
+      setMediaFileName(file.name)
+      setIsMediaFileSharing(true)
+
+      el.addEventListener('ended', () => { void stopMediaFileShare() }, { once: true })
+    } catch (e: any) {
+      logger.error('Error iniciant media file share:', e)
+      if (mediaFileElementRef.current) {
+        try { mediaFileElementRef.current.pause() } catch (_) {}
+        try { mediaFileElementRef.current.remove() } catch (_) {}
+        mediaFileElementRef.current = null
+      }
+      if (mediaFileObjectUrlRef.current) {
+        URL.revokeObjectURL(mediaFileObjectUrlRef.current)
+        mediaFileObjectUrlRef.current = null
+      }
+    }
+  }, [stopMediaFileShare])
+
   // Connectar a un canal de veu
   const connectToChannel = useCallback(async (
     channelId: string,
@@ -486,12 +619,33 @@ export function useLiveKit(): UseLiveKitResult {
           localScreenTrackRef.current = null
           setLocalScreenTrack(null)
         }
+        if (localMediaFileVideoTrackRef.current) {
+          try { localMediaFileVideoTrackRef.current.stop() } catch (_) {}
+          localMediaFileVideoTrackRef.current = null
+          setLocalMediaFileTrack(null)
+        }
+        if (localMediaFileAudioTrackRef.current) {
+          try { localMediaFileAudioTrackRef.current.stop() } catch (_) {}
+          localMediaFileAudioTrackRef.current = null
+        }
+        if (mediaFileElementRef.current) {
+          mediaFileElementRef.current.pause()
+          mediaFileElementRef.current.src = ''
+          try { mediaFileElementRef.current.remove() } catch (_) {}
+          mediaFileElementRef.current = null
+        }
+        if (mediaFileObjectUrlRef.current) {
+          URL.revokeObjectURL(mediaFileObjectUrlRef.current)
+          mediaFileObjectUrlRef.current = null
+        }
         setIsConnected(false)
         setIsPublishing(false)
         isCameraOnRef.current = false
         isScreenSharingRef.current = false
         setIsCameraOn(false)
         setIsScreenSharing(false)
+        setIsMediaFileSharing(false)
+        setMediaFileName(null)
         localAudioTrackRef.current = null
       })
 
@@ -585,6 +739,25 @@ export function useLiveKit(): UseLiveKitResult {
       localScreenTrackRef.current = null
       setLocalScreenTrack(null)
     }
+    if (localMediaFileVideoTrackRef.current) {
+      try { localMediaFileVideoTrackRef.current.stop() } catch (_) {}
+      localMediaFileVideoTrackRef.current = null
+      setLocalMediaFileTrack(null)
+    }
+    if (localMediaFileAudioTrackRef.current) {
+      try { localMediaFileAudioTrackRef.current.stop() } catch (_) {}
+      localMediaFileAudioTrackRef.current = null
+    }
+    if (mediaFileElementRef.current) {
+      mediaFileElementRef.current.pause()
+      mediaFileElementRef.current.src = ''
+      try { mediaFileElementRef.current.remove() } catch (_) {}
+      mediaFileElementRef.current = null
+    }
+    if (mediaFileObjectUrlRef.current) {
+      URL.revokeObjectURL(mediaFileObjectUrlRef.current)
+      mediaFileObjectUrlRef.current = null
+    }
     audioElementsRef.current.forEach(el => {
       el.srcObject = null
       el.remove()
@@ -602,6 +775,8 @@ export function useLiveKit(): UseLiveKitResult {
     isScreenSharingRef.current = false
     setIsCameraOn(false)
     setIsScreenSharing(false)
+    setIsMediaFileSharing(false)
+    setMediaFileName(null)
     setParticipants([])
   }, [])
 
@@ -627,8 +802,12 @@ export function useLiveKit(): UseLiveKitResult {
     isDeafened,
     isCameraOn,
     isScreenSharing,
+    isMediaFileSharing,
     localVideoTrack,
     localScreenTrack,
+    localMediaFileTrack,
+    mediaFileName,
+    mediaFileElementRef,
     remoteVideoTracks,
     participants,
     connectToChannel,
@@ -637,6 +816,9 @@ export function useLiveKit(): UseLiveKitResult {
     toggleDeafen,
     toggleCamera,
     toggleScreenShare,
+    startMediaFileShare,
+    stopMediaFileShare,
+    setParticipantLocalMuted,
     error,
   }
 }

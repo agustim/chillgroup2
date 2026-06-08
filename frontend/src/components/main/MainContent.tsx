@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, MutableRefObject } from 'react'
 import { Channel, Message, VoiceConnection } from '../../types'
 import { messagesSend } from '../../lib/api'
 import { encryptChannelMessage, ensureChannelKey, distributeChannelKey } from '../../lib/channel-crypto'
@@ -25,6 +25,12 @@ interface MainContentProps {
   onUnreadUpdated?: (channelId: string, unreadCount: number) => void
   localVideoTrack?: any
   localScreenTrack?: any
+  localMediaFileTrack?: any
+  mediaFileName?: string | null
+  mediaFileElementRef?: MutableRefObject<HTMLVideoElement | null>
+  onStopMediaFileShare?: () => void
+  onSetParticipantLocalMuted?: (identity: string, muted: boolean) => void
+  isMediaFileSharing?: boolean
   remoteVideoTracks?: Record<string, any[]>
   onRepairKey?: (channel: Channel) => Promise<void>
   onRotateKey?: (channel: Channel) => Promise<void>
@@ -43,6 +49,12 @@ export function MainContent({
   onUnreadUpdated,
   localVideoTrack,
   localScreenTrack,
+  localMediaFileTrack,
+  mediaFileName,
+  mediaFileElementRef,
+  onStopMediaFileShare,
+  onSetParticipantLocalMuted,
+  isMediaFileSharing = false,
   remoteVideoTracks = {},
   onRepairKey,
   onRotateKey,
@@ -59,6 +71,7 @@ export function MainContent({
   const [socketMessages, setSocketMessages] = useState<Message[]>([])
   const [expiringMessageIds, setExpiringMessageIds] = useState<Set<string>>(new Set())
   const [socketDeletedMessageIds, setSocketDeletedMessageIds] = useState<Set<string>>(new Set())
+  const [socketEditedMessages, setSocketEditedMessages] = useState<Record<string, Message>>({})
   const [focusTrigger, setFocusTrigger] = useState(0)
   const [replyTo, setReplyTo] = useState<{ messageId: string; senderUsername: string; text: string } | null>(null)
 
@@ -76,6 +89,19 @@ export function MainContent({
 
   const handleMessageDeleted = useCallback((messageId: string) => {
     setSocketDeletedMessageIds((prev) => new Set([...prev, messageId]))
+  }, [])
+
+  const handleMessageEdited = useCallback((msg: Message) => {
+    setSocketMessages((prev) => {
+      const idx = prev.findIndex((m) => m.messageId === msg.messageId)
+      if (idx !== -1) {
+        const next = [...prev]
+        next[idx] = msg
+        return next
+      }
+      return prev
+    })
+    setSocketEditedMessages((prev) => ({ ...prev, [msg.messageId]: msg }))
   }, [])
 
   const handleMessagesExpired = useCallback((_channelId: string, messageIds: string[]) => {
@@ -97,6 +123,7 @@ export function MainContent({
     onUnreadUpdated,
     onMessagesExpired: handleMessagesExpired,
     onMessageDeleted: handleMessageDeleted,
+    onMessageEdited: handleMessageEdited,
   })
 
   // Netejar missatges de socket quan canviem de canal
@@ -323,6 +350,12 @@ export function MainContent({
             onToggleVoiceAsTextMode={onToggleVoiceAsTextMode}
             localVideoTrack={localVideoTrack}
             localScreenTrack={localScreenTrack}
+            localMediaFileTrack={localMediaFileTrack}
+            mediaFileName={mediaFileName}
+            mediaFileElementRef={mediaFileElementRef}
+            onStopMediaFileShare={onStopMediaFileShare}
+            onSetParticipantLocalMuted={onSetParticipantLocalMuted}
+            isMediaFileSharing={isMediaFileSharing}
             remoteVideoTracks={remoteVideoTracks}
           />
         </div>
@@ -351,6 +384,7 @@ export function MainContent({
               lastReadMessageId={channel.lastReadMessageId}
               permissionLevel={channel.permissionLevel}
               socketDeletedMessageIds={socketDeletedMessageIds}
+              socketEditedMessages={socketEditedMessages}
               onReplyTo={(msg, text) => {
                 setReplyTo({ messageId: msg.messageId, senderUsername: msg.senderUsername, text })
                 setFocusTrigger((n) => n + 1)

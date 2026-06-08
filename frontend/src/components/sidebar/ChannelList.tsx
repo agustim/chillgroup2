@@ -11,10 +11,12 @@ interface ChannelListProps {
   isDeafened?: boolean
   isCameraOn?: boolean
   isScreenSharing?: boolean
+  isMediaFileSharing?: boolean
   onToggleMute?: () => void
   onToggleDeafen?: () => void
   onToggleCamera?: () => void
   onToggleScreenShare?: () => void
+  onToggleMediaFileShare?: () => void
   onSelectChannel: (channel: Channel) => void
   onStartDirectMessage?: (targetUserId: string, targetUsername: string) => void
   onConfigureChannel?: (channel: Channel) => void
@@ -48,10 +50,12 @@ export function ChannelList({
   isDeafened = false,
   isCameraOn = false,
   isScreenSharing = false,
+  isMediaFileSharing = false,
   onToggleMute,
   onToggleDeafen,
   onToggleCamera,
   onToggleScreenShare,
+  onToggleMediaFileShare,
   onSelectChannel,
   onStartDirectMessage,
   onConfigureChannel,
@@ -473,6 +477,14 @@ export function ChannelList({
           disabled={!voiceControlsEnabled}
         >
           🖥️
+        </button>
+        <button
+          className={`voice-user-btn ${isMediaFileSharing ? 'active-on' : 'active-off'}`}
+          onClick={onToggleMediaFileShare}
+          title={isMediaFileSharing ? 'Aturar fitxer de media' : 'Compartir fitxer de media'}
+          disabled={!voiceControlsEnabled}
+        >
+          🎬
         </button>
       </div>
     </div>

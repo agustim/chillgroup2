@@ -98,7 +98,7 @@ export function MessageInput({
     <div className="message-input">
       {replyTo && (
         <div className="reply-to-bar">
-          <span className="reply-to-label">Responent a <strong>{replyTo.senderUsername}</strong>: {replyTo.text.slice(0, 80)}{replyTo.text.length > 80 ? '…' : ''}</span>
+          <span className="reply-to-label">Responent a <strong>{replyTo.senderUsername}</strong>{replyTo.text ? `: ${replyTo.text.slice(0, 80)}${replyTo.text.length > 80 ? '…' : ''}` : ''}</span>
           <button type="button" className="reply-to-clear" onClick={onClearReplyTo} aria-label="Cancel·lar resposta">×</button>
         </div>
       )}
