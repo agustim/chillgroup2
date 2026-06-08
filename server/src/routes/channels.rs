@@ -244,6 +244,11 @@ pub async fn create_channel(
 ) -> Result<(StatusCode, Json<Channel>), AppError> {
     info!("Endpoint create_channel cridat: server_id={}, name={}, user_id={}", server_id, req.name, claims.user_id);
 
+    let trimmed_name = req.name.trim();
+    if trimmed_name.is_empty() || trimmed_name.len() > 100 {
+        return Err(AppError::BadRequest);
+    }
+
     // Verificar que l'usuari és membre del servidor
     if !claims.is_admin {
         let role = state.db.is_server_member(server_id, claims.user_id).await

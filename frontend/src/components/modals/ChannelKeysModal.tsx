@@ -11,6 +11,7 @@ import {
   listChannelKeys,
   listSymmetricChannelKeys,
 } from '../../lib/device-keys'
+import { useAsyncTask } from '../../hooks/useAsyncTask'
 import type { Channel } from '../../types'
 
 interface ChannelKeysPanelProps {
@@ -25,9 +26,7 @@ interface ChannelKeysContentProps {
 }
 
 function ChannelKeysContent({ isActive, channels = [], serverName }: ChannelKeysContentProps) {
-  const [isBusy, setIsBusy] = useState(false)
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
+  const { isBusy, error, success, run, setError, setSuccess } = useAsyncTask()
   const [symmetricKeys, setSymmetricKeys] = useState<Array<{
     channelId: string
     keyVersion: number
@@ -149,8 +148,8 @@ function ChannelKeysContent({ isActive, channels = [], serverName }: ChannelKeys
       return
     }
 
-    setError('')
-    setSuccess('')
+    setError(null)
+    setSuccess(null)
     setSymImportText('')
     setAsymImportText('')
     setExportedSymmetricBundle('')
@@ -158,91 +157,46 @@ function ChannelKeysContent({ isActive, channels = [], serverName }: ChannelKeys
     void refreshStateAndDirectory()
   }, [isActive, fallbackChannelLabelById])
 
-  const handleExportSymmetric = async () => {
-    setIsBusy(true)
-    setError('')
-    setSuccess('')
-    try {
-      setExportedSymmetricBundle(await exportSymmetricChannelKeys())
-      setSuccess('Exportació de claus simètriques preparada')
-    } catch {
-      setError('No s\'han pogut exportar les claus simètriques')
-    } finally {
-      setIsBusy(false)
-    }
-  }
+  const handleExportSymmetric = () => void run(async () => {
+    setExportedSymmetricBundle(await exportSymmetricChannelKeys())
+    return 'Exportació de claus simètriques preparada'
+  }, 'No s\'han pogut exportar les claus simètriques')
 
-  const handleExportAsymmetric = async () => {
-    setIsBusy(true)
-    setError('')
-    setSuccess('')
-    try {
-      setExportedAsymmetricBundle(await exportAsymmetricChannelKeys())
-      setSuccess('Exportació de claus asimètriques preparada')
-    } catch {
-      setError('No s\'han pogut exportar les claus asimètriques')
-    } finally {
-      setIsBusy(false)
-    }
-  }
+  const handleExportAsymmetric = () => void run(async () => {
+    setExportedAsymmetricBundle(await exportAsymmetricChannelKeys())
+    return 'Exportació de claus asimètriques preparada'
+  }, 'No s\'han pogut exportar les claus asimètriques')
 
-  const handleDeleteSymmetric = async (channelId: string) => {
-    setIsBusy(true)
-    setError('')
-    setSuccess('')
-    try {
-      await deleteSymmetricChannelKey(channelId)
-      await refreshStateAndDirectory()
-      setSuccess(`Clau simètrica de ${formatChannelLabel(channelId)} eliminada`)
-    } catch {
-      setError('No s\'ha pogut eliminar la clau simètrica')
-    } finally {
-      setIsBusy(false)
-    }
-  }
+  const handleDeleteSymmetric = (channelId: string) => void run(async () => {
+    await deleteSymmetricChannelKey(channelId)
+    await refreshStateAndDirectory()
+    return `Clau simètrica de ${formatChannelLabel(channelId)} eliminada`
+  }, 'No s\'ha pogut eliminar la clau simètrica')
 
-  const handleImportSymmetric = async () => {
+  const handleImportSymmetric = () => {
     if (!symImportText.trim()) {
       setError('Enganxa el JSON de claus simètriques')
       return
     }
-
-    setIsBusy(true)
-    setError('')
-    setSuccess('')
-    try {
+    void run(async () => {
       const imported = await importSymmetricChannelKeys(symImportText)
       await refreshStateAndDirectory()
-      setSuccess(`Importades ${imported} claus simètriques de canals`)
       setSymImportText('')
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'No s\'han pogut importar les claus'
-      setError(msg)
-    } finally {
-      setIsBusy(false)
-    }
+      return `Importades ${imported} claus simètriques de canals`
+    })
   }
 
-  const handleImportAsymmetric = async () => {
+  const handleImportAsymmetric = () => {
     if (!asymImportText.trim()) {
       setError('Enganxa el JSON de claus asimètriques')
       return
     }
-
-    setIsBusy(true)
-    setError('')
-    setSuccess('')
-    try {
+    void run(async () => {
       const imported = await importAsymmetricChannelKeys(asymImportText)
       await refreshStateAndDirectory()
-      setSuccess(`Importades ${imported} claus asimètriques de canals`)
       setAsymImportText('')
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'No s\'han pogut importar les claus'
-      setError(msg)
-    } finally {
-      setIsBusy(false)
-    }
+      return `Importades ${imported} claus asimètriques de canals`
+    })
   }
 
   return (

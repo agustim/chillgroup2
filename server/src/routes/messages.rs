@@ -253,6 +253,11 @@ pub async fn send_message(
 ) -> Result<(StatusCode, Json<Message>), AppError> {
     info!("Endpoint send_message cridat: channel_id={}, user_id={}", channel_id, claims.user_id);
 
+    const MAX_PAYLOAD_BYTES: usize = 1_048_576; // 1 MB
+    if req.encrypted_payload.len() > MAX_PAYLOAD_BYTES {
+        return Err(AppError::MessageTooLong { max: MAX_PAYLOAD_BYTES });
+    }
+
     let channel = state.db.get_channel(channel_id).await
         .map_err(|e| {
             tracing::error!("Error fetching channel for message send: {}", e);

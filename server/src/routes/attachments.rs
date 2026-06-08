@@ -44,11 +44,11 @@ fn s3_bucket() -> String {
 }
 
 fn s3_access_key_id() -> String {
-    std::env::var("S3_ACCESS_KEY_ID").unwrap_or_else(|_| "rustfsadmin".to_string())
+    std::env::var("S3_ACCESS_KEY_ID").unwrap_or_default()
 }
 
 fn s3_secret_access_key() -> String {
-    std::env::var("S3_SECRET_ACCESS_KEY").unwrap_or_else(|_| "rustfsadmin".to_string())
+    std::env::var("S3_SECRET_ACCESS_KEY").unwrap_or_default()
 }
 
 fn s3_force_path_style() -> bool {

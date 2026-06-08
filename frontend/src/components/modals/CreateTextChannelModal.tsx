@@ -2,18 +2,32 @@ import React, { useState } from 'react'
 import { Button } from '../shared/Button'
 import { TTLSelector } from '../shared/TTLSelector'
 
-interface CreateTextChannelPanelProps {
+interface TextChannelPanelProps {
   onClose: () => void
   onCreate: (name: string, encryptionType: string, messageTTL: number | null, isPrivate: boolean) => Promise<void>
 }
 
-export function CreateTextChannelPanel({ onClose, onCreate }: CreateTextChannelPanelProps) {
+interface VoiceChannelPanelProps {
+  onClose: () => void
+  onCreate: (name: string, encryptionType: string, isPrivate: boolean) => Promise<void>
+}
+
+interface CreateChannelFormProps {
+  type: 'text' | 'voice'
+  onClose: () => void
+  onCreate: (name: string, encryptionType: string, messageTTL: number | null, isPrivate: boolean) => Promise<void>
+}
+
+function CreateChannelForm({ type, onClose, onCreate }: CreateChannelFormProps) {
   const [name, setName] = useState('')
   const [encryptionType, setEncryptionType] = useState<'none' | 'symmetric' | 'asymmetric'>('none')
   const [messageTTL, setMessageTTL] = useState<number | null>(null)
   const [isPrivate, setIsPrivate] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
+
+  const idPrefix = type === 'text' ? 'channel' : 'voice-channel'
+  const placeholder = type === 'text' ? 'general' : 'sala de reunió'
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -45,13 +59,13 @@ export function CreateTextChannelPanel({ onClose, onCreate }: CreateTextChannelP
   return (
     <form onSubmit={handleSubmit} className="modal-form">
       <div className="form-group">
-        <label htmlFor="channel-name">Nom del canal</label>
+        <label htmlFor={`${idPrefix}-name`}>Nom del canal</label>
         <input
-          id="channel-name"
+          id={`${idPrefix}-name`}
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value.toLowerCase())}
-          placeholder="general"
+          placeholder={placeholder}
           autoFocus
           maxLength={30}
           pattern="[a-z0-9-]+"
@@ -63,9 +77,9 @@ export function CreateTextChannelPanel({ onClose, onCreate }: CreateTextChannelP
       </div>
 
       <div className="form-group">
-        <label htmlFor="encryption-type">Encriptació</label>
+        <label htmlFor={`${idPrefix}-encryption-type`}>Encriptació</label>
         <select
-          id="encryption-type"
+          id={`${idPrefix}-encryption-type`}
           value={encryptionType}
           onChange={(e) => setEncryptionType(e.target.value as 'none' | 'symmetric' | 'asymmetric')}
           disabled={isSubmitting}
@@ -76,19 +90,21 @@ export function CreateTextChannelPanel({ onClose, onCreate }: CreateTextChannelP
         </select>
       </div>
 
-      <div className="form-group">
-        <label>TTL missatges</label>
-        <TTLSelector
-          value={messageTTL}
-          onChange={setMessageTTL}
-          disabled={isSubmitting}
-        />
-      </div>
+      {type === 'text' && (
+        <div className="form-group">
+          <label>TTL missatges</label>
+          <TTLSelector
+            value={messageTTL}
+            onChange={setMessageTTL}
+            disabled={isSubmitting}
+          />
+        </div>
+      )}
 
       <div className="form-group">
-        <label htmlFor="channel-private" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <label htmlFor={`${idPrefix}-private`} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <input
-            id="channel-private"
+            id={`${idPrefix}-private`}
             type="checkbox"
             checked={isPrivate}
             onChange={(e) => setIsPrivate(e.target.checked)}
@@ -109,5 +125,19 @@ export function CreateTextChannelPanel({ onClose, onCreate }: CreateTextChannelP
         </Button>
       </div>
     </form>
+  )
+}
+
+export function CreateTextChannelPanel({ onClose, onCreate }: TextChannelPanelProps) {
+  return <CreateChannelForm type="text" onClose={onClose} onCreate={onCreate} />
+}
+
+export function CreateVoiceChannelPanel({ onClose, onCreate }: VoiceChannelPanelProps) {
+  return (
+    <CreateChannelForm
+      type="voice"
+      onClose={onClose}
+      onCreate={(name, encType, _ttl, isPrivate) => onCreate(name, encType, isPrivate)}
+    />
   )
 }
