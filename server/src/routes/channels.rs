@@ -436,7 +436,7 @@ pub async fn get_channel_keys(
         }
         .ok_or(AppError::ChannelKeyNotFound)?;
 
-        let (_, version, encrypted_key_b64, nonce_b64) = key_version_row;
+        let (key_version_id, version, encrypted_key_b64, nonce_b64) = key_version_row;
         let encrypted_key = STANDARD.decode(encrypted_key_b64).map_err(|_| AppError::DecryptionFailed)?;
         let nonce = STANDARD.decode(nonce_b64).map_err(|_| AppError::DecryptionFailed)?;
         let channel_key = decrypt_with_aes_gcm(&state.config.server_master_key, &encrypted_key, &nonce)?;
@@ -447,6 +447,7 @@ pub async fn get_channel_keys(
             "success": true,
             "data": {
                 "deviceId": claims.device_id,
+                "keyVersionId": key_version_id,
                 "encryptedKey": wrapped_key,
                 "kemCiphertext": kem_ciphertext,
                 "keyVersion": version,

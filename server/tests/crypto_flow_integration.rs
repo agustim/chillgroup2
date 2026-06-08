@@ -184,6 +184,114 @@ async fn crypto_flow_bundle_idempotent_same_payload() {
 }
 
 #[tokio::test]
+async fn crypto_flow_symmetric_key_version_id_present_in_db_response() {
+    // Verifica que get_latest_channel_key_version retorna el UUID (key_version_id)
+    // necessari per incloure'l a la resposta del servidor (fix: keyVersionId absent en simètric).
+    let state = make_state().await;
+
+    let owner_id = state.db.create_user("kvid_owner", "hash").await.expect("owner");
+    let server_id = Uuid::new_v4();
+    state.db
+        .create_server_with_owner(server_id, "kvid-server", None, owner_id)
+        .await
+        .expect("server");
+    let channel_id = Uuid::new_v4();
+    state.db
+        .create_channel(channel_id, server_id, "kvid-ch", "text", "symmetric", None, false)
+        .await
+        .expect("channel");
+
+    let expected_id = state.db
+        .create_channel_key_version(channel_id, 1, "enc_placeholder", "nonce_placeholder", owner_id)
+        .await
+        .expect("create key version");
+
+    let latest = state.db
+        .get_latest_channel_key_version(channel_id)
+        .await
+        .expect("db query")
+        .expect("exists");
+
+    assert_eq!(latest.0, expected_id, "key_version_id (UUID) ha de ser el retornat a la posició 0 de la tupla");
+    assert_eq!(latest.1, 1, "version ha de ser 1");
+
+    // Rotar clau i verificar que get_latest retorna la versió nova
+    let expected_v2 = state.db
+        .create_channel_key_version(channel_id, 2, "enc_v2", "nonce_v2", owner_id)
+        .await
+        .expect("create key version v2");
+
+    let latest_v2 = state.db
+        .get_latest_channel_key_version(channel_id)
+        .await
+        .expect("db query v2")
+        .expect("exists v2");
+
+    assert_eq!(latest_v2.0, expected_v2, "key_version_id v2 ha de coincidir");
+    assert_eq!(latest_v2.1, 2, "version ha de ser 2");
+    assert_ne!(latest_v2.0, expected_id, "ha de ser un UUID diferent al de la v1");
+}
+
+#[tokio::test]
+async fn crypto_flow_symmetric_kem_aes_roundtrip() {
+    // Verifica el flux complet que fa el servidor (encapsular + AES-GCM wrap)
+    // i el client (decapsular + AES-GCM unwrap) per a canals simètrics.
+    // Replica exactament la lògica de wrap_channel_key_for_device (servidor)
+    // i unwrapKeyWithKem (frontend).
+    use aes_gcm::{Aes256Gcm, Nonce, aead::{Aead, KeyInit}};
+    use ml_kem::{Kem, MlKem1024, kem::{Decapsulate, Encapsulate}};
+    use rand::RngCore;
+
+    // Channel key real (32 bytes AES-256, com genera el servidor)
+    let mut channel_key = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut channel_key);
+
+    // Generar keypair ML-KEM-1024 (simula el dispositiu client)
+    let (dk, ek) = MlKem1024::generate_keypair();
+
+    // ── Costat servidor: wrap_channel_key_for_device ──────────────────────────
+    let (kem_ciphertext, shared_secret_send) = ek.encapsulate();
+
+    let mut wrapping_key = [0u8; 32];
+    wrapping_key.copy_from_slice(shared_secret_send.as_slice());
+
+    let cipher = Aes256Gcm::new_from_slice(&wrapping_key).expect("cipher");
+    let mut nonce_bytes = [0u8; 12];
+    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let encrypted = cipher.encrypt(nonce, channel_key.as_ref()).expect("encrypt");
+
+    // Format: nonce (12 bytes) || ciphertext, igual que wrap_channel_key_for_device
+    let mut wrapped = Vec::with_capacity(12 + encrypted.len());
+    wrapped.extend_from_slice(&nonce_bytes);
+    wrapped.extend_from_slice(&encrypted);
+
+    // ── Costat client: unwrapKeyWithKem ───────────────────────────────────────
+    let shared_secret_recv = dk.decapsulate(&kem_ciphertext);
+
+    assert_eq!(
+        shared_secret_send.as_slice(),
+        shared_secret_recv.as_slice(),
+        "shared secrets han de coincidir entre encapsular i decapsular"
+    );
+
+    let mut unwrapping_key = [0u8; 32];
+    unwrapping_key.copy_from_slice(shared_secret_recv.as_slice());
+
+    // Client llegeix: iv = slice(0,12), ciphertext = slice(12..)
+    let iv = Nonce::from_slice(&wrapped[..12]);
+    let ciphertext = &wrapped[12..];
+    let cipher2 = Aes256Gcm::new_from_slice(&unwrapping_key).expect("cipher2");
+    let decrypted = cipher2.decrypt(iv, ciphertext).expect("decrypt");
+
+    assert_eq!(
+        decrypted.as_slice(),
+        channel_key.as_ref(),
+        "channel_key recuperada ha de ser idèntica a l'original"
+    );
+}
+
+#[tokio::test]
 async fn crypto_flow_bundle_conflict_different_payload() {
     let state = make_state().await;
 
