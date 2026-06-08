@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { Button } from '../shared/Button'
+import { TTLSelector } from '../shared/TTLSelector'
 
 interface CreateTextChannelPanelProps {
   onClose: () => void
@@ -9,7 +10,7 @@ interface CreateTextChannelPanelProps {
 export function CreateTextChannelPanel({ onClose, onCreate }: CreateTextChannelPanelProps) {
   const [name, setName] = useState('')
   const [encryptionType, setEncryptionType] = useState<'none' | 'symmetric' | 'asymmetric'>('none')
-  const [messageTTL, setMessageTTL] = useState<string>('')
+  const [messageTTL, setMessageTTL] = useState<number | null>(null)
   const [isPrivate, setIsPrivate] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -28,11 +29,9 @@ export function CreateTextChannelPanel({ onClose, onCreate }: CreateTextChannelP
     setError('')
     setIsSubmitting(true)
     try {
-      const ttl = messageTTL ? parseInt(messageTTL, 10) : null
-      const finalTTL = ttl !== null && ttl > 0 ? ttl : null
-      await onCreate(trimmed.toLowerCase(), encryptionType, finalTTL, isPrivate)
+      await onCreate(trimmed.toLowerCase(), encryptionType, messageTTL, isPrivate)
       setName('')
-      setMessageTTL('')
+      setMessageTTL(null)
       setEncryptionType('none')
       setIsPrivate(false)
       onClose()
@@ -78,14 +77,10 @@ export function CreateTextChannelPanel({ onClose, onCreate }: CreateTextChannelP
       </div>
 
       <div className="form-group">
-        <label htmlFor="message-ttl">TTL missatges (minuts, 0 = infinit)</label>
-        <input
-          id="message-ttl"
-          type="number"
+        <label>TTL missatges</label>
+        <TTLSelector
           value={messageTTL}
-          onChange={(e) => setMessageTTL(e.target.value)}
-          placeholder="0"
-          min="0"
+          onChange={setMessageTTL}
           disabled={isSubmitting}
         />
       </div>
