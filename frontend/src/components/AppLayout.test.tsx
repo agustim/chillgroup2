@@ -364,6 +364,8 @@ describe('AppLayout', () => {
             maxMembersPerServer: 20,
             apiCallsPerMinute: 60,
             messagesPerDay: 10000,
+            maxStorageBytes: -1,
+            maxTransferBytesMonthly: -1,
           },
         },
         usage: {
@@ -373,6 +375,8 @@ describe('AppLayout', () => {
           totalMembersAcrossServers: 1,
           messagesToday: 0,
           apiCallsThisMinute: 0,
+          storedBytes: 0,
+          transferBytesThisMonth: 0,
         },
         permissions: {
           canCreateServer: true,

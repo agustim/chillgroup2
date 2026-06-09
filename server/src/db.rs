@@ -6167,6 +6167,181 @@ impl DatabasePool {
             }
         }
     }
+
+    pub async fn get_admin_user_ids(&self) -> Result<Vec<Uuid>, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let rows = sqlx::query("SELECT id FROM users WHERE role = 'admin'")
+                    .fetch_all(pool)
+                    .await
+                    .map_err(|e| format!("get_admin_user_ids Postgres: {}", e))?;
+                Ok(rows.into_iter().map(|r| r.get(0)).collect())
+            }
+            DatabasePool::Sqlite(pool) => {
+                let rows = sqlx::query("SELECT id FROM users WHERE role = 'admin'")
+                    .fetch_all(pool)
+                    .await
+                    .map_err(|e| format!("get_admin_user_ids SQLite: {}", e))?;
+                Ok(rows.into_iter().map(|r| r.get(0)).collect())
+            }
+        }
+    }
+
+    pub async fn create_plan_change_request(
+        &self,
+        user_id: Uuid,
+        requested_plan_id: Uuid,
+        message: Option<&str>,
+    ) -> Result<Uuid, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(
+                    "INSERT INTO plan_change_requests (user_id, requested_plan_id, message) \
+                     VALUES ($1, $2, $3) RETURNING id",
+                )
+                .bind(user_id)
+                .bind(requested_plan_id)
+                .bind(message)
+                .fetch_one(pool)
+                .await
+                .map_err(|e| format!("create_plan_change_request Postgres: {}", e))?;
+                Ok(row.get(0))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let id = Uuid::new_v4();
+                sqlx::query(
+                    "INSERT INTO plan_change_requests (id, user_id, requested_plan_id, message) \
+                     VALUES (?, ?, ?, ?)",
+                )
+                .bind(id)
+                .bind(user_id)
+                .bind(requested_plan_id)
+                .bind(message)
+                .execute(pool)
+                .await
+                .map_err(|e| format!("create_plan_change_request SQLite: {}", e))?;
+                Ok(id)
+            }
+        }
+    }
+
+    pub async fn list_plan_change_requests_admin(
+        &self,
+    ) -> Result<Vec<(Uuid, Uuid, String, Uuid, String, String, Option<String>, Option<String>, String)>, String> {
+        let query = "SELECT r.id, r.user_id, u.username, r.requested_plan_id, p.display_name, \
+                     r.status, r.message, r.admin_note, r.created_at::text \
+                     FROM plan_change_requests r \
+                     JOIN users u ON u.id = r.user_id \
+                     JOIN plans p ON p.id = r.requested_plan_id \
+                     ORDER BY r.created_at DESC";
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let rows = sqlx::query(query)
+                    .fetch_all(pool)
+                    .await
+                    .map_err(|e| format!("list_plan_change_requests Postgres: {}", e))?;
+                Ok(rows
+                    .into_iter()
+                    .map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6), r.get(7), r.get(8)))
+                    .collect())
+            }
+            DatabasePool::Sqlite(pool) => {
+                let query_sqlite = "SELECT r.id, r.user_id, u.username, r.requested_plan_id, p.display_name, \
+                                    r.status, r.message, r.admin_note, r.created_at \
+                                    FROM plan_change_requests r \
+                                    JOIN users u ON u.id = r.user_id \
+                                    JOIN plans p ON p.id = r.requested_plan_id \
+                                    ORDER BY r.created_at DESC";
+                let rows = sqlx::query(query_sqlite)
+                    .fetch_all(pool)
+                    .await
+                    .map_err(|e| format!("list_plan_change_requests SQLite: {}", e))?;
+                Ok(rows
+                    .into_iter()
+                    .map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6), r.get(7), r.get(8)))
+                    .collect())
+            }
+        }
+    }
+
+    pub async fn resolve_plan_change_request(
+        &self,
+        request_id: Uuid,
+        status: &str,
+        admin_note: Option<&str>,
+    ) -> Result<Option<(Uuid, Uuid)>, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(
+                    "UPDATE plan_change_requests SET status = $1, admin_note = $2, updated_at = now() \
+                     WHERE id = $3 AND status = 'pending' \
+                     RETURNING user_id, requested_plan_id",
+                )
+                .bind(status)
+                .bind(admin_note)
+                .bind(request_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| format!("resolve_plan_change_request Postgres: {}", e))?;
+                Ok(row.map(|r| (r.get(0), r.get(1))))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query(
+                    "SELECT user_id, requested_plan_id FROM plan_change_requests \
+                     WHERE id = ? AND status = 'pending'",
+                )
+                .bind(request_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| format!("resolve_plan_change_request fetch SQLite: {}", e))?;
+                if let Some(r) = row {
+                    let user_id: Uuid = r.get(0);
+                    let plan_id: Uuid = r.get(1);
+                    sqlx::query(
+                        "UPDATE plan_change_requests SET status = ?, admin_note = ?, updated_at = CURRENT_TIMESTAMP \
+                         WHERE id = ?",
+                    )
+                    .bind(status)
+                    .bind(admin_note)
+                    .bind(request_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("resolve_plan_change_request update SQLite: {}", e))?;
+                    Ok(Some((user_id, plan_id)))
+                } else {
+                    Ok(None)
+                }
+            }
+        }
+    }
+
+    pub async fn get_pending_plan_change_request_for_user(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Option<Uuid>, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(
+                    "SELECT id FROM plan_change_requests WHERE user_id = $1 AND status = 'pending' LIMIT 1",
+                )
+                .bind(user_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| format!("get_pending_plan_change_request Postgres: {}", e))?;
+                Ok(row.map(|r| r.get(0)))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query(
+                    "SELECT id FROM plan_change_requests WHERE user_id = ? AND status = 'pending' LIMIT 1",
+                )
+                .bind(user_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| format!("get_pending_plan_change_request SQLite: {}", e))?;
+                Ok(row.map(|r| r.get(0)))
+            }
+        }
+    }
 }
 
 async fn migrate_sqlite_plans_add_streaming_quota(pool: &sqlx::SqlitePool) -> Result<(), String> {

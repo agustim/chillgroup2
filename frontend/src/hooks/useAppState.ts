@@ -70,6 +70,7 @@ export function useAppState() {
   const [panel, setPanel] = useState<PanelType>('none')
   const [feedback, setFeedback] = useState<string | null>(null)
   const [quotaWarning, setQuotaWarning] = useState<string | null>(null)
+  const [storageQuotaExceeded, setStorageQuotaExceeded] = useState(false)
   const [dmKeyActionBusy, setDmKeyActionBusy] = useState(false)
   const [canCreateServer, setCanCreateServer] = useState(true)
   const [canCreateTextChannel, setCanCreateTextChannel] = useState(true)
@@ -196,6 +197,9 @@ export function useAppState() {
         setCanCreateServer(result.data.permissions.canCreateServer)
         setCanCreateTextChannel(result.data.permissions.canCreateTextChannel)
         setCanCreateVoiceChannel(result.data.permissions.canCreateVoiceChannel)
+        const maxStorage = result.data.plan.limits.maxStorageBytes
+        const usedStorage = result.data.usage.storedBytes
+        setStorageQuotaExceeded(maxStorage > 0 && usedStorage >= maxStorage)
       }
     }
     void loadUserLimits()
@@ -240,10 +244,18 @@ export function useAppState() {
       setQuotaWarning(`Avís: has usat el ${pct}% de la quota de ${typeLabel} del teu pla.`)
     }
 
+    const handlePlanChangeResolved = (data: { status: string; adminNote?: string }) => {
+      const msg = data.status === 'approved'
+        ? `La teva sol·licitud de canvi de pla ha estat aprovada.${data.adminNote ? ` Nota: ${data.adminNote}` : ''}`
+        : `La teva sol·licitud de canvi de pla ha estat rebutjada.${data.adminNote ? ` Nota: ${data.adminNote}` : ''}`
+      setFeedback(msg)
+    }
+
     socket.on('user-servers-updated', handleUserServersUpdated)
     socket.on('server-channels-updated', handleServerChannelsUpdated)
     socket.on('server-invitation', handleServerInvitation)
     socket.on('quota_warning', handleQuotaWarning)
+    socket.on('plan_change_resolved', handlePlanChangeResolved)
 
     return () => {
       if (serversRefreshTimer !== null) window.clearTimeout(serversRefreshTimer)
@@ -252,6 +264,7 @@ export function useAppState() {
       socket.off('server-channels-updated', handleServerChannelsUpdated)
       socket.off('server-invitation', handleServerInvitation)
       socket.off('quota_warning', handleQuotaWarning)
+      socket.off('plan_change_resolved', handlePlanChangeResolved)
     }
   }, [selectedServer])
 
@@ -1017,6 +1030,7 @@ export function useAppState() {
     setFeedback,
     quotaWarning,
     setQuotaWarning,
+    storageQuotaExceeded,
     dmKeyActionBusy,
     showTabBar,
     // Modal state

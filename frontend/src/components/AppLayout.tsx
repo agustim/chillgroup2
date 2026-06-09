@@ -18,6 +18,7 @@ import { PanelTab } from './shared/PanelTab'
 import { ServerConfigPanel } from './main/ServerConfigPanel'
 import { ChannelConfigPanel } from './main/ChannelConfigPanel'
 import { LeaveServerModal } from './modals/LeaveServerModal'
+import { PlanSettingsPanel } from './modals/PlanSettingsModal'
 import { useAppState } from '../hooks/useAppState'
 export type { PanelType } from '../types'
 
@@ -67,6 +68,7 @@ export function AppLayout({ username }: AppLayoutProps) {
     setFeedback,
     quotaWarning,
     setQuotaWarning,
+    storageQuotaExceeded,
     dmKeyActionBusy,
     showTabBar,
     showInviteServer,
@@ -208,6 +210,7 @@ export function AppLayout({ username }: AppLayoutProps) {
           onShowInvitations={() => setShowServerInvitations(true)}
           pendingInvitationCount={pendingInvitationCount}
           onChangePassword={handleChangePassword}
+          onManagePlan={() => setPanel('planSettings')}
           onManagePermissions={handleManagePermissions}
           onManageAdminUsers={handleManageAdminUsers}
           onCollapseList={() => setIsChannelListCollapsed(true)}
@@ -274,6 +277,7 @@ export function AppLayout({ username }: AppLayoutProps) {
             <PanelTab icon="📱" label="Dispositius" isActive={panel === 'devices'} onClick={() => setPanel('devices')} onClose={() => setPanel('none')} />
             <PanelTab icon="🔒" label="Password" isActive={panel === 'changePassword'} onClick={() => setPanel('changePassword')} onClose={() => setPanel('none')} />
             <PanelTab icon="🔑" label="Claus" isActive={panel === 'channelKeys'} onClick={() => setPanel('channelKeys')} onClose={() => setPanel('none')} />
+            <PanelTab icon="📋" label="Pla" isActive={panel === 'planSettings'} onClick={() => setPanel('planSettings')} onClose={() => setPanel('none')} />
             <PanelTab icon="#" label="Nou text" isActive={panel === 'createTextChannel'} onClick={() => setPanel('createTextChannel')} onClose={() => setPanel('none')} />
             <PanelTab icon="🔊" label="Nou veu" isActive={panel === 'createVoiceChannel'} onClick={() => setPanel('createVoiceChannel')} onClose={() => setPanel('none')} />
           </div>
@@ -285,6 +289,17 @@ export function AppLayout({ username }: AppLayoutProps) {
           <div className="feedback-banner feedback-banner--warning" style={{ backgroundColor: '#f59e0b', color: '#1f2937' }}>
             {quotaWarning}
             <button onClick={() => setQuotaWarning(null)} style={{ marginLeft: 8, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
+          </div>
+        )}
+        {storageQuotaExceeded && (
+          <div className="feedback-banner" style={{ backgroundColor: '#ef4444', color: '#fff', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span>Has superat la quota d'emmagatzematge del teu pla. Els nous adjunts estan bloquejats.</span>
+            <button
+              onClick={() => setPanel('planSettings')}
+              style={{ background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.4)', color: '#fff', borderRadius: 4, padding: '2px 10px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+            >
+              Sol·licitar upgrade
+            </button>
           </div>
         )}
 
@@ -383,6 +398,13 @@ export function AppLayout({ username }: AppLayoutProps) {
             onRemoveServerMember={handleRemoveServerMember}
             onOpenPermissions={() => setPanel('permissions')}
           />
+        ) : panel === 'planSettings' ? (
+          <div className="panel admin-users-panel">
+            <div className="admin-users-panel-header">
+              <h3>Pla de subscripció</h3>
+            </div>
+            <PlanSettingsPanel onClose={() => setPanel('none')} />
+          </div>
         ) : panel === 'channelConfig' && resolvedSelectedChannel ? (
           <ChannelConfigPanel
             channel={resolvedSelectedChannel}

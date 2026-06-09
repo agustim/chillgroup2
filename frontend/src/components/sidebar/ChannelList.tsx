@@ -27,6 +27,7 @@ interface ChannelListProps {
   onShowInvitations?: () => void
   pendingInvitationCount?: number
   onChangePassword?: () => void
+  onManagePlan?: () => void
   onManagePermissions?: () => void
   onManageAdminUsers?: () => void
   onCollapseList?: () => void
@@ -66,6 +67,7 @@ export function ChannelList({
   onShowInvitations,
   pendingInvitationCount = 0,
   onChangePassword,
+  onManagePlan,
   onManagePermissions,
   onManageAdminUsers,
   onCollapseList,
@@ -169,6 +171,7 @@ export function ChannelList({
                 )}
               </button>
               <button onClick={() => { setIsUserMenuOpen(false); onChangePassword?.() }}>🔒 Canviar password</button>
+              <button onClick={() => { setIsUserMenuOpen(false); onManagePlan?.() }}>📋 Pla de subscripció</button>
               <button onClick={() => { setIsUserMenuOpen(false); onManagePermissions?.() }}>🛡️ Permisos</button>
               {canManageAdminUsers && (
                 <button onClick={() => { setIsUserMenuOpen(false); onManageAdminUsers?.() }}>🧑‍💼 Gestió usuaris</button>

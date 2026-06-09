@@ -169,4 +169,4 @@ export interface ApiSuccess<T> {
 
 export type ApiResult<T> = ApiSuccess<T> | ApiError
 
-export type PanelType = 'none' | 'serverConfig' | 'channelConfig' | 'devices' | 'adminUsers' | 'permissions' | 'friends' | 'createServer' | 'changePassword' | 'channelKeys' | 'createTextChannel' | 'createVoiceChannel'
+export type PanelType = 'none' | 'serverConfig' | 'channelConfig' | 'devices' | 'adminUsers' | 'permissions' | 'friends' | 'createServer' | 'changePassword' | 'channelKeys' | 'createTextChannel' | 'createVoiceChannel' | 'planSettings'

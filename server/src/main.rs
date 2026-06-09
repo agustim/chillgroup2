@@ -869,6 +869,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let attachment_routes = routes::attachments::router(state.clone());
     let invitation_routes = routes::auth::protected_router(state.clone());
     let server_invitation_routes = routes::server_invitations::router(state.clone());
+    let plan_change_routes = routes::plan_change_requests::router(state.clone());
 
     let protected_app = server_routes
         .merge(channel_routes)
@@ -881,6 +882,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .merge(attachment_routes)
         .merge(invitation_routes)
         .merge(server_invitation_routes)
+        .merge(plan_change_routes)
         .layer(from_fn(middleware::extract_claims))
         .layer(from_fn_with_state(state.clone(), middleware::insert_state));
 

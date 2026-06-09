@@ -2,7 +2,7 @@
 
 > **Convenció:** cada ítem inclou el seu criteri de fet i els tests que cal afegir.
 > Cap feature es considera acabada sense tests.
-> **Última revisió:** 2026-06-03
+> **Última revisió:** 2026-06-09
 
 ---
 
@@ -137,15 +137,15 @@ Refactor del subsistema de criptografia i permisos al frontend:
 - [x] `POST /api/dm/channels/open` — idempotent, retorna `created: false` si ja existeix
 - [x] Bootstrap `channel_key_versions` en crear DM
 - [x] `GET /api/dm/channels` — llistar converses amb peer info + `unreadCount`
-- [ ] `PUT /api/dm/channels/:id/settings` — canviar `message_ttl`
-- [ ] `POST /api/dm/channels/:id/keys/rotate`
+- [x] `PUT /api/dm/channels/:id/settings` — canviar `message_ttl`
+- [x] `POST /api/dm/channels/:id/keys/rotate`
 - [x] Compatibilitat endpoints legacy
 
 **Frontend:**
-- [ ] Llista de converses DM (sidebar o secció dedicada)
-- [ ] Vista de conversa DM (reutilitzant MainContent + crypto asimètric)
-- [ ] Modal de configuració de TTL de DM
-- [ ] Distribució de bundles asimètrics en obrir DM
+- [x] Llista de converses DM (sidebar o secció dedicada)
+- [x] Vista de conversa DM (reutilitzant MainContent + crypto asimètric)
+- [ ] Modal de configuració de TTL de DM ⚠️ `handleUpdateTTL` existeix però sense modal dedicat
+- [x] Distribució de bundles asimètrics en obrir DM
 
 **Tests (backend):**
 - [x] `open_dm_channel_creates_new`
@@ -186,7 +186,7 @@ Refactor del subsistema de criptografia i permisos al frontend:
 **Frontend:**
 - [x] Handler de `quota_warning` a Socket.IO (AppLayout.tsx)
 - [x] Variable d'estat `quotaWarning` actualitzada
-- [ ] Banner o toast visible a la UI quan es rep avís de quota (cal verificar que es renderitza)
+- [x] Banner o toast visible a la UI quan es rep avís de quota (`AppLayout.tsx:284-289`)
 - [ ] Bloqueig UI clar quan es supera el 100%
 
 **Tests (backend):**
@@ -229,20 +229,17 @@ Fitxers creats però amb cobertura incompleta:
 
 ---
 
-### 11. Tests unitaris Rust que falten ❌ NO IMPLEMENTAT
+### 11. Tests unitaris Rust ✅ COMPLET
 
-Els tests d'integració sí existeixen i són complets (`channel_flow_integration.rs`, `crypto_flow_integration.rs`), però els unitaris de crypto no:
+Els tests d'integració (`channel_flow_integration.rs`, `crypto_flow_integration.rs`) i els unitaris inline:
 
-- [ ] `server/tests/unit/crypto/kyber_test.rs` — keygen, encapsulate/decapsulate round-trip, cross-keypair failure
-- [ ] `server/tests/unit/crypto/aes_gcm_test.rs` — encrypt/decrypt, IV únic
-- [ ] `server/tests/unit/crypto/channel_keys_test.rs` — rotació i distribució
-- [ ] `server/tests/unit/auth_test.rs` — hash, JWT
+- [x] Tests unitaris crypto — inline als fitxers font (idiomàtic Rust): `kyber.rs` (5 tests), `aes_gcm.rs` (12 tests), `hash.rs` (7 tests)
 
 ---
 
 ### 12. Actualitzar documentació ⚠️ PARCIAL
 
-- [ ] `definitions/API.md` — afegir endpoints: leave server, server invitations (create/accept/decline/list), quotes S3
+- [x] `definitions/API.md` — leave server + server invitations ja documentats
 - [ ] `definitions/OVERVIEW.md` — afegir taula de límits: S3 (storage/transfer) i streaming LiveKit
 - [ ] `definitions/DEVELOPMENT.md` — documentar smoke test de docker-compose.minimal.yml
 - [ ] `docs-site/` — sincronitzar amb `definitions/` (canals `ca` i `en`)
@@ -258,10 +255,10 @@ Els tests d'integració sí existeixen i són complets (`channel_flow_integratio
 | P0 | Docker minimal | ✅ | — | ⚠️ falta smoke doc |
 | P0 | MAX_FILE_SIZE | ✅ | — | ✅ |
 | P0 | Quotes S3 (model + enforcement) | ✅ | — | ✅ |
-| P1 | DM v2 complet | ⚠️ parcial | ❌ | ⚠️ falta E2E |
+| P1 | DM v2 complet | ✅ | ⚠️ falta modal TTL | ⚠️ falta E2E |
 | P1 | Quotes LiveKit | ✅ | — | ✅ |
-| P1 | Notificacions de quota | ✅ | ⚠️ parcial | ✅ |
+| P1 | Notificacions de quota | ✅ | ⚠️ falta bloqueig 100% | ✅ |
 | P1 | Pàgina subscripció usuari | — | ❌ | ❌ |
 | P2 | Tests E2E Playwright | — | ⚠️ parcial | — |
-| P2 | Tests unitaris Rust crypto | ❌ | — | — |
+| P2 | Tests unitaris Rust crypto | ✅ | — | ✅ inline |
 | P2 | Actualitzar docs | ⚠️ parcial | — | — |

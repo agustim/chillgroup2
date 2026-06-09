@@ -243,6 +243,8 @@ export interface UserLimitsInfo {
       maxMembersPerServer: number
       apiCallsPerMinute: number
       messagesPerDay: number
+      maxStorageBytes: number
+      maxTransferBytesMonthly: number
     }
   }
   usage: {
@@ -252,6 +254,8 @@ export interface UserLimitsInfo {
     totalMembersAcrossServers: number
     messagesToday: number
     apiCallsThisMinute: number
+    storedBytes: number
+    transferBytesThisMonth: number
   }
   permissions: {
     canCreateServer: boolean
@@ -1568,6 +1572,8 @@ function mapUserLimitsInfo(raw: any): UserLimitsInfo {
         maxMembersPerServer: raw.plan?.limits?.maxMembersPerServer ?? raw.plan?.limits?.max_members_per_server,
         apiCallsPerMinute: raw.plan?.limits?.apiCallsPerMinute ?? raw.plan?.limits?.api_calls_per_minute,
         messagesPerDay: raw.plan?.limits?.messagesPerDay ?? raw.plan?.limits?.messages_per_day,
+        maxStorageBytes: raw.plan?.limits?.maxStorageBytes ?? raw.plan?.limits?.max_storage_bytes ?? -1,
+        maxTransferBytesMonthly: raw.plan?.limits?.maxTransferBytesMonthly ?? raw.plan?.limits?.max_transfer_bytes_monthly ?? -1,
       },
     },
     usage: {
@@ -1577,6 +1583,8 @@ function mapUserLimitsInfo(raw: any): UserLimitsInfo {
       totalMembersAcrossServers: raw.usage?.totalMembersAcrossServers ?? raw.usage?.total_members_across_servers ?? 0,
       messagesToday: raw.usage?.messagesToday ?? raw.usage?.messages_today ?? 0,
       apiCallsThisMinute: raw.usage?.apiCallsThisMinute ?? raw.usage?.api_calls_this_minute ?? 0,
+      storedBytes: raw.usage?.storedBytes ?? raw.usage?.stored_bytes ?? 0,
+      transferBytesThisMonth: raw.usage?.transferBytesThisMonth ?? raw.usage?.transfer_bytes_this_month ?? 0,
     },
     permissions: {
       canCreateServer: Boolean(raw.permissions?.canCreateServer ?? raw.permissions?.can_create_server),
@@ -1612,7 +1620,7 @@ export async function invitationsList(): Promise<ApiResult<InvitationListItem[]>
   return { success: true, data: data.map(mapInvitationListItem) }
 }
 
-async function plansList(): Promise<ApiResult<PlanTierInfo[]>> {
+export async function plansList(): Promise<ApiResult<PlanTierInfo[]>> {
   const result = await apiRequest<any>('GET', '/api/plans')
   if (!result.success) return result
   const data = Array.isArray(result.data) ? result.data : (result.data?.data ?? [])
@@ -1645,6 +1653,8 @@ export async function adminUserLimitsGet(userId: string): Promise<ApiResult<Admi
           maxMembersPerServer: data.plan?.limits?.maxMembersPerServer ?? data.plan?.limits?.max_members_per_server,
           apiCallsPerMinute: data.plan?.limits?.apiCallsPerMinute ?? data.plan?.limits?.api_calls_per_minute,
           messagesPerDay: data.plan?.limits?.messagesPerDay ?? data.plan?.limits?.messages_per_day,
+          maxStorageBytes: data.plan?.limits?.maxStorageBytes ?? data.plan?.limits?.max_storage_bytes ?? -1,
+          maxTransferBytesMonthly: data.plan?.limits?.maxTransferBytesMonthly ?? data.plan?.limits?.max_transfer_bytes_monthly ?? -1,
         },
       },
       usage: {
@@ -1654,6 +1664,8 @@ export async function adminUserLimitsGet(userId: string): Promise<ApiResult<Admi
         totalMembersAcrossServers: data.usage?.totalMembersAcrossServers ?? data.usage?.total_members_across_servers ?? 0,
         messagesToday: data.usage?.messagesToday ?? data.usage?.messages_today ?? 0,
         apiCallsThisMinute: data.usage?.apiCallsThisMinute ?? data.usage?.api_calls_this_minute ?? 0,
+        storedBytes: data.usage?.storedBytes ?? data.usage?.stored_bytes ?? 0,
+        transferBytesThisMonth: data.usage?.transferBytesThisMonth ?? data.usage?.transfer_bytes_this_month ?? 0,
       },
       remaining: {
         servers: data.remaining?.servers ?? 0,
@@ -1672,6 +1684,76 @@ export async function adminUserLimitsGet(userId: string): Promise<ApiResult<Admi
 export interface LiveKitTokenResponse {
   token: string
   url: string
+}
+
+// ── Plan Change Requests ─────────────────────────────────────────
+
+export interface PlanChangeRequest {
+  id: string
+  userId: string
+  username: string
+  requestedPlanId: string
+  requestedPlanName: string
+  status: 'pending' | 'approved' | 'rejected'
+  message: string | null
+  adminNote: string | null
+  createdAt: string
+}
+
+export async function planChangeRequestCreate(
+  requestedPlanId: string,
+  message?: string,
+): Promise<ApiResult<{ id: string }>> {
+  return apiRequest<{ id: string }>('POST', '/api/user/me/plan-change-request', {
+    requestedPlanId,
+    message: message ?? null,
+  })
+}
+
+export async function adminPlanChangeRequestsList(): Promise<ApiResult<PlanChangeRequest[]>> {
+  const result = await apiRequest<any>('GET', '/api/admin/plan-change-requests')
+  if (!result.success) return result
+  const data = Array.isArray(result.data) ? result.data : (result.data?.data ?? [])
+  return {
+    success: true,
+    data: data.map((r: any): PlanChangeRequest => ({
+      id: r.id,
+      userId: r.userId ?? r.user_id,
+      username: r.username,
+      requestedPlanId: r.requestedPlanId ?? r.requested_plan_id,
+      requestedPlanName: r.requestedPlanName ?? r.requested_plan_name,
+      status: r.status,
+      message: r.message ?? null,
+      adminNote: r.adminNote ?? r.admin_note ?? null,
+      createdAt: r.createdAt ?? r.created_at,
+    })),
+  }
+}
+
+export async function adminPlanChangeRequestApprove(
+  requestId: string,
+  adminNote?: string,
+): Promise<ApiResult<void>> {
+  const result = await apiRequest<void>(
+    'PUT',
+    `/api/admin/plan-change-requests/${requestId}/approve`,
+    { adminNote: adminNote ?? null },
+  )
+  if (!result.success) return result
+  return { success: true, data: undefined }
+}
+
+export async function adminPlanChangeRequestReject(
+  requestId: string,
+  adminNote?: string,
+): Promise<ApiResult<void>> {
+  const result = await apiRequest<void>(
+    'PUT',
+    `/api/admin/plan-change-requests/${requestId}/reject`,
+    { adminNote: adminNote ?? null },
+  )
+  if (!result.success) return result
+  return { success: true, data: undefined }
 }
 
 async function livekitGetToken(

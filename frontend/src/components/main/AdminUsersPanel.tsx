@@ -17,6 +17,9 @@ import {
   adminUsersUpdateRole,
   invitationsCreate,
   invitationsList,
+  adminPlanChangeRequestsList,
+  adminPlanChangeRequestApprove,
+  adminPlanChangeRequestReject,
   type AdminPlanInput,
   type AdminPlanItem,
   type AdminServerItem,
@@ -24,7 +27,9 @@ import {
   type AdminUserItem,
   type AdminUserRole,
   type InvitationListItem,
+  type PlanChangeRequest,
 } from '../../lib/api'
+import { getSocket } from '../../lib/socket'
 import { Button } from '../shared/Button'
 
 interface AdminServerOption {
@@ -55,7 +60,7 @@ const DEFAULT_PLAN_INPUT: AdminPlanInput = {
   messagesPerDay: 10000,
 }
 
-type ActiveTab = 'users' | 'invitations' | 'servers' | 'plans'
+type ActiveTab = 'users' | 'invitations' | 'servers' | 'plans' | 'planRequests'
 
 export function AdminUsersPanel({
   isOpen,
@@ -116,6 +121,22 @@ export function AdminUsersPanel({
   const [savingServerId, setSavingServerId] = useState<string | null>(null)
   const [pendingDeleteServerId, setPendingDeleteServerId] = useState<string | null>(null)
   const [deletingServerId, setDeletingServerId] = useState<string | null>(null)
+
+  // Plan change requests state
+  const [planRequests, setPlanRequests] = useState<PlanChangeRequest[]>([])
+  const [loadingPlanRequests, setLoadingPlanRequests] = useState(false)
+  const [planRequestsBadge, setPlanRequestsBadge] = useState(0)
+  const [resolvingRequestId, setResolvingRequestId] = useState<string | null>(null)
+  const [requestAdminNote, setRequestAdminNote] = useState<Record<string, string>>({})
+
+  const loadPlanRequests = async () => {
+    setLoadingPlanRequests(true)
+    const result = await adminPlanChangeRequestsList()
+    setLoadingPlanRequests(false)
+    if (!result.success) { setError(result.error.message); return }
+    setPlanRequests(result.data)
+    setPlanRequestsBadge(result.data.filter((r) => r.status === 'pending').length)
+  }
 
   const loadUsers = async () => {
     setLoadingUsers(true)
@@ -189,7 +210,18 @@ export function AdminUsersPanel({
     void loadPlans()
     void loadInvitations()
     void loadAdminServers()
+    void loadPlanRequests()
   }, [isOpen, selectedServerId])
+
+  useEffect(() => {
+    const socket = getSocket()
+    const handlePlanChangeRequest = () => {
+      setPlanRequestsBadge((n) => n + 1)
+      void loadPlanRequests()
+    }
+    socket.on('plan_change_request', handlePlanChangeRequest)
+    return () => { socket.off('plan_change_request', handlePlanChangeRequest) }
+  }, [])
 
   const handleCreateUser = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -534,6 +566,24 @@ export function AdminUsersPanel({
             onClick={() => setActiveTab('plans')}
           >
             Plans
+          </button>
+          <button
+            type="button"
+            className={`admin-panel-tab${activeTab === 'planRequests' ? ' active' : ''}`}
+            onClick={() => { setActiveTab('planRequests'); setPlanRequestsBadge(0) }}
+            style={{ position: 'relative' }}
+          >
+            Sol·licituds
+            {planRequestsBadge > 0 && (
+              <span style={{
+                position: 'absolute', top: -4, right: -4,
+                background: '#ef4444', color: '#fff',
+                borderRadius: '50%', width: 16, height: 16,
+                fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                {planRequestsBadge}
+              </span>
+            )}
           </button>
         </div>
         <Button type="button" variant="ghost" size="sm" onClick={onClose}>✕</Button>
@@ -1209,6 +1259,103 @@ export function AdminUsersPanel({
                     </li>
                   )
                 })}
+              </ul>
+            )}
+          </section>
+        </div>
+      )}
+
+      {activeTab === 'planRequests' && (
+        <div className="admin-users-grid">
+          <section className="device-keys-section">
+            <h4>Sol·licituds de canvi de pla</h4>
+            {loadingPlanRequests ? (
+              <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Carregant...</p>
+            ) : planRequests.length === 0 ? (
+              <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Cap sol·licitud pendent.</p>
+            ) : (
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {planRequests.map((req) => (
+                  <li
+                    key={req.id}
+                    style={{
+                      border: '1px solid var(--bg-active)',
+                      borderRadius: 6,
+                      padding: '12px 14px',
+                      background: req.status === 'pending' ? 'var(--bg-secondary)' : 'transparent',
+                      opacity: req.status !== 'pending' ? 0.6 : 1,
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                      <div>
+                        <span style={{ fontWeight: 500 }}>{req.username}</span>
+                        <span style={{ color: 'var(--text-secondary)', fontSize: 12, marginLeft: 8 }}>→ {req.requestedPlanName}</span>
+                        <span style={{
+                          marginLeft: 8, fontSize: 11, padding: '1px 6px', borderRadius: 3,
+                          background: req.status === 'pending' ? '#f59e0b33' : req.status === 'approved' ? '#22c55e33' : '#ef444433',
+                          color: req.status === 'pending' ? '#f59e0b' : req.status === 'approved' ? '#22c55e' : '#ef4444',
+                        }}>
+                          {req.status === 'pending' ? 'Pendent' : req.status === 'approved' ? 'Aprovat' : 'Rebutjat'}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                        {new Date(req.createdAt).toLocaleDateString('ca')}
+                      </span>
+                    </div>
+                    {req.message && (
+                      <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--text-secondary)' }}>{req.message}</p>
+                    )}
+                    {req.adminNote && (
+                      <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-secondary)', fontStyle: 'italic' }}>Nota: {req.adminNote}</p>
+                    )}
+                    {req.status === 'pending' && (
+                      <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <input
+                          type="text"
+                          placeholder="Nota per a l'usuari (opcional)"
+                          value={requestAdminNote[req.id] ?? ''}
+                          onChange={(e) => setRequestAdminNote((prev) => ({ ...prev, [req.id]: e.target.value }))}
+                          style={{ fontSize: 12, padding: '4px 8px' }}
+                          disabled={resolvingRequestId === req.id}
+                        />
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <Button
+                            type="button"
+                            variant="primary"
+                            size="sm"
+                            disabled={resolvingRequestId === req.id}
+                            onClick={async () => {
+                              setResolvingRequestId(req.id)
+                              const result = await adminPlanChangeRequestApprove(req.id, requestAdminNote[req.id] || undefined)
+                              setResolvingRequestId(null)
+                              if (!result.success) { setError(result.error.message); return }
+                              onFeedback(`Pla de ${req.username} canviat a ${req.requestedPlanName}`)
+                              void loadPlanRequests()
+                            }}
+                          >
+                            Aprovar
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={resolvingRequestId === req.id}
+                            onClick={async () => {
+                              setResolvingRequestId(req.id)
+                              const result = await adminPlanChangeRequestReject(req.id, requestAdminNote[req.id] || undefined)
+                              setResolvingRequestId(null)
+                              if (!result.success) { setError(result.error.message); return }
+                              onFeedback(`Sol·licitud de ${req.username} rebutjada`)
+                              void loadPlanRequests()
+                            }}
+                          >
+                            Rebutjar
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                ))}
               </ul>
             )}
           </section>

@@ -223,6 +223,7 @@ export function MobileLayout({ username }: MobileLayoutProps) {
             onShowInvitations={() => { setShowServerInvitations(true); closeDrawer() }}
             pendingInvitationCount={pendingInvitationCount}
             onChangePassword={handleChangePassword}
+            onManagePlan={() => setPanel('planSettings')}
             onManagePermissions={handleManagePermissions}
             onManageAdminUsers={handleManageAdminUsers}
             onCollapseList={closeDrawer}
