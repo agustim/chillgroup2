@@ -482,6 +482,7 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
     migrate_sqlite_plans_add_streaming_quota(pool).await?;
     migrate_sqlite_messages_add_reply_to(pool).await?;
     migrate_sqlite_create_message_reactions(pool).await?;
+    migrate_sqlite_create_plan_change_requests(pool).await?;
 
     for idx in [
         "CREATE INDEX IF NOT EXISTS idx_channels_scope ON channels(scope)",
@@ -6459,6 +6460,40 @@ async fn migrate_sqlite_create_message_reactions(pool: &sqlx::SqlitePool) -> Res
     .execute(pool)
     .await
     .map_err(|e| format!("Error creant índex message_reactions SQLite: {}", e))?;
+
+    Ok(())
+}
+
+async fn migrate_sqlite_create_plan_change_requests(pool: &sqlx::SqlitePool) -> Result<(), String> {
+    sqlx::query(
+        r#"CREATE TABLE IF NOT EXISTS plan_change_requests (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            requested_plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+            message TEXT,
+            status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+            admin_note TEXT,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )"#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| format!("Error creant plan_change_requests SQLite: {}", e))?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_plan_change_requests_user ON plan_change_requests(user_id)",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| format!("Error creant índex plan_change_requests user SQLite: {}", e))?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_plan_change_requests_status ON plan_change_requests(status)",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| format!("Error creant índex plan_change_requests status SQLite: {}", e))?;
 
     Ok(())
 }
