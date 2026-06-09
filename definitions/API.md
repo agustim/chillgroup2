@@ -1344,6 +1344,22 @@ El backend resol permisos de canal amb nivells explícits:
 - `2` — `write`: enviar missatges, convidar en canals asimètrics, pujar bundles asimètrics
 - `3` — `manage`: editar/eliminar canal, convidar en canals no asimètrics, rotar clau simètrica
 
+#### Semàntica específica per canals de veu
+
+En canals de tipus `voice`, els nivells tenen un significat diferent del dels canals de text:
+
+| Nivell | Nom          | Pot escoltar | Pot parlar | Pot compartir pantalla/càmera |
+|--------|--------------|:------------:|:----------:|:-----------------------------:|
+| `1`    | escoltar-veure | ✅          | ❌         | ❌                            |
+| `2`    | parlar-mostrar | ✅          | ✅         | ✅                            |
+| `3`    | manager        | ✅          | ✅         | ✅ + gestió del canal         |
+
+**Enforcement multicapa per a usuaris `escoltar-veure` (nivell 1):**
+
+1. **Token LiveKit** — el camp `canPublish` del JWT LiveKit és `false`. LiveKit rebutja qualsevol publicació d'àudio, vídeo o screen share al nivell de media server.
+2. **Presence server** — `join-voice-channel` inicialitza `is_suppressed: true`. `voice-state-updated` sobreescriu qualsevol intent del client de posar `isSuppressed: false` o `isSpeaking: true`.
+3. **Frontend** — botons de micròfon, càmera, pantalla i fitxer de media es deshabiliten i es mostra un avís "Mode escoltar-veure".
+
 Regles especials:
 
 - Si existeix override explícit a `channel_members.permission_level`, aquest valor **preval** tant en canals públics com privats.
@@ -2319,6 +2335,10 @@ Llistar les converses directes de l'usuari amb resum de cada conversa.
 ### POST `/api/livekit/token`
 
 Generar un token d'accés a LiveKit per a un canal de veu.
+
+El JWT LiveKit retornat inclou `canPublish: true` o `canPublish: false` segons el nivell de permís de l'usuari al canal:
+- Nivell `1` (escoltar-veure) → `canPublish: false` — LiveKit rebutja publicació d'àudio/vídeo/screen.
+- Nivell `2+` (parlar-mostrar, manager) → `canPublish: true`.
 
 **Headers:** `Authorization: Bearer <JWT>`
 **Request Body:**

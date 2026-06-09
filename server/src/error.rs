@@ -40,12 +40,14 @@ pub enum AppError {
     #[error("No s'ha proporcionat token")]
     TokenMissing,
     #[error("Dispositiu revocat")]
+    #[allow(dead_code)]
     DeviceRevoked,
     #[error("Permisos insuficients")]
     Forbidden,
     #[error("El nom d'usuari ja existeix")]
     UsernameExists,
     #[error("Rate limit excedit")]
+    #[allow(dead_code)]
     RateLimitExceeded,
     #[error("Password massa feble (mínim {min} caràcters)")]
     WeakPassword { min: usize },
@@ -59,6 +61,7 @@ pub enum AppError {
     #[error("Servidor no trobat")]
     ServerNotFound,
     #[error("No ets owner/admin d'aquest servidor")]
+    #[allow(dead_code)]
     ServerNotOwnerOrAdmin,
     #[error("Ja existeix un servidor amb aquest nom")]
     ServerNameExists,
@@ -85,6 +88,7 @@ pub enum AppError {
     #[error("Canal no trobat")]
     ChannelNotFound,
     #[error("No tens accés a aquest canal")]
+    #[allow(dead_code)]
     ChannelAccessDenied,
     #[error("Ja existeix un canal amb aquest nom al servidor")]
     ChannelNameExists,
@@ -110,8 +114,10 @@ pub enum AppError {
     #[error("Només el remitent pot editar aquest missatge")]
     NotMessageSender,
     #[error("No es pot editar un missatge més enllà de 5 minuts")]
+    #[allow(dead_code)]
     EditTimeExceeded,
     #[error("Massis missatges per minut (màxim {max})")]
+    #[allow(dead_code)]
     MessageRateLimited { max: u32 },
     // Encriptació (5000-5099)
     #[error("Clau pública no trobada per al dispositiu")]
@@ -123,21 +129,27 @@ pub enum AppError {
     #[error("Error en el procés d'encriptació")]
     EncapsulationFailed,
     #[error("La clau de canal ha expirat")]
+    #[allow(dead_code)]
     ChannelKeyExpired,
     #[error("Dispositiu revocat per E2EE")]
+    #[allow(dead_code)]
     DeviceRevokedE2EE,
     // LiveKit / Veu (6000-6099)
     #[error("Has superat la quota de streaming mensual del teu pla")]
     StreamingQuotaExceeded,
     #[error("Canal no és de veu")]
+    #[allow(dead_code)]
     ChannelNotVoice,
     #[error("No pertany al servidor")]
+    #[allow(dead_code)]
     NotServerMember,
     #[error("El servei de veu no està disponible ara mateix")]
+    #[allow(dead_code)]
     LiveKitUnavailable,
     #[error("Error generant token LiveKit")]
     LiveKitTokenError,
     #[error("Ja estàs en un canal de veu: {current_channel}")]
+    #[allow(dead_code)]
     AlreadyInVoiceChannel { current_channel: String },
     // Sistema (9000-9099)
     #[error("Petició incorrecta")]

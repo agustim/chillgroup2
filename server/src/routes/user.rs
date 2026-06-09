@@ -500,6 +500,158 @@ pub async fn change_my_password(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        config::{Config, LogLevel},
+        crypto::hash,
+        db::connect_db,
+        middleware::auth::UserPresenceState,
+    };
+    use axum::response::IntoResponse;
+    use std::{collections::{HashMap, HashSet}, sync::Arc};
+    use tokio::sync::RwLock;
+
+    async fn make_state() -> AppState {
+        let config = Config {
+            server_host: "127.0.0.1".to_string(),
+            server_port: 8080,
+            database_url: "sqlite::memory:".to_string(),
+            open_register: true,
+            admin_user: None,
+            admin_password: None,
+            ttl_cleanup_interval_minutes: 5,
+            livekit_host: "http://localhost:7880".to_string(),
+            livekit_api_key: "test-key".to_string(),
+            livekit_api_secret: "test-secret".to_string(),
+            jwt_secret: "test-secret".to_string(),
+            jwt_expiration_days: 7,
+            backend_debug: LogLevel::Info,
+            server_master_key: [7u8; 32],
+            static_dir: None,
+            max_file_size_bytes: 100 * 1024 * 1024,
+        };
+        let db = connect_db(&config).await.expect("sqlite test db");
+        let (_layer, io) = socketioxide::SocketIo::new_layer();
+        use socketioxide::extract::{Data, SocketRef};
+        io.ns("/", |_socket: SocketRef, Data(_auth): Data<serde_json::Value>| async move {});
+        AppState {
+            db,
+            config,
+            io,
+            user_presence: Arc::new(RwLock::new(UserPresenceState {
+                online_sockets: HashMap::<Uuid, HashSet<String>>::new(),
+            })),
+        }
+    }
+
+    fn claims_for(user_id: Uuid, username: &str) -> AuthClaims {
+        AuthClaims {
+            user_id,
+            username: username.to_string(),
+            device_id: Uuid::new_v4(),
+            is_admin: false,
+            exp: 0,
+            iat: 0,
+            jti: Uuid::new_v4().to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn get_user_me_returns_user_info() {
+        let state = make_state().await;
+        let user_id = state.db.create_user_with_role("me_user", "hash", "user").await.unwrap();
+
+        let result = get_user_me(
+            State(state),
+            axum::Extension(claims_for(user_id, "me_user")),
+        )
+        .await
+        .unwrap();
+
+        let data = &result.0["data"];
+        assert_eq!(data["username"], "me_user");
+        assert_eq!(data["isAdmin"], false);
+    }
+
+    #[tokio::test]
+    async fn get_user_me_returns_not_found_for_deleted_user() {
+        let state = make_state().await;
+        let ghost_id = Uuid::new_v4();
+
+        let result = get_user_me(
+            State(state),
+            axum::Extension(claims_for(ghost_id, "ghost_user_xyz")),
+        )
+        .await;
+
+        let err = result.expect_err("deleted user should return error");
+        let resp = err.into_response();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn search_users_returns_results() {
+        let state = make_state().await;
+        let user_id = state.db.create_user_with_role("srch_owner", "hash", "user").await.unwrap();
+        state.db.create_user_with_role("srch_target", "hash", "user").await.unwrap();
+
+        let result = search_users(
+            State(state),
+            axum::Extension(claims_for(user_id, "srch_owner")),
+            Query(UserSearchQuery { q: Some("srch_target".to_string()), limit: None }),
+        )
+        .await
+        .unwrap();
+
+        let results = result.0["data"].as_array().unwrap();
+        assert!(!results.is_empty());
+        assert!(results.iter().any(|r| r["username"] == "srch_target"));
+    }
+
+    #[tokio::test]
+    async fn change_my_password_succeeds() {
+        let state = make_state().await;
+        let password_hash = hash::hash_password("old-password-123").unwrap();
+        let user_id = state.db.create_user_with_role("pw_user", &password_hash, "user").await.unwrap();
+
+        let result = change_my_password(
+            State(state),
+            axum::Extension(claims_for(user_id, "pw_user")),
+            Json(ChangePasswordRequest {
+                old_password: "old-password-123".to_string(),
+                new_password: "new-password-456".to_string(),
+            }),
+        )
+        .await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn change_my_password_fails_with_wrong_old_password() {
+        let state = make_state().await;
+        let password_hash = hash::hash_password("correct-password-123").unwrap();
+        let user_id = state.db.create_user_with_role("pw_wrong", &password_hash, "user").await.unwrap();
+
+        let result = change_my_password(
+            State(state),
+            axum::Extension(claims_for(user_id, "pw_wrong")),
+            Json(ChangePasswordRequest {
+                old_password: "wrong-password-000".to_string(),
+                new_password: "new-password-456".to_string(),
+            }),
+        )
+        .await;
+
+        let err = result.expect_err("wrong old password should fail");
+        let resp = err.into_response();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+}
+
 /// Router per a rutes d'usuari
 pub fn router(state: AppState) -> Router {
     Router::new()

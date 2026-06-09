@@ -552,6 +552,26 @@ El client s'uneix a la room Socket.IO del canal. **No entra/surt** del canal —
 
 ---
 
+### `voice-state-updated` — Actualitzar estat de veu local
+
+**Emès quan l'usuari canvia l'estat del seu micròfon, so o càmera.**
+
+**Payload:**
+```json
+{
+  "channelId": "550e8400-e29b-41d4-a716-446655440021",
+  "isSuppressed": false,
+  "isDeafened": false,
+  "isSpeaking": true
+}
+```
+
+**Resposta del servidor:** Broadcast `voice-presence-updated` a tots els clients del canal amb l'estat actualitzat.
+
+> ⚠️ **Enforcement de permisos:** Per a usuaris amb permís `escoltar-veure` (nivell `1`), el servidor sobreescriu sempre `isSuppressed: true` i `isSpeaking: false` independentment del valor enviat pel client. El client no pot auto-dessilenciar-se per socket si no té permís de nivel `2+`.
+
+---
+
 ### `typing` — Indicador de "escrivint..."
 
 **Emès quan l'usuari està escrivint un missatge.** Cooldown: màxim 1 event cada 2 segons per usuari.

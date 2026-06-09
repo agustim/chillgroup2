@@ -1,7 +1,5 @@
 //! Entry point del servidor ChillGroup v2.
 
-#![allow(dead_code)]
-
 mod config;
 mod db;
 mod routes;

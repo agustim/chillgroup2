@@ -1,7 +1,5 @@
 //! Endpoints de servidors.
 
-#![allow(dead_code)]
-
 use axum::{
     extract::{Query, State},
     http::StatusCode,
