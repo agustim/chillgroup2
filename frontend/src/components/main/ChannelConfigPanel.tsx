@@ -152,9 +152,19 @@ export function ChannelConfigPanel({
                           style={{ width: '180px', padding: '4px 8px' }}
                         >
                           <option value="inherited">heretat (rol servidor)</option>
-                          <option value="1">read (1)</option>
-                          <option value="2">write (2)</option>
-                          <option value="3">manage (3)</option>
+                          {channel.type === 'voice' ? (
+                            <>
+                              <option value="1">escoltar-veure (1)</option>
+                              <option value="2">parlar-mostrar (2)</option>
+                              <option value="3">manager (3)</option>
+                            </>
+                          ) : (
+                            <>
+                              <option value="1">read (1)</option>
+                              <option value="2">write (2)</option>
+                              <option value="3">manage (3)</option>
+                            </>
+                          )}
                         </select>
                       </td>
                     </tr>

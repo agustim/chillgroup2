@@ -184,7 +184,14 @@ function PermissionsContent({
                               <tr key={`${channel.channelId}-${row.userId}`}>
                                 <td style={{ padding: '6px 4px', borderBottom: '1px solid var(--bg-active)' }}>{row.username}</td>
                                 <td style={{ padding: '6px 4px', borderBottom: '1px solid var(--bg-active)' }}>{row.permissionLevel}</td>
-                                <td style={{ padding: '6px 4px', borderBottom: '1px solid var(--bg-active)' }}>{row.permission}</td>
+                                <td style={{ padding: '6px 4px', borderBottom: '1px solid var(--bg-active)' }}>
+                                  {channel.type === 'voice'
+                                    ? row.permission === 'read' ? 'escoltar-veure'
+                                      : row.permission === 'write' ? 'parlar-mostrar'
+                                      : row.permission === 'manage' ? 'manager'
+                                      : row.permission
+                                    : row.permission}
+                                </td>
                               </tr>
                             ))}
                           </tbody>

@@ -592,6 +592,15 @@ body {
   cursor: not-allowed;
 }
 
+.voice-listen-only-notice {
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-sidebar);
+  border-top: 1px solid var(--bg-active);
+  text-align: center;
+}
+
 .channel-list-bottom-controls {
   margin-top: auto;
   position: sticky;

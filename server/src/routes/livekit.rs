@@ -14,6 +14,7 @@ use jsonwebtoken::{encode, Header, EncodingKey};
 use uuid::Uuid;
 use crate::middleware::{AppState, AuthClaims};
 use crate::error::AppError;
+use crate::db::CHANNEL_PERMISSION_WRITE;
 use tracing::info;
 
 #[derive(Debug, Deserialize)]
@@ -64,24 +65,35 @@ pub async fn generate_token(
     let mut livekit_api_key = state.config.livekit_api_key.clone();
     let mut livekit_api_secret = state.config.livekit_api_secret.clone();
 
+    let channel_id = req
+        .room
+        .strip_prefix("chillgroup-")
+        .and_then(|value| Uuid::parse_str(value).ok());
+
     let resolved_server_id = match req.server_id {
         Some(server_id) => Some(server_id),
-        None => {
-            let channel_id = req
-                .room
-                .strip_prefix("chillgroup-")
-                .and_then(|value| Uuid::parse_str(value).ok());
+        None => match channel_id {
+            Some(channel_id) => state
+                .db
+                .get_channel(channel_id)
+                .await
+                .map_err(AppError::DatabaseError)?
+                .map(|channel| channel.server_id),
+            None => None,
+        },
+    };
 
-            match channel_id {
-                Some(channel_id) => state
-                    .db
-                    .get_channel(channel_id)
-                    .await
-                    .map_err(AppError::DatabaseError)?
-                    .map(|channel| channel.server_id),
-                None => None,
-            }
+    let can_publish = match channel_id {
+        Some(channel_id) => {
+            let level = state
+                .db
+                .get_channel_permission_level(channel_id, claims.user_id)
+                .await
+                .map_err(AppError::DatabaseError)?
+                .unwrap_or(0);
+            level >= CHANNEL_PERMISSION_WRITE
         }
+        None => true,
     };
 
     if let Some(server_id) = resolved_server_id {
@@ -134,7 +146,7 @@ pub async fn generate_token(
         video: VideoGrant {
             room: &req.room,
             room_join: true,
-            can_publish: true,
+            can_publish,
             can_subscribe: true,
         },
     };

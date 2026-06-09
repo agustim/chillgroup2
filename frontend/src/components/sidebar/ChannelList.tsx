@@ -91,6 +91,10 @@ export function ChannelList({
   })
   const userActionsRef = useRef<HTMLDivElement | null>(null)
   const voiceControlsEnabled = !!voiceConnection
+  const activeVoiceChannel = voiceConnection
+    ? channels.find((c) => c.channelId === voiceConnection.channelId)
+    : null
+  const canSpeak = voiceControlsEnabled && (activeVoiceChannel?.permissionLevel ?? 2) >= 2
   const dmChannels = channels.filter((c) => c.scope === 'dm' && c.type === 'text')
   const unreadDmChannels = dmChannels.filter((channel) => (channel.unreadCount ?? 0) > 0)
   const textChannels = channels.filter((c) => c.type === 'text' && c.scope !== 'dm')
@@ -448,12 +452,17 @@ export function ChannelList({
         ))}
       </div>
 
+      {voiceControlsEnabled && !canSpeak && (
+        <div className="voice-listen-only-notice">
+          👁️ Mode escoltar-veure — sense permís per parlar o mostrar
+        </div>
+      )}
       <div className="channel-list-bottom-controls">
         <button
           className={`voice-user-btn ${isMuted ? 'active-off' : 'active-on'}`}
           onClick={onToggleMute}
           title={isMuted ? 'Activar micròfon' : 'Silenciar micròfon'}
-          disabled={!voiceControlsEnabled}
+          disabled={!canSpeak}
         >
           🎤
         </button>
@@ -469,7 +478,7 @@ export function ChannelList({
           className={`voice-user-btn ${isCameraOn ? 'active-on' : 'active-off'}`}
           onClick={onToggleCamera}
           title={isCameraOn ? 'Apagar càmera' : 'Activar càmera'}
-          disabled={!voiceControlsEnabled}
+          disabled={!canSpeak}
         >
           🎥
         </button>
@@ -477,7 +486,7 @@ export function ChannelList({
           className={`voice-user-btn ${isScreenSharing ? 'active-on' : 'active-off'}`}
           onClick={onToggleScreenShare}
           title={isScreenSharing ? 'Aturar compartir pantalla' : 'Compartir pantalla'}
-          disabled={!voiceControlsEnabled}
+          disabled={!canSpeak}
         >
           🖥️
         </button>
@@ -485,7 +494,7 @@ export function ChannelList({
           className={`voice-user-btn ${isMediaFileSharing ? 'active-on' : 'active-off'}`}
           onClick={onToggleMediaFileShare}
           title={isMediaFileSharing ? 'Aturar fitxer de media' : 'Compartir fitxer de media'}
-          disabled={!voiceControlsEnabled}
+          disabled={!canSpeak}
         >
           🎬
         </button>

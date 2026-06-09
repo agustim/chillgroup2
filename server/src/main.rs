@@ -35,7 +35,7 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use config::Config;
-use crate::db::DatabasePool;
+use crate::db::{DatabasePool, CHANNEL_PERMISSION_WRITE};
 use crate::crypto::hash;
 use middleware::{AppState, auth::UserPresenceState};
 
@@ -521,6 +521,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     };
 
                     let socket_id = socket.id.to_string();
+                    let perm_level = db
+                        .get_channel_permission_level(channel_id, user_id_for_voice)
+                        .await
+                        .unwrap_or(None)
+                        .unwrap_or(0);
+                    let forced_suppressed = perm_level < CHANNEL_PERMISSION_WRITE;
+
                     let mut affected_channels = Vec::new();
                     {
                         let mut state = presence.write().await;
@@ -544,7 +551,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                 username,
                                 joined_at: chrono::Utc::now().to_rfc3339(),
                                 is_deafened: false,
-                                is_suppressed: false,
+                                is_suppressed: forced_suppressed,
                                 is_speaking: false,
                             });
                         }
@@ -635,11 +642,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
 
+                    let target_channel = {
+                        let state = presence.read().await;
+                        let current_channel = state.socket_channel.get(&socket_id).copied();
+                        requested_channel.or(current_channel)
+                    };
+
+                    let (is_suppressed, is_speaking) = if let Some(channel_id) = target_channel {
+                        let perm_level = db
+                            .get_channel_permission_level(channel_id, user_id_for_voice)
+                            .await
+                            .unwrap_or(None)
+                            .unwrap_or(0);
+                        if perm_level < CHANNEL_PERMISSION_WRITE {
+                            (true, false)
+                        } else {
+                            (is_suppressed, is_speaking)
+                        }
+                    } else {
+                        (is_suppressed, is_speaking)
+                    };
+
                     let mut affected_channel = None;
                     {
                         let mut state = presence.write().await;
-                        let current_channel = state.socket_channel.get(&socket_id).copied();
-                        let target_channel = requested_channel.or(current_channel);
 
                         if let Some(channel_id) = target_channel {
                             if let Some(users) = state.channel_users.get_mut(&channel_id) {
