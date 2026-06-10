@@ -4,6 +4,7 @@
 
 import {
   decryptBytesFromLocalVault,
+  destroyLocalVault,
   encryptBytesForLocalVault,
   hasLocalVault,
   isLocalVaultUnlocked,
@@ -194,6 +195,16 @@ export async function getDeviceSecretKeys(deviceId: string): Promise<{
   })
 }
 
+export async function listDeviceIdsFromKeypairsStore(): Promise<string[]> {
+  const db = await getDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('keypairs', 'readonly')
+    const request = tx.objectStore('keypairs').getAllKeys()
+    request.onsuccess = () => { db.close(); resolve(request.result as string[]) }
+    request.onerror = () => { db.close(); reject(request.error) }
+  })
+}
+
 /**
  * Eliminar el keypair del dispositiu.
  */
@@ -249,8 +260,13 @@ export async function upsertNamedKeypair(
   dsaSecretKey?: Uint8Array,
   dsaPublicKey?: Uint8Array
 ): Promise<void> {
-  if (!isLocalVaultUnlocked()) {
+  // Vault creat però bloquejat → error (usuari ha de desbloquejar).
+  // Vault no creat → skip (claus ja guardades a keypairs store per storeDeviceSecretKeys).
+  if (hasLocalVault() && !isLocalVaultUnlocked()) {
     throw new Error('Vault local bloquejat: no es poden desar claus privades sense vault actiu')
+  }
+  if (!isLocalVaultUnlocked()) {
+    return
   }
   const encryptedSecretKey = await encryptBytesForLocalVault(secretKey)
   const encryptedDsaSecretKey = dsaSecretKey ? await encryptBytesForLocalVault(dsaSecretKey) : undefined
@@ -1043,6 +1059,7 @@ export async function clearAll(): Promise<void> {
     stores.forEach((store) => store.clear())
     tx.oncomplete = () => {
       db.close()
+      destroyLocalVault()
       resolve()
     }
     tx.onerror = () => {

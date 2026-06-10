@@ -36,17 +36,30 @@ pub async fn rate_limit_middleware(
     req: Request<Body>,
     next: Next,
 ) -> Response {
+    // Prefer X-Forwarded-For (set by Vite proxy / reverse proxies) over socket IP.
+    // In production, only trust this header when behind a known proxy.
     let ip = req
-        .extensions()
-        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
-        .map(|ci| ci.0.ip())
+        .headers()
+        .get("x-forwarded-for")
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .and_then(|s| s.trim().parse::<IpAddr>().ok())
+        .or_else(|| {
+            req.extensions()
+                .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+                .map(|ci| ci.0.ip())
+        })
         .unwrap_or(IpAddr::from([127, 0, 0, 1]));
+
+    // Skip rate limiting for loopback (dev / trusted internal traffic).
+    if ip.is_loopback() {
+        return next.run(req).await;
+    }
 
     let now = Instant::now();
     let allowed = {
         let mut map = limiter.state.lock().await;
         let timestamps = map.entry(ip).or_default();
-        // Drop timestamps outside the window
         while timestamps.front().map_or(false, |t| now.duration_since(*t) > limiter.window) {
             timestamps.pop_front();
         }

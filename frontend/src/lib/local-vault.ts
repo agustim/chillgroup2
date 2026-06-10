@@ -130,6 +130,11 @@ export function lockLocalVault(): void {
   activeVaultKey = null
 }
 
+export function destroyLocalVault(): void {
+  activeVaultKey = null
+  localStorage.removeItem(LOCAL_VAULT_META_KEY)
+}
+
 export async function createLocalVault(passphrase: string): Promise<void> {
   const trimmed = passphrase.trim()
   if (!trimmed) {

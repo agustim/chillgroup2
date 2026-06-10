@@ -10,6 +10,7 @@ import {
   getDevicePublicKeys,
   getDeviceSecretKeys,
   getNamedKeypair,
+  listDeviceIdsFromKeypairsStore,
   listNamedKeypairs,
   listChannelKeys,
   storeChannelKey,
@@ -293,14 +294,32 @@ export async function importAndStoreDeviceKeypair(
 
 export async function exportDeviceKeypair(deviceId: string): Promise<string> {
   const found = await getNamedKeypair(deviceId)
-  if (!found) {
-    throw new Error('No existeix cap keypair amb aquest deviceId')
+
+  let secretKey: Uint8Array
+  let publicKey: Uint8Array
+  let dsaSecretKey: Uint8Array | null
+  let dsaPublicKey: Uint8Array | null
+  let resolvedDeviceId: string
+
+  if (found) {
+    secretKey = found.secretKey
+    publicKey = found.publicKey
+    dsaSecretKey = found.dsaSecretKey
+    dsaPublicKey = found.dsaPublicKey
+    resolvedDeviceId = found.summary.deviceId ?? found.summary.name
+  } else {
+    // Fallback: keypairs store (keys stored without vault)
+    const secretKeys = await getDeviceSecretKeys(deviceId)
+    const publicKeys = await getDevicePublicKeys(deviceId)
+    if (!secretKeys?.kemSecretKey || !publicKeys?.kemPublicKey) {
+      throw new Error('No existeix cap keypair amb aquest deviceId')
+    }
+    secretKey = secretKeys.kemSecretKey
+    publicKey = publicKeys.kemPublicKey
+    dsaSecretKey = secretKeys.dsaSecretKey ?? null
+    dsaPublicKey = publicKeys.dsaPublicKey ?? null
+    resolvedDeviceId = deviceId
   }
-
-  const resolvedDeviceId = found.summary.deviceId ?? found.summary.name
-
-  const secretKey = found.secretKey
-  const publicKey = found.publicKey
 
   const bundle: DeviceKeypairBundle = {
     version: 1,
@@ -310,8 +329,8 @@ export async function exportDeviceKeypair(deviceId: string): Promise<string> {
     createdAt: Date.now(),
     kemPublicKey: uint8ArrayToBase64(publicKey),
     kemSecretKey: uint8ArrayToBase64(secretKey),
-    dsaPublicKey: uint8ArrayToBase64(found.dsaPublicKey ?? new Uint8Array()),
-    dsaSecretKey: uint8ArrayToBase64(found.dsaSecretKey ?? new Uint8Array()),
+    dsaPublicKey: uint8ArrayToBase64(dsaPublicKey ?? new Uint8Array()),
+    dsaSecretKey: uint8ArrayToBase64(dsaSecretKey ?? new Uint8Array()),
   }
 
   return JSON.stringify(bundle, null, 2)
@@ -323,12 +342,23 @@ export async function deleteDeviceKeypair(deviceId: string): Promise<void> {
 }
 
 export async function listDeviceKeypairs(): Promise<NamedKeypairItem[]> {
-  const items = await listNamedKeypairs()
-  return items.map((item) => ({
-    deviceId: item.deviceId ?? item.name,
-    createdAt: item.createdAt,
-    updatedAt: item.updatedAt,
-  }))
+  const namedItems = await listNamedKeypairs()
+  const namedIds = new Set(namedItems.map((i) => i.deviceId ?? i.name))
+
+  // Merge with keypairs store (keys stored without vault)
+  const fallbackIds = await listDeviceIdsFromKeypairsStore()
+  const extra: NamedKeypairItem[] = fallbackIds
+    .filter((id) => !namedIds.has(id))
+    .map((id) => ({ deviceId: id, createdAt: 0, updatedAt: 0 }))
+
+  return [
+    ...namedItems.map((item) => ({
+      deviceId: item.deviceId ?? item.name,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    })),
+    ...extra,
+  ]
 }
 
 export async function getDeviceKeySummary(deviceId: string): Promise<{
