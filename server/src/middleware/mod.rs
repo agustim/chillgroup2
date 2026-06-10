@@ -2,9 +2,11 @@
 
 #[allow(dead_code)]
 pub mod auth;
+pub mod rate_limit;
 
 #[allow(dead_code)]
 pub use auth::{AppState, AuthClaims, generate_token, generate_claims, extract_claims};
+pub use rate_limit::{RateLimiter, rate_limit_middleware};
 
 use axum::{
     http::Request,

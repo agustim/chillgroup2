@@ -204,6 +204,7 @@ mod tests {
             server_master_key: [9u8; 32],
             static_dir: None,
             max_file_size_bytes: 0,
+            allowed_origins: vec![],
         };
         let db = connect_db(&config).await.expect("sqlite test db");
         let (_layer, io) = socketioxide::SocketIo::new_layer();

@@ -622,9 +622,10 @@ SQLx resolt aquestes diferències amb feature flags i queries condicional.
 - Hash guardat a `users.password_hash`
 
 ### JWT
-- Algoritme: RS256 (clau pública/privada) o HS256 (simple)
-- Expiració: 7 dies (access) + 30 dies (refresh)
-- Conté: `user_id`, `device_id`, `exp`, `iat`, `jti`
+- Algoritme: HS256 (implementació actual)
+- Expiració: configurable via `JWT_EXPIRATION_DAYS` (default 7 dies)
+- Conté: `user_id`, `device_id`, `is_admin`, `exp`, `iat`, `jti`
+- Refresh: requereix token existent (pot estar expirat), valida signatura i que el device no estigui revocat
 
 ### Rate Limiting
 - Login: 5 intents / 15 min per IP

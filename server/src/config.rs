@@ -60,6 +60,8 @@ pub struct Config {
     pub static_dir: Option<String>,
     /// Mida màxima permesa per fitxer en bytes. 0 = sense límit. Per defecte: 104857600 (100 MB).
     pub max_file_size_bytes: u64,
+    /// Orígens permesos per CORS (comma-separated). Buit = refusa tots.
+    pub allowed_origins: Vec<String>,
 }
 
 fn decode_hex_key_32(value: &str) -> Result<[u8; 32], String> {
@@ -158,7 +160,13 @@ impl Config {
             livekit_host: get_var("LIVEKIT_HOST")?,
             livekit_api_key: get_var("LIVEKIT_API_KEY")?,
             livekit_api_secret: get_var("LIVEKIT_API_SECRET")?,
-            jwt_secret: get_var("JWT_SECRET")?,
+            jwt_secret: {
+                let secret = get_var("JWT_SECRET")?;
+                if secret.len() < 32 {
+                    return Err("JWT_SECRET ha de tenir almenys 32 caràcters".to_string());
+                }
+                secret
+            },
             jwt_expiration_days: env::var("JWT_EXPIRATION_DAYS")
                 .ok()
                 .and_then(|d| d.parse().ok())
@@ -169,6 +177,12 @@ impl Config {
                 .ok()
                 .and_then(|v| v.trim().parse::<u64>().ok())
                 .unwrap_or(100 * 1024 * 1024), // 100 MB per defecte
+            allowed_origins: env::var("ALLOWED_ORIGINS")
+                .unwrap_or_default()
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
         }, loaded_env_path))
     }
 

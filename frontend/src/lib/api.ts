@@ -908,14 +908,6 @@ export async function messagesCheckNew(channelId: string, lastSeen: string) {
   }>('GET', `/api/channels/${channelId}/messages/check-new?last_seen=${lastSeen}`)
 }
 
-export async function dmSend(recipientUserId: string, encryptedPayload: string, iv: string) {
-  return apiRequest<DirectMessage>('POST', '/api/direct-messages', {
-    encrypted_payload: encryptedPayload,
-    iv,
-    is_direct: true,
-    recipient_user_id: recipientUserId,
-  })
-}
 
 export async function dmChannelOpen(targetUserId: string, messageTTL?: number | null): Promise<ApiResult<DmChannelOpenInfo>> {
   const result = await apiRequest<any>('POST', '/api/dm/channels/open', {

@@ -25,11 +25,7 @@ pub struct SendMessageRequest {
     #[serde(default)]
     pub key_version: Option<i32>,
     pub expires_at: Option<String>,
-    #[serde(default)]
-    pub is_direct: Option<bool>,
-    #[serde(default)]
-    pub recipient_user_id: Option<Uuid>,
-    #[serde(default, alias = "attachmentIds")]
+#[serde(default, alias = "attachmentIds")]
     pub attachment_ids: Vec<Uuid>,
     #[serde(default)]
     pub reply_to_message_id: Option<Uuid>,
@@ -505,160 +501,6 @@ pub async fn delete_message(
     Ok(StatusCode::OK)
 }
 
-/// Enviar un missatge directe (DM) a un altre usuari.
-pub async fn send_direct_message(
-    State(state): State<AppState>,
-    axum::Extension(claims): axum::Extension<AuthClaims>,
-    Json(req): Json<SendMessageRequest>,
-) -> Result<(StatusCode, Json<Message>), AppError> {
-    info!(
-        "Endpoint send_direct_message cridat: from={}, to={}, is_direct={}",
-        claims.user_id, req.recipient_user_id.unwrap_or(Uuid::nil()), req.is_direct.unwrap_or(false)
-    );
-
-    // For now, create a DM with channel_id = Uuid::nil() (not associated to a real channel)
-    // In a full implementation, DMs would use a dedicated DM channel table
-
-    let message_id = Uuid::new_v4();
-    let expires_at = req.expires_at.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok()).map(|d| d.with_timezone(&chrono::Utc));
-    let timestamp = chrono::Utc::now();
-    let key_version = req.key_version;
-
-    // Persist to DB
-    state.db.create_message(
-        message_id,
-        Uuid::nil(), // DM: no channel
-        claims.user_id,
-        &claims.username,
-        claims.device_id,
-        &req.encrypted_payload,
-        &req.iv,
-        key_version,
-        expires_at,
-        timestamp,
-        None,
-    ).await.map_err(|e| {
-        tracing::error!("Error saving DM to DB: {}", e);
-        AppError::InternalError
-    })?;
-
-    info!("Missatge directe enviat: message_id={}", message_id);
-
-    let message = Message {
-        id: message_id,
-        channel_id: Uuid::nil(),
-        sender_user_id: claims.user_id,
-        sender_username: Some(claims.username.clone()),
-        sender_device_id: claims.device_id,
-        encrypted_payload: req.encrypted_payload,
-        iv: req.iv,
-        attachment_ids: vec![],
-        key_version,
-        timestamp,
-        expires_at,
-        edited_at: None,
-        deleted_at: None,
-        reply_to_message_id: None,
-        reactions: vec![],
-    };
-
-    Ok((StatusCode::CREATED, Json(message)))
-}
-
-/// Llistar missatges directes entre dos usuaris.
-pub async fn list_direct_messages(
-    State(state): State<AppState>,
-    axum::Extension(claims): axum::Extension<AuthClaims>,
-    Query(query): Query<ListDirectMessagesQuery>,
-) -> Result<Json<PaginatedResponse>, AppError> {
-    info!(
-        "Endpoint list_direct_messages cridat: user1={}, user2={}, limit={}",
-        claims.user_id, query.with_user, query.limit
-    );
-
-    // DM messages are stored with channel_id = nil, and we filter by sender/receiver
-    // For now, use list_messages with no channel_id filter via a custom approach
-    // In a full implementation, DMs would have dedicated channel records
-
-    // Simplified: query all messages for this user and filter by recipient in the app layer
-    let messages = state.db.list_messages(Uuid::nil(), query.limit, query.after, query.before, None)
-        .await
-        .map_err(|e| {
-            tracing::error!("Error listing DMs: {}", e);
-            AppError::InternalError
-        })?;
-
-    // Filter to only DM messages (channel_id is nil) matching the conversation
-    let filtered: Vec<Message> = messages.into_iter()
-        .filter(|m| {
-            m.channel_id == Uuid::nil()
-        })
-        .take(query.limit)
-        .collect();
-
-    let has_more = filtered.len() == query.limit;
-    let next_cursor = if has_more { filtered.last().map(|m| m.id) } else { None };
-
-    Ok(Json(PaginatedResponse {
-        data: filtered,
-        pagination: PaginationMeta {
-            has_more,
-            next_cursor,
-            prev_cursor: None,
-            total_new: None,
-        },
-    }))
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ListDirectMessagesQuery {
-    /// ID de l'altre usuari en la conversa
-    pub with_user: Uuid,
-    #[serde(default = "default_limit")]
-    pub limit: usize,
-    #[serde(default)]
-    pub after: Option<Uuid>,
-    #[serde(default)]
-    pub before: Option<Uuid>,
-}
-
-/// Llistar converses directes de l'usuari (ruta legacy /api/conversations).
-pub async fn list_conversations(
-    State(state): State<AppState>,
-    axum::Extension(claims): axum::Extension<AuthClaims>,
-) -> Result<Json<Vec<DirectMessageConversation>>, AppError> {
-    info!("Endpoint list_conversations cridat: user_id={}", claims.user_id);
-
-    let channels = state
-        .db
-        .list_dm_channels_for_user(claims.user_id)
-        .await
-        .map_err(AppError::DatabaseError)?;
-
-    let conversations = channels
-        .into_iter()
-        .map(|c| DirectMessageConversation {
-            other_user_id: c.peer_user_id,
-            other_user_username: c.peer_username,
-            other_user_avatar: None,
-            last_message_at: c.last_message_at.unwrap_or_else(Utc::now),
-            unread_count: 0,
-            last_message_preview: None,
-        })
-        .collect();
-
-    Ok(Json(conversations))
-}
-
-#[derive(Debug, Serialize)]
-pub struct DirectMessageConversation {
-    pub other_user_id: Uuid,
-    pub other_user_username: String,
-    pub other_user_avatar: Option<String>,
-    pub last_message_at: DateTime<Utc>,
-    pub unread_count: usize,
-    pub last_message_preview: Option<String>,
-}
 
 #[derive(Debug, Deserialize)]
 pub struct OpenDmChannelRequest {
@@ -1106,10 +948,7 @@ pub fn router(state: AppState) -> Router {
     .route("/api/dm/channels/{channel_id}/messages", get(list_dm_channel_messages).post(send_dm_channel_message))
     .route("/api/dm/channels/{channel_id}/settings", put(update_dm_channel_settings))
     .route("/api/dm/channels/{channel_id}/keys/rotate", post(rotate_dm_channel_key))
-        .route("/api/direct-messages", post(send_direct_message))
-        .route("/api/direct-messages/list", get(list_direct_messages))
-        .route("/api/conversations", get(list_conversations))
-        .with_state(state)
+.with_state(state)
 }
 
 #[cfg(test)]
@@ -1143,6 +982,7 @@ mod tests {
             server_master_key: [7u8; 32],
             static_dir: None,
             max_file_size_bytes: 100 * 1024 * 1024,
+            allowed_origins: vec![],
         }
     }
 
@@ -1205,8 +1045,6 @@ mod tests {
                 iv: "iv-hello".to_string(),
                 key_version: None,
                 expires_at: None,
-                is_direct: None,
-                recipient_user_id: None,
                 attachment_ids: vec![],
                 reply_to_message_id: None,
             }),
@@ -1258,8 +1096,6 @@ mod tests {
                 iv: "iv".to_string(),
                 key_version: None,
                 expires_at: None,
-                is_direct: None,
-                recipient_user_id: None,
                 attachment_ids: vec![],
                 reply_to_message_id: None,
             }),
@@ -1287,8 +1123,6 @@ mod tests {
                 iv: "iv".to_string(),
                 key_version: None,
                 expires_at: None,
-                is_direct: None,
-                recipient_user_id: None,
                 attachment_ids: vec![],
                 reply_to_message_id: None,
             }),
@@ -1605,8 +1439,6 @@ mod tests {
                 iv: "iv".to_string(),
                 key_version: None,
                 expires_at: None,
-                is_direct: None,
-                recipient_user_id: None,
                 attachment_ids: vec![],
                 reply_to_message_id: None,
             }),

@@ -761,6 +761,7 @@ mod tests {
             server_master_key: [7u8; 32],
             static_dir: None,
             max_file_size_bytes: 100 * 1024 * 1024,
+            allowed_origins: vec![],
         };
 
         let db = connect_db(&config)
@@ -1069,6 +1070,7 @@ mod tests {
             server_master_key: [7u8; 32],
             static_dir: None,
             max_file_size_bytes: max_bytes,
+            allowed_origins: vec![],
         };
         AppState {
             db,

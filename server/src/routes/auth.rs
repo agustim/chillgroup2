@@ -2,11 +2,13 @@
 
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     Json,
     routing,
     Router,
 };
+use jsonwebtoken::{decode, DecodingKey, Validation};
+use crate::middleware::AuthClaims;
 use rand::{distributions::Alphanumeric, Rng};
 use shared::types::{AuthResponse, RefreshResponse};
 use serde::Deserialize;
@@ -556,12 +558,45 @@ pub async fn list_invitations(
 
 #[axum::debug_handler]
 pub async fn refresh(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
 ) -> Result<Json<RefreshResponse>, AppError> {
-    let user_id = Uuid::new_v4();
-    let device_id = Uuid::new_v4();
-    let claims = generate_claims(user_id, "user", device_id, false, &_state.config);
-    let token = generate_token(&claims, &_state.config)?;
+    let token_str = headers
+        .get("authorization")
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "))
+        .ok_or(AppError::TokenMissing)?;
+
+    let mut validation = Validation::new(jsonwebtoken::Algorithm::HS256);
+    validation.validate_exp = false;
+
+    let old_claims = decode::<AuthClaims>(
+        token_str,
+        &DecodingKey::from_secret(state.config.jwt_secret.as_bytes()),
+        &validation,
+    )
+    .map_err(|_| AppError::TokenInvalid)?
+    .claims;
+
+    let active = state.db
+        .is_device_active(old_claims.device_id, old_claims.user_id)
+        .await
+        .map_err(|_| AppError::InternalError)?;
+
+    if !active {
+        warn!("Refresh rebutjat: device {} revocat o inexistent", old_claims.device_id);
+        return Err(AppError::TokenInvalid);
+    }
+
+    let new_claims = generate_claims(
+        old_claims.user_id,
+        &old_claims.username,
+        old_claims.device_id,
+        old_claims.is_admin,
+        &state.config,
+    );
+    let token = generate_token(&new_claims, &state.config)?;
+    info!("Token renovat per user_id={}", old_claims.user_id);
     Ok(Json(RefreshResponse { token }))
 }
 
@@ -617,6 +652,7 @@ mod tests {
             server_master_key: [7u8; 32],
             static_dir: None,
             max_file_size_bytes: 100 * 1024 * 1024,
+            allowed_origins: vec![],
         };
 
         let db = connect_db(&config).await.expect("sqlite test db should initialize");

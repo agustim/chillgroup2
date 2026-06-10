@@ -28,6 +28,31 @@ impl DatabasePool {
         }
     }
 
+    pub async fn is_device_active(&self, device_id: Uuid, user_id: Uuid) -> Result<bool, sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let row = sqlx::query(
+                    "SELECT EXISTS(SELECT 1 FROM devices WHERE id = $1 AND user_id = $2 AND revoked = false)"
+                )
+                .bind(device_id)
+                .bind(user_id)
+                .fetch_one(pool)
+                .await?;
+                Ok(row.get::<bool, _>(0))
+            }
+            DatabasePool::Sqlite(pool) => {
+                let row = sqlx::query(
+                    "SELECT EXISTS(SELECT 1 FROM devices WHERE id = ? AND user_id = ? AND revoked = 0)"
+                )
+                .bind(device_id)
+                .bind(user_id)
+                .fetch_one(pool)
+                .await?;
+                Ok(row.get::<bool, _>(0))
+            }
+        }
+    }
+
     /// Crea/reutilitza un dispositiu per usuari segons el `requested_device_id` enviat pel client.
     ///
     /// Regles:

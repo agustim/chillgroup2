@@ -101,12 +101,13 @@ pub async fn extract_claims(
 
     let token_str = parts[1];
 
-    let claims = if let Some(app_state) = req.extensions().get::<AppState>() {
+    let app_state = req.extensions().get::<AppState>().cloned();
+
+    let claims = if let Some(ref app_state) = app_state {
         let secret = app_state.config.jwt_secret.as_bytes();
         let mut validation = Validation::new(jsonwebtoken::Algorithm::HS256);
         validation.leeway = 5;
 
-        info!("Verificant token JWT amb AppState");
         decode::<AuthClaims>(
             token_str,
             &DecodingKey::from_secret(secret),
@@ -143,7 +144,17 @@ pub async fn extract_claims(
         })?.claims
     };
 
-    info!("Token JWT vàlid per user_id={}, username={}", claims.user_id, claims.username);
+    if let Some(app_state) = app_state {
+        let active = app_state.db
+            .is_device_active(claims.device_id, claims.user_id)
+            .await
+            .map_err(|_| AppError::InternalError)?;
+        if !active {
+            warn!("Device {} revocat o inexistent per user_id={}", claims.device_id, claims.user_id);
+            return Err(AppError::TokenInvalid);
+        }
+    }
+
     req.extensions_mut().insert(claims);
 
     Ok(next.run(req).await)
@@ -174,6 +185,7 @@ mod tests {
             server_master_key: [7u8; 32],
             static_dir: None,
             max_file_size_bytes: 100 * 1024 * 1024,
+            allowed_origins: vec![],
         }
     }
 

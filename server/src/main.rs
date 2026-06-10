@@ -23,7 +23,9 @@ use axum::{
 };
 use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
 use socketioxide::{SocketIo, extract::{Data, SocketRef}};
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{CorsLayer, AllowOrigin};
+use tower_http::set_header::SetResponseHeaderLayer;
+use axum::http::{HeaderValue, header};
 #[cfg(not(feature = "embedded-assets"))]
 use tower_http::services::{ServeDir, ServeFile};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
@@ -463,10 +465,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 &socket.id.to_string(),
             ).await;
 
-            socket.on("join-channel", |socket: SocketRef, Data(data): Data<serde_json::Value>| async move {
-                if let Some(channel_id) = data.get("channelId").and_then(|v| v.as_str()) {
-                    socket.join(format!("channel:{}", channel_id));
-                    info!("Socket {} s'ha unit a channel:{}", socket.id, channel_id);
+            let db_for_join = db.clone();
+            let user_id_for_join = claims.user_id;
+            socket.on("join-channel", move |socket: SocketRef, Data(data): Data<serde_json::Value>| {
+                let db = db_for_join.clone();
+                async move {
+                    let Some(channel_id_str) = data.get("channelId").and_then(|v| v.as_str()) else {
+                        return;
+                    };
+                    let Ok(channel_id) = Uuid::parse_str(channel_id_str) else {
+                        return;
+                    };
+                    match db.user_can_access_channel(channel_id, user_id_for_join).await {
+                        Ok(true) => {
+                            socket.join(format!("channel:{}", channel_id));
+                            info!("Socket {} s'ha unit a channel:{}", socket.id, channel_id);
+                        }
+                        Ok(false) => {
+                            warn!("Socket {} accés denegat a channel:{}", socket.id, channel_id);
+                        }
+                        Err(e) => {
+                            warn!("Error comprovant permisos channel:{}: {:?}", channel_id, e);
+                        }
+                    }
                 }
             });
 
@@ -874,12 +895,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         user_presence: user_presence.clone(),
     };
 
+    let cors_layer = {
+        let origins: Vec<HeaderValue> = state.config.allowed_origins.iter()
+            .filter_map(|o| o.parse::<HeaderValue>().ok())
+            .collect();
+        if origins.is_empty() {
+            warn!("⚠️ ALLOWED_ORIGINS no configurat — CORS bloquejarà totes les peticions cross-origin");
+        }
+        CorsLayer::new()
+            .allow_origin(AllowOrigin::list(origins))
+            .allow_methods(tower_http::cors::Any)
+            .allow_headers(tower_http::cors::Any)
+    };
+
+    let auth_rate_limiter = middleware::RateLimiter::new(5, std::time::Duration::from_secs(15 * 60));
+
     // Crear router amb tots els routers dels fitxers de routes
     // Rutes sense auth (health + auth)
     let public_app = Router::new()
         .merge(routes::health::router(state.clone()))
-        .merge(routes::auth::router(state.clone()))
-        .layer(CorsLayer::permissive());
+        .merge(
+            routes::auth::router(state.clone())
+                .layer(from_fn_with_state(auth_rate_limiter, middleware::rate_limit_middleware))
+        )
+        .layer(cors_layer.clone());
 
     // Rutes amb auth - mergejant els routers dels fitxers de routes
     let server_routes = routes::servers::router(state.clone());
@@ -911,7 +950,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .layer(from_fn_with_state(state.clone(), middleware::insert_state));
 
     // Combinar rutes públiques i protegides
-    let mut app = public_app.merge(protected_app).layer(CorsLayer::permissive());
+    let mut app = public_app
+        .merge(protected_app)
+        .layer(cors_layer)
+        .layer(SetResponseHeaderLayer::overriding(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' wss:; frame-ancestors 'none'"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::X_FRAME_OPTIONS,
+            HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::REFERRER_POLICY,
+            HeaderValue::from_static("strict-origin-when-cross-origin"),
+        ));
 
     #[cfg(feature = "embedded-assets")]
     {
@@ -945,7 +1002,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!("🔒 JWT expiration: {} days", state.config.jwt_expiration_days);
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await?;
 
     info!("🛑 Servidor aturat");
     Ok(())

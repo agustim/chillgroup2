@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
   encryptBackup,
   decryptBackup,
@@ -9,6 +9,7 @@ import {
   deleteDeviceKeypair,
   listDeviceKeypairs,
 } from './device-keys'
+import { createLocalVault, lockLocalVault } from './local-vault'
 
 describe('encryptBackup / decryptBackup', () => {
   it('round-trip: encripta i desxifra correctament', async () => {
@@ -67,6 +68,16 @@ describe('isEncryptedBackup', () => {
 
 describe('generateAndStoreDeviceKeypair', () => {
   const deviceId = `test-device-${Date.now()}`
+
+  beforeEach(async () => {
+    localStorage.clear()
+    await createLocalVault('test-passphrase')
+  })
+
+  afterEach(() => {
+    lockLocalVault()
+    localStorage.clear()
+  })
 
   it('genera i emmagatzema un keypair correctament', async () => {
     await generateAndStoreDeviceKeypair(deviceId)

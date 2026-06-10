@@ -19,7 +19,6 @@ import {
   messagesDelete,
   messagesGet,
   messagesCheckNew,
-  dmSend,
   dmChannelOpen,
   dmChannelsList,
   dmMessagesSend,
@@ -654,29 +653,6 @@ describe('API Client', () => {
   })
 
   describe('direct messages', () => {
-    it('envia un missatge directe', async () => {
-      setupMocks({
-        success: true,
-        data: {
-          messageId: 'dm-1',
-          senderUserId: 'user-1',
-          recipientUserId: 'user-2',
-          encryptedPayload: 'encrypted',
-          iv: 'iv',
-          timestamp: '2026-01-01T00:00:00Z',
-          isDirect: true,
-          deletedAt: null,
-        },
-      })
-
-      const result = await dmSend('user-2', 'encrypted', 'iv')
-      expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data.recipientUserId).toBe('user-2')
-        expect(result.data.isDirect).toBe(true)
-      }
-    })
-
     it('obre un canal DM v2', async () => {
       setupMocks({
         success: true,

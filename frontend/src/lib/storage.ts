@@ -249,6 +249,12 @@ export async function upsertNamedKeypair(
   dsaSecretKey?: Uint8Array,
   dsaPublicKey?: Uint8Array
 ): Promise<void> {
+  if (!isLocalVaultUnlocked()) {
+    throw new Error('Vault local bloquejat: no es poden desar claus privades sense vault actiu')
+  }
+  const encryptedSecretKey = await encryptBytesForLocalVault(secretKey)
+  const encryptedDsaSecretKey = dsaSecretKey ? await encryptBytesForLocalVault(dsaSecretKey) : undefined
+
   const normalized = normalizeKeypairName(name)
   const db = await getDB()
   return new Promise((resolve, reject) => {
@@ -263,9 +269,9 @@ export async function upsertNamedKeypair(
         name: name.trim(),
         nameNormalized: normalized,
         deviceId,
-        kyberSecretKey: uint8ArrayToBase64(secretKey),
+        kyberSecretKey: encryptedSecretKey,
         kyberPublicKey: uint8ArrayToBase64(publicKey),
-        dsaSecretKey: dsaSecretKey ? uint8ArrayToBase64(dsaSecretKey) : prev?.dsaSecretKey,
+        dsaSecretKey: encryptedDsaSecretKey ?? prev?.dsaSecretKey,
         dsaPublicKey: dsaPublicKey ? uint8ArrayToBase64(dsaPublicKey) : prev?.dsaPublicKey,
         createdAt: prev?.createdAt ?? now,
         updatedAt: now,
@@ -287,6 +293,13 @@ export async function upsertNamedKeypair(
   })
 }
 
+async function decodeStoredSecretKey(stored: string): Promise<Uint8Array> {
+  if (stored.startsWith('{')) {
+    return decryptBytesFromLocalVault(stored)
+  }
+  return base64ToUint8Array(stored)
+}
+
 /**
  * Obtenir un keypair nominal per nom.
  */
@@ -299,37 +312,33 @@ export async function getNamedKeypair(name: string): Promise<{
 } | null> {
   const normalized = normalizeKeypairName(name)
   const db = await getDB()
-  return new Promise((resolve, reject) => {
+  const result = await new Promise<NamedKeypairRecord | undefined>((resolve, reject) => {
     const tx = db.transaction('keypairsV2', 'readonly')
     const store = tx.objectStore('keypairsV2')
     const request = store.get(normalized)
-    request.onsuccess = () => {
-      const result = request.result as NamedKeypairRecord | undefined
-      if (!result) {
-        db.close()
-        resolve(null)
-        return
-      }
-
-      db.close()
-      resolve({
-        summary: {
-          name: result.name,
-          deviceId: result.deviceId,
-          createdAt: result.createdAt,
-          updatedAt: result.updatedAt,
-        },
-        secretKey: base64ToUint8Array(result.kyberSecretKey),
-        publicKey: base64ToUint8Array(result.kyberPublicKey),
-        dsaSecretKey: result.dsaSecretKey ? base64ToUint8Array(result.dsaSecretKey) : null,
-        dsaPublicKey: result.dsaPublicKey ? base64ToUint8Array(result.dsaPublicKey) : null,
-      })
-    }
-    request.onerror = () => {
-      db.close()
-      reject(request.error)
-    }
+    request.onsuccess = () => resolve(request.result as NamedKeypairRecord | undefined)
+    request.onerror = () => reject(request.error)
+    tx.oncomplete = () => db.close()
+    tx.onerror = () => { db.close(); reject(tx.error) }
   })
+
+  if (!result) return null
+
+  const secretKey = await decodeStoredSecretKey(result.kyberSecretKey)
+  const dsaSecretKey = result.dsaSecretKey ? await decodeStoredSecretKey(result.dsaSecretKey) : null
+
+  return {
+    summary: {
+      name: result.name,
+      deviceId: result.deviceId,
+      createdAt: result.createdAt,
+      updatedAt: result.updatedAt,
+    },
+    secretKey,
+    publicKey: base64ToUint8Array(result.kyberPublicKey),
+    dsaSecretKey,
+    dsaPublicKey: result.dsaPublicKey ? base64ToUint8Array(result.dsaPublicKey) : null,
+  }
 }
 
 /**
