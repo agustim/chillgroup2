@@ -17,7 +17,7 @@ use axum::{
 #[cfg(feature = "embedded-assets")]
 use axum::{
     body::Body,
-    http::{Uri, header},
+    http::Uri,
     response::{IntoResponse, Response},
     routing::any,
 };
