@@ -29,6 +29,27 @@ pub fn verify_password(password: &str, hash_str: &str) -> Result<bool, CryptoErr
     Ok(argon2.verify_password(password.as_bytes(), &parsed_hash).is_ok())
 }
 
+/// Rejects invitation codes that are trivially brute-forceable.
+/// SHA-256 without a server-side salt means a weak code is rainbow-table crackable.
+pub fn validate_admin_invitation_entropy(code: &str) -> Result<(), String> {
+    const MIN_LEN: usize = 20;
+    if code.len() < MIN_LEN {
+        return Err(format!(
+            "ONE_ADMIN_INVITATION massa curt ({} caràcters). Mínim {} caràcters.",
+            code.len(), MIN_LEN
+        ));
+    }
+    let has_upper = code.chars().any(|c| c.is_uppercase());
+    let has_lower = code.chars().any(|c| c.is_lowercase());
+    let has_digit = code.chars().any(|c| c.is_ascii_digit());
+    if !has_upper || !has_lower || !has_digit {
+        return Err(
+            "ONE_ADMIN_INVITATION ha de contenir majúscules, minúscules i dígits.".to_string()
+        );
+    }
+    Ok(())
+}
+
 /// Hash d'un codi d'invitació admin one-shot.
 pub fn hash_admin_invitation_code(code: &str) -> String {
     let mut hasher = Sha256::new();
@@ -97,5 +118,36 @@ mod tests {
         assert_eq!(hash1, hash2);
         assert_ne!(hash1, hash3);
         assert_eq!(hash1.len(), 64);
+    }
+
+    #[test]
+    fn test_validate_admin_invitation_entropy_valid() {
+        assert!(validate_admin_invitation_entropy("ValidCode12345678901").is_ok());
+        assert!(validate_admin_invitation_entropy("MyS3cur3AdminC0de!XYZ").is_ok());
+    }
+
+    #[test]
+    fn test_validate_admin_invitation_entropy_too_short() {
+        let result = validate_admin_invitation_entropy("Short1A");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("massa curt"));
+    }
+
+    #[test]
+    fn test_validate_admin_invitation_entropy_no_uppercase() {
+        let result = validate_admin_invitation_entropy("alllowercase12345678");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_admin_invitation_entropy_no_lowercase() {
+        let result = validate_admin_invitation_entropy("ALLUPPERCASE12345678");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_admin_invitation_entropy_no_digit() {
+        let result = validate_admin_invitation_entropy("NoDigitsHereAtAllXXX");
+        assert!(result.is_err());
     }
 }

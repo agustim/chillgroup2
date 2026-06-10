@@ -13,7 +13,8 @@ use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation}
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::time::Instant;
+use tokio::sync::{Mutex, RwLock};
 use uuid::Uuid;
 use crate::config::Config;
 use crate::error::AppError;
@@ -42,12 +43,17 @@ pub struct UserPresenceState {
     pub online_sockets: HashMap<Uuid, HashSet<String>>,
 }
 
+/// Tracks recent LiveKit token issuances to prevent duplicate quota charges.
+/// Key: (user_id, room_name). Value: Instant of last token issued.
+pub type LiveKitTokenCache = Arc<Mutex<HashMap<(Uuid, String), Instant>>>;
+
 #[derive(Clone)]
 pub struct AppState {
     pub db: DatabasePool,
     pub config: Config,
     pub io: SocketIo,
     pub user_presence: Arc<RwLock<UserPresenceState>>,
+    pub livekit_token_cache: LiveKitTokenCache,
 }
 
 // ── Generació de tokens ─────────────────────────────────────────

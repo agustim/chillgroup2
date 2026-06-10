@@ -67,6 +67,7 @@ async fn make_state() -> AppState {
         user_presence: std::sync::Arc::new(RwLock::new(UserPresenceState {
             online_sockets: HashMap::<Uuid, HashSet<String>>::new(),
         })),
+        livekit_token_cache: std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
     }
 }
 

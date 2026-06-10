@@ -31,7 +31,7 @@ use tower_http::services::{ServeDir, ServeFile};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 use tracing::{info, warn};
 use std::{collections::HashMap, sync::Arc};
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use uuid::Uuid;
 
 use config::Config;
@@ -372,6 +372,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if let Ok(raw_code) = std::env::var("ONE_ADMIN_INVITATION") {
         let trimmed = raw_code.trim();
         if !trimmed.is_empty() {
+            hash::validate_admin_invitation_entropy(trimmed)
+                .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))?;
             let code_hash = hash::hash_admin_invitation_code(trimmed);
             db_pool
                 .sync_one_admin_invitation_hash(&code_hash)
@@ -893,6 +895,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         config,
         io: io.clone(),
         user_presence: user_presence.clone(),
+        livekit_token_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
     };
 
     let cors_layer = {

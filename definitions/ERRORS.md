@@ -45,6 +45,7 @@
 | 1006 | 403 | Dispositiu revocat | `revokedAt: "2026-05-13T10:00:00Z"` |
 | 1007 | 403 | Rols insuficients | `required: "admin"`, `current: "member"` |
 | 1008 | 409 | Usuari ja existeix | — |
+| 1013 | 422 | Nom d'usuari invàlid (longitud o caràcters) | — |
 | 1009 | 429 | Rate limit excedit | `retryAfter: 900` (segons) |
 | 1010 | 403 | Password feble | `minLength: 8`, `requiresUpper: true` |
 
@@ -334,6 +335,9 @@ pub enum AppError {
     #[error("Nom d'usuari ja existeix")]
     UsernameExists,
 
+    #[error("Nom d'usuari invàlid (longitud o caràcters no permesos)")]
+    InvalidUsername,
+
     #[error("Rate limit excedit")]
     RateLimitExceeded,
 
@@ -451,6 +455,12 @@ impl AppError {
                 StatusCode::CONFLICT,
                 1008,
                 "El nom d'usuari ja existeix".to_string(),
+                None,
+            ),
+            AppError::InvalidUsername => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                1013,
+                "Nom d'usuari invàlid: longitud o caràcters no permesos".to_string(),
                 None,
             ),
             AppError::RateLimitExceeded => (

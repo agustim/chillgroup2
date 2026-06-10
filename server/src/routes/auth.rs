@@ -13,7 +13,7 @@ use rand::{distributions::Alphanumeric, Rng};
 use shared::types::{AuthResponse, RefreshResponse};
 use serde::Deserialize;
 use uuid::Uuid;
-use tracing::{info, error, warn};
+use tracing::{debug, info, error, warn};
 use serde::Serialize;
 
 use crate::{
@@ -101,7 +101,7 @@ pub async fn register(
     State(state): State<AppState>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<(StatusCode, Json<AuthResponse>), AppError> {
-    info!("📝 Endpoint de register cridat per username: {}", req.username);
+    debug!("📝 Endpoint de register cridat");
 
     let admin_invitation_hash = parse_admin_invitation_hash(req.admin_invitation_code.as_deref());
 
@@ -112,12 +112,12 @@ pub async fn register(
 
     // Validar username
     if req.username.len() < MIN_USERNAME_LENGTH || req.username.len() > MAX_USERNAME_LENGTH {
-        error!("❌ Register fallat: username amb longitud invàlida ({})", req.username);
-        return Err(AppError::UsernameExists);
+        error!("❌ Register fallat: username amb longitud invàlida");
+        return Err(AppError::InvalidUsername);
     }
     if !req.username.chars().all(|c| c.is_alphanumeric() || c == '_') {
         error!("❌ Register fallat: username amb caràcters invàlids");
-        return Err(AppError::UsernameExists);
+        return Err(AppError::InvalidUsername);
     }
 
     // Validar password
@@ -140,7 +140,7 @@ pub async fn register(
         Ok(false) => {}
     }
 
-    info!("✅ Usuari no existeix, creant nou usuari: {}", req.username);
+    debug!("✅ Usuari no existeix, creant nou usuari");
 
     // Generar hash de password
     let password_hash = match hash::hash_password(&req.password) {
@@ -164,7 +164,7 @@ pub async fn register(
             return Err(AppError::InternalError);
         }
     };
-    info!("✅ Usuari creat a DB amb user_id={}", user_id);
+    debug!("✅ Usuari creat a DB");
 
     let mut is_admin = false;
     if let Some(invitation_hash) = admin_invitation_hash {
@@ -236,7 +236,7 @@ pub async fn login(
     State(state): State<AppState>,
     Json(req): Json<LoginRequest>,
 ) -> Result<(StatusCode, Json<AuthResponse>), AppError> {
-    info!("🔑 Endpoint de login cridat per username: {}", req.username);
+    debug!("🔑 Endpoint de login cridat");
 
     // Buscar usuari a DB
     let user = state.db.find_user_auth_by_username(&req.username).await;
@@ -254,7 +254,7 @@ pub async fn login(
             };
 
             if !is_valid {
-                warn!("❌ Login fallat: password incorrecte per username: {}", req.username);
+                debug!("❌ Login fallat: password incorrecte");
                 return Err(AppError::UnauthorizedCredentials);
             }
 
@@ -285,7 +285,7 @@ pub async fn login(
                 }
             };
 
-            info!("✅ Login exitós: user_id={}, device_id={}, username={}", user_id, device_id, _username);
+            debug!("✅ Login exitós");
 
             Ok((
                 StatusCode::OK,
@@ -300,7 +300,7 @@ pub async fn login(
             ))
         }
         Ok(None) => {
-            warn!("❌ Login fallat: usuari no trobat: {}", req.username);
+            debug!("❌ Login fallat: usuari no trobat");
             Err(AppError::UnauthorizedCredentials)
         }
         Err(e) => {
@@ -318,10 +318,10 @@ pub async fn register_with_invitation(
     let explicit_admin_invitation_hash = parse_admin_invitation_hash(req.admin_invitation_code.as_deref());
 
     if req.username.len() < MIN_USERNAME_LENGTH || req.username.len() > MAX_USERNAME_LENGTH {
-        return Err(AppError::UsernameExists);
+        return Err(AppError::InvalidUsername);
     }
     if !req.username.chars().all(|c| c.is_alphanumeric() || c == '_') {
-        return Err(AppError::UsernameExists);
+        return Err(AppError::InvalidUsername);
     }
     if req.password.len() < MIN_PASSWORD_LENGTH {
         return Err(AppError::WeakPassword { min: MIN_PASSWORD_LENGTH });
@@ -596,7 +596,7 @@ pub async fn refresh(
         &state.config,
     );
     let token = generate_token(&new_claims, &state.config)?;
-    info!("Token renovat per user_id={}", old_claims.user_id);
+    debug!("Token renovat");
     Ok(Json(RefreshResponse { token }))
 }
 
@@ -631,7 +631,7 @@ mod tests {
         collections::{HashMap, HashSet},
         sync::Arc,
     };
-    use tokio::sync::RwLock;
+    use tokio::sync::{Mutex, RwLock};
     use uuid::Uuid;
 
     async fn make_state(open_register: bool) -> AppState {
@@ -666,6 +666,7 @@ mod tests {
             user_presence: Arc::new(RwLock::new(UserPresenceState {
                 online_sockets: HashMap::<Uuid, HashSet<String>>::new(),
             })),
+            livekit_token_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -974,5 +975,59 @@ mod tests {
         let body: serde_json::Value = response.json();
         assert_eq!(body["username"], "agus");
         assert_eq!(body["is_admin"], true);
+    }
+
+    #[tokio::test]
+    async fn register_username_too_short_returns_422() {
+        let state = make_state(true).await;
+        let server = TestServer::new(router(state)).expect("router should build");
+
+        let response = server
+            .post("/api/auth/register")
+            .json(&serde_json::json!({
+                "username": "ab",
+                "password": "password123"
+            }))
+            .await;
+
+        assert_eq!(response.status_code(), 422, "username too short should return 422, not 409");
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["error"]["code"], 1013);
+    }
+
+    #[tokio::test]
+    async fn register_username_too_long_returns_422() {
+        let state = make_state(true).await;
+        let server = TestServer::new(router(state)).expect("router should build");
+
+        let response = server
+            .post("/api/auth/register")
+            .json(&serde_json::json!({
+                "username": "a".repeat(100),
+                "password": "password123"
+            }))
+            .await;
+
+        assert_eq!(response.status_code(), 422, "username too long should return 422, not 409");
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["error"]["code"], 1013);
+    }
+
+    #[tokio::test]
+    async fn register_username_invalid_chars_returns_422() {
+        let state = make_state(true).await;
+        let server = TestServer::new(router(state)).expect("router should build");
+
+        let response = server
+            .post("/api/auth/register")
+            .json(&serde_json::json!({
+                "username": "user name!",
+                "password": "password123"
+            }))
+            .await;
+
+        assert_eq!(response.status_code(), 422, "username with invalid chars should return 422, not 409");
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["error"]["code"], 1013);
     }
 }

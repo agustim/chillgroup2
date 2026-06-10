@@ -37,6 +37,7 @@ async fn make_state() -> AppState {
         user_presence: Arc::new(RwLock::new(UserPresenceState {
             online_sockets: HashMap::<Uuid, HashSet<String>>::new(),
         })),
+        livekit_token_cache: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
     }
 }
 

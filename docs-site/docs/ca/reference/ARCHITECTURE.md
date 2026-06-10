@@ -149,7 +149,7 @@ sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "sqlit
 deadpool-sqlx = "0.9"  # Connection pool amb deadpool
 
 # Cryptography
-x25519-dilithium = "2.1"      # ML-KEM-1024 (Kyber) de RustCrypto
+ml-kem = { version = "0.3.2", features = ["getrandom"] }  # ML-KEM-1024 (Kyber) de RustCrypto
 aes-gcm = { version = "0.10", features = ["std"] }
 argon2 = "0.5"                   # Password hashing
 rand = "0.8"
@@ -628,9 +628,10 @@ SQLx resolt aquestes diferències amb feature flags i queries condicional.
 - Refresh: requereix token existent (pot estar expirat), valida signatura i que el device no estigui revocat
 
 ### Rate Limiting
-- Login: 5 intents / 15 min per IP
-- Missatges: 30/min per canal per usuari
-- Registre: 3 comptes / 24h per IP
+> **No implementat.** El codi no té cap middleware de rate limiting actiu. Els tipus d'error `RateLimitExceeded` estan definits però no cablejats. Valors documentats aquí com a objectiu de disseny, no comportament actual.
+- Login (objectiu): 5 intents / 15 min per IP
+- Missatges (objectiu): 30/min per canal per usuari
+- Registre (objectiu): 3 comptes / 24h per IP
 
 ### WebSocket
 - Conexions per usuari: 5 (màxim)

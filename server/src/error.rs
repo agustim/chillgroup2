@@ -46,6 +46,8 @@ pub enum AppError {
     Forbidden,
     #[error("El nom d'usuari ja existeix")]
     UsernameExists,
+    #[error("Nom d'usuari invàlid (longitud o caràcters no permesos)")]
+    InvalidUsername,
     #[error("Rate limit excedit")]
     #[allow(dead_code)]
     RateLimitExceeded,
@@ -197,6 +199,9 @@ impl IntoResponse for AppError {
             ),
             AppError::UsernameExists => (
                 StatusCode::CONFLICT, 1008, "El nom d'usuari ja existeix".to_string(), None,
+            ),
+            AppError::InvalidUsername => (
+                StatusCode::UNPROCESSABLE_ENTITY, 1013, "Nom d'usuari invàlid: longitud o caràcters no permesos".to_string(), None,
             ),
             AppError::RateLimitExceeded => (
                 StatusCode::TOO_MANY_REQUESTS, 1009, "Massa intents. Espera uns segons".to_string(), None,

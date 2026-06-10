@@ -12,10 +12,15 @@ use serde::{Deserialize, Serialize};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, Header, EncodingKey};
 use uuid::Uuid;
+use std::time::{Duration as StdDuration, Instant};
 use crate::middleware::{AppState, AuthClaims};
 use crate::error::AppError;
 use crate::db::CHANNEL_PERMISSION_WRITE;
 use tracing::info;
+
+/// Minimum gap between quota charges for the same user+room.
+/// Prevents repeated token requests (reconnects, refreshes) from draining quota.
+const LIVEKIT_CHARGE_COOLDOWN: StdDuration = StdDuration::from_secs(55 * 60);
 
 #[derive(Debug, Deserialize)]
 pub struct LiveKitTokenRequest {
@@ -54,11 +59,26 @@ pub async fn generate_token(
         if used_seconds >= max_seconds {
             return Err(AppError::StreamingQuotaExceeded);
         }
-        // Charge a minimum 1-hour credit per token.
-        let _ = state
-            .db
-            .increment_streaming_seconds(claims.user_id, &year_month, 3600)
-            .await;
+        // Only charge if this user+room hasn't been charged within the cooldown window.
+        // Prevents repeated token requests (reconnects, tab refreshes) from draining quota.
+        let cache_key = (claims.user_id, req.room.clone());
+        let should_charge = {
+            let mut cache = state.livekit_token_cache.lock().await;
+            let now = Instant::now();
+            match cache.get(&cache_key) {
+                Some(last) if now.duration_since(*last) < LIVEKIT_CHARGE_COOLDOWN => false,
+                _ => {
+                    cache.insert(cache_key, now);
+                    true
+                }
+            }
+        };
+        if should_charge {
+            let _ = state
+                .db
+                .increment_streaming_seconds(claims.user_id, &year_month, 3600)
+                .await;
+        }
     }
 
     let mut livekit_host = state.config.livekit_host.clone();
@@ -215,6 +235,7 @@ mod tests {
             user_presence: Arc::new(RwLock::new(UserPresenceState {
                 online_sockets: HashMap::<Uuid, HashSet<String>>::new(),
             })),
+            livekit_token_cache: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
         }
     }
 

@@ -64,9 +64,9 @@ Els punts 1, 2 i 3 són explotables avui per qualsevol compte vàlid.
 
 ## 🟡 Menors / Millores
 
-- [ ] **Codi d'invitació admin amb SHA-256 sense salt** — `crypto/hash.rs:33`. `ONE_ADMIN_INVITATION` escollit per humà → vulnerable a força bruta/rainbow. Usar Argon2 o exigir entropia alta.
-- [ ] **LiveKit cobra 1h mínim per cada token** — `routes/livekit.rs:57`. Bug de quota: demanar token repetidament esgota streaming sense ús real.
-- [ ] **Errors confusos** — username de longitud invàlida retorna `UsernameExists` (`auth.rs:114,318`). Dificulta debug.
-- [ ] **Logs verbosos amb PII** — usernames i `user_id` a nivell `info!` arreu. Revisar abans de prod.
-- [ ] **`.env` al directori** (no tracat per git, correcte) — confirmar `.gitignore` el cobreix de forma permanent.
-- [ ] **Docs desfasats** — `ARCHITECTURE.md:152` diu `x25519-dilithium`; codi real usa crate `ml-kem 0.3.2`. Actualitzar també RS256 vs HS256 i rate limits "implementats".
+- [x] **Codi d'invitació admin amb SHA-256 sense salt** — `crypto/hash.rs:33`. Afegida validació d'entropia mínima (20 chars, majúscules+minúscules+dígits) a `validate_admin_invitation_entropy`.
+- [x] **LiveKit cobra 1h mínim per cada token** — `routes/livekit.rs:57`. Afegit cache dedup per user+room amb cooldown de 55 min (`AppState.livekit_token_cache`).
+- [x] **Errors confusos** — Afegit `AppError::InvalidUsername` (codi HTTP 422 / codi 1013). `auth.rs` ja no retorna `UsernameExists` per errors de format.
+- [x] **Logs verbosos amb PII** — `info!` amb username/user_id → `debug!` a `auth.rs`.
+- [x] **`.env` al directori** (no tracat per git, correcte) — `.gitignore` cobreix `.env` i `.env.compose.local`.
+- [x] **Docs desfasats** — `definitions/ARCHITECTURE.md` i `docs-site` actualitzats: `ml-kem 0.3.2`, rate limiting marcat com a no implementat.
