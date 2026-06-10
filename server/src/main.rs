@@ -25,7 +25,7 @@ use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
 use socketioxide::{SocketIo, extract::{Data, SocketRef}};
 use tower_http::cors::{CorsLayer, AllowOrigin};
 use tower_http::set_header::SetResponseHeaderLayer;
-use axum::http::{HeaderValue, header};
+use axum::http::HeaderValue;
 #[cfg(not(feature = "embedded-assets"))]
 use tower_http::services::{ServeDir, ServeFile};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
