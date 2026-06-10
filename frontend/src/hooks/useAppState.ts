@@ -29,6 +29,7 @@ import {
   dmChannelRotateKey,
   channelRotateKey,
   userLimitsGet,
+  fetchServerVersion,
 } from '../lib/api'
 import { logger } from '../lib/logger'
 type ServerMenuAction = 'config' | 'invite' | 'createText' | 'createVoice' | 'leave' | null
@@ -55,6 +56,12 @@ function formatRepairFeedback(result: {
 
 export function useAppState() {
   const { user, logout, currentDeviceId } = useAuth()
+
+  const [serverVersion, setServerVersion] = useState<string | null>(null)
+
+  useEffect(() => {
+    void fetchServerVersion().then(setServerVersion)
+  }, [])
 
   const [servers, setServers] = useState<Server[]>([])
   const [selectedServer, setSelectedServer] = useState<string | null>(null)
@@ -984,6 +991,8 @@ export function useAppState() {
     // Auth
     user,
     currentDeviceId,
+    // Server info
+    serverVersion,
     // Servers
     servers,
     selectedServer,

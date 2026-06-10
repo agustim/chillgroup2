@@ -31,6 +31,7 @@ export function AppLayout({ username }: AppLayoutProps) {
   const {
     user,
     currentDeviceId,
+    serverVersion,
     servers,
     selectedServer,
     serverDetails,
@@ -222,6 +223,7 @@ export function AppLayout({ username }: AppLayoutProps) {
           friends={friends}
           serverMembers={serverDetails?.members ?? []}
           serverMemberPresenceById={serverMemberPresenceById}
+          serverVersion={serverVersion}
         />
       )}
 

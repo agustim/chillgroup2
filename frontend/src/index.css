@@ -601,8 +601,20 @@ body {
   text-align: center;
 }
 
-.channel-list-bottom-controls {
+.channel-list-footer {
   margin-top: auto;
+}
+
+.channel-list-version {
+  padding: 4px 10px;
+  font-size: 10px;
+  color: var(--text-muted, rgba(255, 255, 255, 0.3));
+  text-align: center;
+  letter-spacing: 0.05em;
+  user-select: none;
+}
+
+.channel-list-bottom-controls {
   position: sticky;
   bottom: 0;
   z-index: 2;

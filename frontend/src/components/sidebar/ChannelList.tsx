@@ -40,6 +40,7 @@ interface ChannelListProps {
   friends?: FriendPresence[]
   serverMembers?: ServerMember[]
   serverMemberPresenceById?: Record<string, boolean>
+  serverVersion?: string | null
 }
 
 export function ChannelList({
@@ -80,6 +81,7 @@ export function ChannelList({
   friends = [],
   serverMembers = [],
   serverMemberPresenceById = {},
+  serverVersion,
 }: ChannelListProps) {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [collapsedSections, setCollapsedSections] = useState({
@@ -452,12 +454,18 @@ export function ChannelList({
         ))}
       </div>
 
-      {voiceControlsEnabled && !canSpeak && (
-        <div className="voice-listen-only-notice">
-          👁️ Mode escoltar-veure — sense permís per parlar o mostrar
-        </div>
-      )}
-      <div className="channel-list-bottom-controls">
+      <div className="channel-list-footer">
+        {voiceControlsEnabled && !canSpeak && (
+          <div className="voice-listen-only-notice">
+            👁️ Mode escoltar-veure — sense permís per parlar o mostrar
+          </div>
+        )}
+        {serverVersion && (
+          <div className="channel-list-version">
+            v{serverVersion}
+          </div>
+        )}
+        <div className="channel-list-bottom-controls">
         <button
           className={`voice-user-btn ${isMuted ? 'active-off' : 'active-on'}`}
           onClick={onToggleMute}
@@ -498,6 +506,7 @@ export function ChannelList({
         >
           🎬
         </button>
+        </div>
       </div>
     </div>
   )

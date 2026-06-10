@@ -32,6 +32,7 @@ export function MobileLayout({ username }: MobileLayoutProps) {
   const {
     user,
     currentDeviceId,
+    serverVersion,
     servers,
     selectedServer,
     serverDetails,
@@ -235,6 +236,7 @@ export function MobileLayout({ username }: MobileLayoutProps) {
             friends={friends}
             serverMembers={serverDetails?.members ?? []}
             serverMemberPresenceById={serverMemberPresenceById}
+            serverVersion={serverVersion}
           />
         )}
       </div>

@@ -1748,6 +1748,17 @@ export async function adminPlanChangeRequestReject(
   return { success: true, data: undefined }
 }
 
+export async function fetchServerVersion(): Promise<string | null> {
+  try {
+    const response = await fetch(`${API_BASE}/health`)
+    if (!response.ok) return null
+    const data = (await response.json()) as { version?: string }
+    return data.version ?? null
+  } catch {
+    return null
+  }
+}
+
 async function livekitGetToken(
   channelId: string,
   participantName: string,

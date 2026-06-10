@@ -20,7 +20,7 @@ pub async fn health_check() -> (StatusCode, Json<HealthResponse>) {
         StatusCode::OK,
         Json(HealthResponse {
             status: "ok".to_string(),
-            version: "2.0.0".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
         }),
     )
 }
