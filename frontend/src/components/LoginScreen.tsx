@@ -1,9 +1,12 @@
 import React, { useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../contexts/AuthContext'
 import { Button } from './shared/Button'
+import { LanguageSwitcher } from './shared/LanguageSwitcher'
 import { importFullBackup, decryptBackup, isEncryptedBackup } from '../lib/device-keys'
 
 export function LoginScreen() {
+  const { t } = useTranslation()
   const { login, register, registerWithInvitation, isLoading, error } = useAuth()
   const openRegisterEnv = (__OPEN_REGISTER__ ?? 'true').toString().toLowerCase()
   const initialOpenRegister = openRegisterEnv === 'true' || openRegisterEnv === '1' || openRegisterEnv === 'yes' || openRegisterEnv === 'on'
@@ -26,34 +29,34 @@ export function LoginScreen() {
     setValidationError('')
 
     if (!username.trim()) {
-      setValidationError('Introdueix el nom d\'usuari')
+      setValidationError(t('login.errUsernameRequired'))
       return
     }
 
     if (!password) {
-      setValidationError('Introdueix la contrasenya')
+      setValidationError(t('login.errPasswordRequired'))
       return
     }
 
     if (!isLogin && password.length < 8) {
-      setValidationError('La contrasenya ha de tenir almenys 8 caràcters')
+      setValidationError(t('login.errPasswordMin'))
       return
     }
 
     if (!isLogin && !confirmPassword) {
-      setValidationError('Confirma la contrasenya')
+      setValidationError(t('login.errConfirmRequired'))
       return
     }
 
     if (!isLogin && password !== confirmPassword) {
-      setValidationError('Les contrasenyes no coincideixen')
+      setValidationError(t('login.errPasswordMismatch'))
       return
     }
 
     const invitation = invitationCode.trim()
 
     if (!isLogin && !isOpenRegister && !invitation) {
-      setValidationError('Introdueix el codi d\'invitació')
+      setValidationError(t('login.errInvitationRequired'))
       return
     }
 
@@ -99,13 +102,13 @@ export function LoginScreen() {
         const result = await importFullBackup(text)
         setBackupStatus({
           type: 'success',
-          message: `Backup restaurat: ${result.devices} dispositiu(s), ${result.symmetricChannels + result.asymmetricChannels} clau(s) de canal`,
+          message: t('login.backupRestored', { devices: result.devices, keys: result.symmetricChannels + result.asymmetricChannels }),
         })
       }
     } catch (err) {
       setBackupStatus({
         type: 'error',
-        message: err instanceof Error ? err.message : 'No s\'ha pogut llegir el fitxer',
+        message: err instanceof Error ? err.message : t('login.errReadFile'),
       })
     } finally {
       setIsImportingBackup(false)
@@ -124,12 +127,12 @@ export function LoginScreen() {
       setBackupPassword('')
       setBackupStatus({
         type: 'success',
-        message: `Backup restaurat: ${result.devices} dispositiu(s), ${result.symmetricChannels + result.asymmetricChannels} clau(s) de canal`,
+        message: t('login.backupRestored', { devices: result.devices, keys: result.symmetricChannels + result.asymmetricChannels }),
       })
     } catch (err) {
       setBackupStatus({
         type: 'error',
-        message: err instanceof Error ? err.message : 'No s\'ha pogut importar el backup',
+        message: err instanceof Error ? err.message : t('login.errImportBackup'),
       })
     } finally {
       setIsImportingBackup(false)
@@ -143,18 +146,18 @@ export function LoginScreen() {
       <div className="login-container">
         <div className="login-header">
           <h1>ChillGroup v2</h1>
-          <p>Missatgeria segura amb encriptació E2EE</p>
+          <p>{t('login.tagline')}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="login-form">
           <div className="form-group">
-            <label htmlFor="username">Nom d'usuari</label>
+            <label htmlFor="username">{t('login.username')}</label>
             <input
               id="username"
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="Nom d'usuari"
+              placeholder={t('login.username')}
               autoComplete="username"
               required
               disabled={isLoading}
@@ -163,31 +166,31 @@ export function LoginScreen() {
           </div>
 
           <div className="form-group">
-            <label htmlFor="password">Contrasenya</label>
+            <label htmlFor="password">{t('login.password')}</label>
             <input
               id="password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
+              placeholder={t('login.passwordPlaceholder')}
               autoComplete={isLogin ? 'current-password' : 'new-password'}
               required
               disabled={isLoading}
             />
             {!isLogin && password.length > 0 && password.length < 8 && (
-              <span className="password-hint">Mínim 8 caràcters</span>
+              <span className="password-hint">{t('login.passwordMinHint')}</span>
             )}
           </div>
 
           {!isLogin && (
             <div className="form-group">
-              <label htmlFor="confirm-password">Confirmar contrasenya</label>
+              <label htmlFor="confirm-password">{t('login.confirmPassword')}</label>
               <input
                 id="confirm-password"
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="••••••••"
+                placeholder={t('login.passwordPlaceholder')}
                 autoComplete="new-password"
                 required
                 disabled={isLoading}
@@ -198,21 +201,21 @@ export function LoginScreen() {
           {!isLogin && (
             <div className="form-group">
               <label htmlFor="invitation-code">
-                Codi d'invitació {isOpenRegister ? '(opcional)' : ''}
+                {t('login.invitationCode')} {isOpenRegister ? t('common.optional') : ''}
               </label>
               <input
                 id="invitation-code"
                 type="text"
                 value={invitationCode}
                 onChange={(e) => setInvitationCode(e.target.value)}
-                placeholder="ABC123-DEF456-GHI789"
+                placeholder={t('login.invitationPlaceholder')}
                 autoComplete="off"
                 required={!isOpenRegister}
                 disabled={isLoading}
               />
               {!isOpenRegister && (
                 <span className="password-hint">
-                  El registre està tancat. Necessites una invitació per crear compte.
+                  {t('login.registrationClosedHint')}
                 </span>
               )}
             </div>
@@ -222,7 +225,7 @@ export function LoginScreen() {
 
           <div className="form-actions">
             <Button type="submit" size="lg" disabled={isLoading}>
-              {isLoading ? 'Carregant...' : isLogin ? 'Entrar' : 'Registrar-se'}
+              {isLoading ? t('common.loadingShort') : isLogin ? t('login.signIn') : t('login.signUp')}
             </Button>
           </div>
         </form>
@@ -234,14 +237,12 @@ export function LoginScreen() {
             onClick={handleToggle}
             disabled={isLoading}
           >
-            {isLogin
-              ? 'No tens compte? Registrar-se'
-              : 'Ja tens compte? Entrar'}
+            {isLogin ? t('login.toggleToRegister') : t('login.toggleToLogin')}
           </button>
         </div>
 
         <div className="login-backup-section">
-          <p className="login-backup-label">Tens un backup de claus?</p>
+          <p className="login-backup-label">{t('login.backupPrompt')}</p>
           {backupStatus && (
             <div className={backupStatus.type === 'success' ? 'modal-success' : 'modal-error'} style={{ marginBottom: '8px' }}>
               {backupStatus.message}
@@ -258,7 +259,7 @@ export function LoginScreen() {
           {pendingEncryptedBackup ? (
             <div className="backup-decrypt-form">
               <p className="login-backup-label" style={{ marginBottom: '6px' }}>
-                El backup està xifrat. Introdueix la contrasenya:
+                {t('login.backupEncryptedPrompt')}
               </p>
               <input
                 type="password"
@@ -266,7 +267,7 @@ export function LoginScreen() {
                 value={backupPassword}
                 onChange={(e) => setBackupPassword(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') void handleDecryptAndImport() }}
-                placeholder="Contrasenya del backup"
+                placeholder={t('login.backupPasswordPlaceholder')}
                 autoComplete="current-password"
                 disabled={isImportingBackup}
                 autoFocus
@@ -278,7 +279,7 @@ export function LoginScreen() {
                   onClick={() => { setPendingEncryptedBackup(null); setBackupPassword('') }}
                   disabled={isImportingBackup}
                 >
-                  Cancel·lar
+                  {t('common.cancel')}
                 </Button>
                 <Button
                   variant="primary"
@@ -286,7 +287,7 @@ export function LoginScreen() {
                   onClick={() => void handleDecryptAndImport()}
                   disabled={isImportingBackup || !backupPassword}
                 >
-                  {isImportingBackup ? 'Desxifrant...' : 'Importar'}
+                  {isImportingBackup ? t('login.decrypting') : t('login.import')}
                 </Button>
               </div>
             </div>
@@ -297,9 +298,13 @@ export function LoginScreen() {
               onClick={() => backupFileRef.current?.click()}
               disabled={isImportingBackup || isLoading}
             >
-              {isImportingBackup ? 'Important...' : 'Restaurar backup (.json)'}
+              {isImportingBackup ? t('login.importing') : t('login.restoreBackup')}
             </Button>
           )}
+        </div>
+
+        <div className="login-language">
+          <LanguageSwitcher />
         </div>
       </div>
     </div>

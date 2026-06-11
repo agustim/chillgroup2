@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '../shared/Button'
 import { TTLSelector } from '../shared/TTLSelector'
 
@@ -19,6 +20,7 @@ interface CreateChannelFormProps {
 }
 
 function CreateChannelForm({ type, onClose, onCreate }: CreateChannelFormProps) {
+  const { t } = useTranslation()
   const [name, setName] = useState('')
   const [encryptionType, setEncryptionType] = useState<'none' | 'symmetric' | 'asymmetric'>('none')
   const [messageTTL, setMessageTTL] = useState<number | null>(null)
@@ -27,17 +29,17 @@ function CreateChannelForm({ type, onClose, onCreate }: CreateChannelFormProps) 
   const [error, setError] = useState('')
 
   const idPrefix = type === 'text' ? 'channel' : 'voice-channel'
-  const placeholder = type === 'text' ? 'general' : 'sala de reunió'
+  const placeholder = type === 'text' ? 'general' : t('channelForm.voicePlaceholder')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const trimmed = name.trim()
     if (!trimmed) {
-      setError('El nom del canal és obligatori')
+      setError(t('channelForm.errNameRequired'))
       return
     }
     if (!/^[a-z0-9-]+$/.test(trimmed.toLowerCase())) {
-      setError('Nom vàlid: només lletres minúscules, números i guions (ex: general)')
+      setError(t('channelForm.errNamePattern'))
       return
     }
     setError('')
@@ -50,7 +52,7 @@ function CreateChannelForm({ type, onClose, onCreate }: CreateChannelFormProps) 
       setIsPrivate(false)
       onClose()
     } catch {
-      setError('No s\'ha pogut crear el canal')
+      setError(t('channelForm.errCreate'))
     } finally {
       setIsSubmitting(false)
     }
@@ -59,7 +61,7 @@ function CreateChannelForm({ type, onClose, onCreate }: CreateChannelFormProps) 
   return (
     <form onSubmit={handleSubmit} className="modal-form">
       <div className="form-group">
-        <label htmlFor={`${idPrefix}-name`}>Nom del canal</label>
+        <label htmlFor={`${idPrefix}-name`}>{t('channelForm.nameLabel')}</label>
         <input
           id={`${idPrefix}-name`}
           type="text"
@@ -69,30 +71,30 @@ function CreateChannelForm({ type, onClose, onCreate }: CreateChannelFormProps) 
           autoFocus
           maxLength={30}
           pattern="[a-z0-9-]+"
-          title="Només lletres minúscules, números i guions"
+          title={t('channelForm.nameHint')}
         />
         <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-          Només lletres minúscules, números i guions
+          {t('channelForm.nameHint')}
         </span>
       </div>
 
       <div className="form-group">
-        <label htmlFor={`${idPrefix}-encryption-type`}>Encriptació</label>
+        <label htmlFor={`${idPrefix}-encryption-type`}>{t('channelForm.encryptionLabel')}</label>
         <select
           id={`${idPrefix}-encryption-type`}
           value={encryptionType}
           onChange={(e) => setEncryptionType(e.target.value as 'none' | 'symmetric' | 'asymmetric')}
           disabled={isSubmitting}
         >
-          <option value="none">Sense encriptació</option>
-          <option value="symmetric">Simètrica (clau compartida)</option>
-          <option value="asymmetric">Asimètrica (clau pública/privada)</option>
+          <option value="none">{t('channelForm.encNone')}</option>
+          <option value="symmetric">{t('channelForm.encSymmetric')}</option>
+          <option value="asymmetric">{t('channelForm.encAsymmetric')}</option>
         </select>
       </div>
 
       {type === 'text' && (
         <div className="form-group">
-          <label>TTL missatges</label>
+          <label>{t('channelForm.ttlLabel')}</label>
           <TTLSelector
             value={messageTTL}
             onChange={setMessageTTL}
@@ -110,7 +112,7 @@ function CreateChannelForm({ type, onClose, onCreate }: CreateChannelFormProps) 
             onChange={(e) => setIsPrivate(e.target.checked)}
             disabled={isSubmitting}
           />
-          <span>Canal privat (secret)</span>
+          <span>{t('channelForm.privateLabel')}</span>
         </label>
       </div>
 
@@ -118,10 +120,10 @@ function CreateChannelForm({ type, onClose, onCreate }: CreateChannelFormProps) 
 
       <div className="modal-form-actions">
         <Button type="button" variant="ghost" onClick={onClose} disabled={isSubmitting}>
-          Cancel·lar
+          {t('common.cancel')}
         </Button>
         <Button type="submit" variant="primary" disabled={isSubmitting || !name.trim()}>
-          {isSubmitting ? 'Creant...' : 'Crear'}
+          {isSubmitting ? t('common.creating') : t('common.create')}
         </Button>
       </div>
     </form>

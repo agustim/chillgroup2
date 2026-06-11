@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '../shared/Button'
 import { PendingServerInvitation, serverInvitationAccept, serverInvitationDecline, serverInvitationsList } from '../../lib/api'
 
@@ -8,6 +9,7 @@ interface ServerInvitationsModalProps {
 }
 
 export function ServerInvitationsModal({ onClose, onAccepted }: ServerInvitationsModalProps) {
+  const { t } = useTranslation()
   const [invitations, setInvitations] = useState<PendingServerInvitation[]>([])
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -35,7 +37,7 @@ export function ServerInvitationsModal({ onClose, onAccepted }: ServerInvitation
       setInvitations((prev) => prev.filter((i) => i.invitationId !== inv.invitationId))
       onAccepted(inv.serverId)
     } else {
-      setError((result as any).error?.message ?? 'Error en acceptar la invitació')
+      setError((result as any).error?.message ?? t('serverInvitations.errAccept'))
     }
   }
 
@@ -47,7 +49,7 @@ export function ServerInvitationsModal({ onClose, onAccepted }: ServerInvitation
     if (result.success) {
       setInvitations((prev) => prev.filter((i) => i.invitationId !== inv.invitationId))
     } else {
-      setError((result as any).error?.message ?? 'Error en declinar la invitació')
+      setError((result as any).error?.message ?? t('serverInvitations.errDecline'))
     }
   }
 
@@ -55,16 +57,16 @@ export function ServerInvitationsModal({ onClose, onAccepted }: ServerInvitation
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
         <div className="modal-header">
-          <h2 className="modal-title">Invitacions de servidor</h2>
+          <h2 className="modal-title">{t('serverInvitations.title')}</h2>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
         <div className="modal-body">
           {error && <div className="modal-error" style={{ marginBottom: 12 }}>{error}</div>}
           {loading ? (
-            <p style={{ color: 'var(--text-secondary)', textAlign: 'center' }}>Carregant...</p>
+            <p style={{ color: 'var(--text-secondary)', textAlign: 'center' }}>{t('common.loadingShort')}</p>
           ) : invitations.length === 0 ? (
             <p style={{ color: 'var(--text-secondary)', textAlign: 'center' }}>
-              No tens invitacions pendents.
+              {t('serverInvitations.empty')}
             </p>
           ) : (
             <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -84,7 +86,7 @@ export function ServerInvitationsModal({ onClose, onAccepted }: ServerInvitation
                   <div>
                     <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{inv.serverName}</div>
                     <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                      Convidat per <strong>{inv.inviterUsername}</strong>
+                      {t('serverInvitations.invitedBy')} <strong>{inv.inviterUsername}</strong>
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
@@ -94,7 +96,7 @@ export function ServerInvitationsModal({ onClose, onAccepted }: ServerInvitation
                       disabled={busyId === inv.invitationId}
                       onClick={() => void handleDecline(inv)}
                     >
-                      Declinar
+                      {t('serverInvitations.decline')}
                     </Button>
                     <Button
                       variant="primary"
@@ -102,7 +104,7 @@ export function ServerInvitationsModal({ onClose, onAccepted }: ServerInvitation
                       disabled={busyId === inv.invitationId}
                       onClick={() => void handleAccept(inv)}
                     >
-                      Acceptar
+                      {t('serverInvitations.accept')}
                     </Button>
                   </div>
                 </li>

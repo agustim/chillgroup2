@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { Button } from '../shared/Button'
 import { encryptBackup, exportFullBackup } from '../../lib/device-keys'
@@ -11,6 +12,7 @@ interface LogoutBackupModalProps {
 }
 
 export function LogoutBackupModal({ username, onConfirm, onCancel }: LogoutBackupModalProps) {
+  const { t } = useTranslation()
   const [isBusy, setIsBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [password, setPassword] = useState('')
@@ -42,7 +44,7 @@ export function LogoutBackupModal({ username, onConfirm, onCancel }: LogoutBacku
 
   const handleDownloadAndLogout = async () => {
     if (hasPassword && !passwordsMatch) {
-      setError('Les contrasenyes no coincideixen')
+      setError(t('logoutBackup.mismatch'))
       return
     }
     setIsBusy(true)
@@ -53,7 +55,7 @@ export function LogoutBackupModal({ username, onConfirm, onCancel }: LogoutBacku
       triggerDownload(output)
       await finalizeLogout()
     } catch {
-      setError('No s\'ha pogut generar el backup. Prova de tancar sessió sense backup.')
+      setError(t('logoutBackup.errBackup'))
       setIsBusy(false)
     }
   }
@@ -71,15 +73,15 @@ export function LogoutBackupModal({ username, onConfirm, onCancel }: LogoutBacku
     <div className="modal-overlay" onClick={onCancel}>
       <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2 className="modal-title">Tancar sessió</h2>
+          <h2 className="modal-title">{t('logoutBackup.title')}</h2>
           <button className="modal-close" onClick={onCancel} disabled={isBusy}>✕</button>
         </div>
         <div className="modal-body">
           <p style={{ marginBottom: '8px' }}>
-            Pots decidir si vols fer backup i si vols esborrar les dades locals en aquesta sortida.
+            {t('logoutBackup.intro')}
           </p>
           <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '16px' }}>
-            Si mantens les dades locals, continuaran xifrades i només es podran obrir amb la clau local de desbloqueig.
+            {t('logoutBackup.introNote')}
           </p>
 
           <div className="form-group" style={{ marginBottom: '16px' }}>
@@ -90,45 +92,43 @@ export function LogoutBackupModal({ username, onConfirm, onCancel }: LogoutBacku
                 onChange={(e) => setClearLocalData(e.target.checked)}
                 disabled={isBusy}
               />
-              <span>Esborrar dades locals en tancar sessió</span>
+              <span>{t('logoutBackup.clearLabel')}</span>
             </label>
             <span className="password-hint" style={{ marginTop: '6px' }}>
-              {clearLocalData
-                ? 'S\'eliminaran claus i dades locals del navegador després de sortir.'
-                : 'Les dades locals es conservaran xifrades per al proper inici de sessió.'}
+              {clearLocalData ? t('logoutBackup.clearHintOn') : t('logoutBackup.clearHintOff')}
             </span>
           </div>
 
           <div className="modal-form" style={{ marginBottom: '16px' }}>
             <div className="form-group">
-              <label htmlFor="backup-password">Contrasenya del backup</label>
+              <label htmlFor="backup-password">{t('logoutBackup.passwordLabel')}</label>
               <input
                 id="backup-password"
                 type="password"
                 className="form-input"
                 value={password}
                 onChange={(e) => { setPassword(e.target.value); setError(null) }}
-                placeholder="Deixa buit per desar sense xifrar"
+                placeholder={t('logoutBackup.passwordPlaceholder')}
                 autoComplete="new-password"
                 disabled={isBusy}
               />
             </div>
             {hasPassword && (
               <div className="form-group">
-                <label htmlFor="backup-password-confirm">Confirmar contrasenya</label>
+                <label htmlFor="backup-password-confirm">{t('logoutBackup.confirmLabel')}</label>
                 <input
                   id="backup-password-confirm"
                   type="password"
                   className="form-input"
                   value={confirmPassword}
                   onChange={(e) => { setConfirmPassword(e.target.value); setError(null) }}
-                  placeholder="Repeteix la contrasenya"
+                  placeholder={t('logoutBackup.confirmPlaceholder')}
                   autoComplete="new-password"
                   disabled={isBusy}
                 />
                 {confirmPassword.length > 0 && !passwordsMatch && (
                   <span className="password-hint" style={{ color: 'var(--error)' }}>
-                    Les contrasenyes no coincideixen
+                    {t('logoutBackup.mismatch')}
                   </span>
                 )}
               </div>
@@ -139,17 +139,17 @@ export function LogoutBackupModal({ username, onConfirm, onCancel }: LogoutBacku
 
           <div className="modal-form-actions">
             <Button variant="secondary" onClick={onCancel} disabled={isBusy}>
-              Cancel·lar
+              {t('common.cancel')}
             </Button>
             <Button variant="secondary" onClick={() => void handleLogoutWithoutBackup()} disabled={isBusy}>
-              Sortir sense backup
+              {t('logoutBackup.logoutNoBackup')}
             </Button>
             <Button
               variant="primary"
               onClick={() => void handleDownloadAndLogout()}
               disabled={isBusy || (hasPassword && !passwordsMatch)}
             >
-              {isBusy ? 'Processant...' : hasPassword ? 'Descarregar backup xifrat i sortir' : 'Descarregar backup i sortir'}
+              {isBusy ? t('common.processing') : hasPassword ? t('logoutBackup.downloadEncrypted') : t('logoutBackup.download')}
             </Button>
           </div>
         </div>

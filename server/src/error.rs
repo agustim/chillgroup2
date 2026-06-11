@@ -274,7 +274,7 @@ impl IntoResponse for AppError {
             ),
             AppError::MessageTooLong { max } => (
                 StatusCode::BAD_REQUEST, 4001, format!("El missatge és massa llarg (màxim {max} caràcters)"),
-                None,
+                Some(serde_json::json!({ "max": max })),
             ),
             AppError::MessageNotFound => (
                 StatusCode::NOT_FOUND, 4002, "Missatge no trobat".to_string(), None,
@@ -285,7 +285,7 @@ impl IntoResponse for AppError {
             AppError::FileTooLarge { max_mb } => (
                 StatusCode::PAYLOAD_TOO_LARGE, 4004,
                 format!("El fitxer supera la mida màxima de {max_mb} MB"),
-                None,
+                Some(serde_json::json!({ "max_mb": max_mb })),
             ),
             AppError::StorageQuotaExceeded => (
                 StatusCode::TOO_MANY_REQUESTS, 4005,

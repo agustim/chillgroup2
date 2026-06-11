@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Modal } from '../ui/Modal'
 import { Button } from '../shared/Button'
 import { Channel } from '../../types'
@@ -20,6 +21,7 @@ export function ConfigureChannelModal({
   onDelete,
   onInviteChannel,
 }: ConfigureChannelModalProps) {
+  const { t } = useTranslation()
   const [name, setName] = useState('')
   const [messageTTL, setMessageTTL] = useState('')
   const [isPrivate, setIsPrivate] = useState(false)
@@ -54,7 +56,7 @@ export function ConfigureChannelModal({
     e.preventDefault()
     const trimmedName = name.trim()
     if (!trimmedName) {
-      setError('El nom del canal és obligatori')
+      setError(t('configureChannel.errNameRequired'))
       return
     }
     setError('')
@@ -65,7 +67,7 @@ export function ConfigureChannelModal({
       if (trimmed) {
         const parsed = Number(trimmed)
         if (isNaN(parsed) || parsed < 0) {
-          setError('TTL ha de ser un número positiu o buit per cap límit')
+          setError(t('configureChannel.errTtl'))
           setIsSubmitting(false)
           return
         }
@@ -74,13 +76,13 @@ export function ConfigureChannelModal({
         ttl = null
       }
       await onUpdate(trimmedName, ttl, isPrivate)
-      setSuccess('Canal actualitzat correctament')
+      setSuccess(t('configureChannel.success'))
       setTimeout(() => {
         setSuccess('')
         onClose()
       }, 1500)
     } catch {
-      setError('No s\'ha pogut actualitzar el canal')
+      setError(t('configureChannel.errUpdate'))
     } finally {
       setIsSubmitting(false)
     }
@@ -125,7 +127,7 @@ export function ConfigureChannelModal({
 
     const trimmed = inviteUsername.trim()
     if (!trimmed) {
-      setInviteError('El nom d\'usuari és obligatori')
+      setInviteError(t('configureChannel.inviteErrUsername'))
       return
     }
 
@@ -134,10 +136,10 @@ export function ConfigureChannelModal({
     setInviteSuccess('')
     try {
       await onInviteChannel(trimmed)
-      setInviteSuccess(`Invitació enviada a ${trimmed}`)
+      setInviteSuccess(t('configureChannel.inviteSuccess', { username: trimmed }))
       setInviteUsername('')
     } catch {
-      setInviteError('No s\'ha pogut enviar la invitació')
+      setInviteError(t('configureChannel.inviteErr'))
     } finally {
       setInviting(false)
     }
@@ -146,10 +148,10 @@ export function ConfigureChannelModal({
   if (!channel) return null
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Configuració del canal">
+    <Modal isOpen={isOpen} onClose={onClose} title={t('configureChannel.title')}>
       <form onSubmit={handleSubmit} className="modal-form">
         <div className="form-group">
-          <label htmlFor="config-channel-name">Nom del canal</label>
+          <label htmlFor="config-channel-name">{t('configureChannel.nameLabel')}</label>
           <input
             id="config-channel-name"
             type="text"
@@ -162,9 +164,9 @@ export function ConfigureChannelModal({
 
         <div className="form-group">
           <label htmlFor="config-ttl">
-            Durada dels missatges (TTL en segons)
+            {t('configureChannel.ttlLabel')}
             <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-              Deixa buit per cap límit. Els missatges s'esborraran automàticament.
+              {t('configureChannel.ttlHint')}
             </span>
           </label>
           <input
@@ -172,7 +174,7 @@ export function ConfigureChannelModal({
             type="number"
             value={messageTTL}
             onChange={(e) => setMessageTTL(e.target.value)}
-            placeholder="Sense límit"
+            placeholder={t('configureChannel.ttlPlaceholder')}
             min="0"
           />
         </div>
@@ -196,48 +198,46 @@ export function ConfigureChannelModal({
               disabled={isSubmitting || deleting}
               style={{ width: '18px', height: '18px', cursor: 'pointer' }}
             />
-            <span style={{ fontSize: '14px' }}>Canal privat</span>
+            <span style={{ fontSize: '14px' }}>{t('configureChannel.privateLabel')}</span>
           </label>
           <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            {isPrivate
-              ? 'Només els usuaris invitats poden accedir al canal.'
-              : 'Qualsevol membre del servidor pot veure i accedir al canal.'}
+            {isPrivate ? t('configureChannel.privateHintOn') : t('configureChannel.privateHintOff')}
           </span>
         </div>
 
         <div style={{ padding: '12px', background: 'var(--bg-app)', borderRadius: '8px' }}>
           <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
             <div>
-              <strong>Tipus:</strong> {channel.type === 'text' ? '# Text' : '🔊 Veu'}
+              <strong>{t('configureChannel.typeRow')}</strong> {channel.type === 'text' ? t('configureChannel.typeText') : t('configureChannel.typeVoice')}
             </div>
             <div>
-              <strong>Encriptació:</strong> {channel.encryptionType === 'symmetric' ? '🔒 Simètrica' : channel.encryptionType === 'asymmetric' ? '🔐 Asimètrica' : '❌ Cap'}
+              <strong>{t('configureChannel.encRow')}</strong> {channel.encryptionType === 'symmetric' ? t('configureChannel.encSymmetric') : channel.encryptionType === 'asymmetric' ? t('configureChannel.encAsymmetric') : t('configureChannel.encNone')}
             </div>
             <div>
-              <strong>Privat:</strong> {channel.isPrivate ? 'Sí' : 'No'}
+              <strong>{t('configureChannel.privateRow')}</strong> {channel.isPrivate ? t('common.yes') : t('common.no')}
             </div>
           </div>
         </div>
 
         {onInviteChannel && (
           <section className="modal-inline-section">
-            <h4>Convidar usuari</h4>
+            <h4>{t('configureChannel.inviteUser')}</h4>
             <form onSubmit={handleInvite} className="modal-form">
               <div className="form-group">
-                <label htmlFor="channel-invite-username">Nom d'usuari</label>
+                <label htmlFor="channel-invite-username">{t('login.username')}</label>
                 <input
                   id="channel-invite-username"
                   type="text"
                   value={inviteUsername}
                   onChange={(e) => setInviteUsername(e.target.value)}
-                  placeholder="Nom d'usuari"
+                  placeholder={t('login.username')}
                 />
               </div>
               {inviteError && <div className="modal-error">{inviteError}</div>}
               {inviteSuccess && <div className="modal-success">{inviteSuccess}</div>}
               <div className="modal-form-actions" style={{ marginTop: 0 }}>
                 <Button type="submit" variant="secondary" size="sm" disabled={inviting}>
-                  {inviting ? 'Enviant...' : 'Convidar'}
+                  {inviting ? t('configureChannel.inviting') : t('configureChannel.invite')}
                 </Button>
               </div>
             </form>
@@ -246,7 +246,7 @@ export function ConfigureChannelModal({
 
         {showDeleteConfirm && (
           <div className="modal-error" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div>Estàs segur que vols esborrar aquest canal? Aquesta acció no es pot desfer.</div>
+            <div>{t('configureChannel.deleteConfirm')}</div>
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
               <Button
                 type="button"
@@ -255,7 +255,7 @@ export function ConfigureChannelModal({
                 onClick={handleCancelDelete}
                 disabled={deleting}
               >
-                Cancel·lar
+                {t('common.cancel')}
               </Button>
               <Button
                 type="button"
@@ -264,7 +264,7 @@ export function ConfigureChannelModal({
                 onClick={handleConfirmDelete}
                 disabled={deleting}
               >
-                {deleting ? 'Esborrant...' : 'Esborrar'}
+                {deleting ? t('common.erasing') : t('common.erase')}
               </Button>
             </div>
           </div>
@@ -275,10 +275,10 @@ export function ConfigureChannelModal({
 
         <div className="modal-form-actions">
           <Button type="button" variant="ghost" onClick={onClose} disabled={isSubmitting}>
-            Cancel·lar
+            {t('common.cancel')}
           </Button>
           <Button type="submit" variant="primary" disabled={isSubmitting || deleting}>
-            {isSubmitting ? 'Desant...' : 'Desar canvis'}
+            {isSubmitting ? t('common.saving') : t('configureChannel.saveChanges')}
           </Button>
         </div>
       </form>
@@ -290,7 +290,7 @@ export function ConfigureChannelModal({
             onClick={handleRequestDelete}
             disabled={isSubmitting || deleting}
           >
-            Esborrar canal
+            {t('configureChannel.deleteChannel')}
           </Button>
         </div>
     </Modal>

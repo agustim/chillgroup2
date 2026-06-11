@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { Button } from '../shared/Button'
 import { channelsList, serversList } from '../../lib/api'
@@ -26,6 +27,7 @@ interface ChannelKeysContentProps {
 }
 
 function ChannelKeysContent({ isActive, channels = [], serverName }: ChannelKeysContentProps) {
+  const { t } = useTranslation()
   const { isBusy, error, success, run, setError, setSuccess } = useAsyncTask()
   const [symmetricKeys, setSymmetricKeys] = useState<Array<{
     channelId: string
@@ -71,7 +73,7 @@ function ChannelKeysContent({ isActive, channels = [], serverName }: ChannelKeys
     if (name) {
       return `#${name}`
     }
-    return 'Canal desconegut'
+    return t('channelKeys.unknownChannel')
   }
 
   const getRequiredChannelIds = (
@@ -159,43 +161,43 @@ function ChannelKeysContent({ isActive, channels = [], serverName }: ChannelKeys
 
   const handleExportSymmetric = () => void run(async () => {
     setExportedSymmetricBundle(await exportSymmetricChannelKeys())
-    return 'Exportació de claus simètriques preparada'
-  }, 'No s\'han pogut exportar les claus simètriques')
+    return t('channelKeys.successExportSym')
+  }, t('channelKeys.errExportSym'))
 
   const handleExportAsymmetric = () => void run(async () => {
     setExportedAsymmetricBundle(await exportAsymmetricChannelKeys())
-    return 'Exportació de claus asimètriques preparada'
-  }, 'No s\'han pogut exportar les claus asimètriques')
+    return t('channelKeys.successExportAsym')
+  }, t('channelKeys.errExportAsym'))
 
   const handleDeleteSymmetric = (channelId: string) => void run(async () => {
     await deleteSymmetricChannelKey(channelId)
     await refreshStateAndDirectory()
-    return `Clau simètrica de ${formatChannelLabel(channelId)} eliminada`
-  }, 'No s\'ha pogut eliminar la clau simètrica')
+    return t('channelKeys.successDeleteSym', { label: formatChannelLabel(channelId) })
+  }, t('channelKeys.errDeleteSym'))
 
   const handleImportSymmetric = () => {
     if (!symImportText.trim()) {
-      setError('Enganxa el JSON de claus simètriques')
+      setError(t('channelKeys.errPasteSym'))
       return
     }
     void run(async () => {
       const imported = await importSymmetricChannelKeys(symImportText)
       await refreshStateAndDirectory()
       setSymImportText('')
-      return `Importades ${imported} claus simètriques de canals`
+      return t('channelKeys.importedSym', { count: imported })
     })
   }
 
   const handleImportAsymmetric = () => {
     if (!asymImportText.trim()) {
-      setError('Enganxa el JSON de claus asimètriques')
+      setError(t('channelKeys.errPasteAsym'))
       return
     }
     void run(async () => {
       const imported = await importAsymmetricChannelKeys(asymImportText)
       await refreshStateAndDirectory()
       setAsymImportText('')
-      return `Importades ${imported} claus asimètriques de canals`
+      return t('channelKeys.importedAsym', { count: imported })
     })
   }
 
@@ -205,11 +207,11 @@ function ChannelKeysContent({ isActive, channels = [], serverName }: ChannelKeys
       {success && <div className="modal-success">{success}</div>}
 
         <section className="device-keys-section">
-          <h4>Claus simètriques</h4>
-          <p>Claus simètriques guardades localment: <strong>{symmetricKeys.length}</strong></p>
+          <h4>{t('channelKeys.symTitle')}</h4>
+          <p>{t('channelKeys.symCount')} <strong>{symmetricKeys.length}</strong></p>
           <div className="modal-form-actions">
             <Button variant="secondary" size="sm" onClick={handleExportSymmetric} disabled={isBusy}>
-              Exportar simètriques
+              {t('channelKeys.exportSym')}
             </Button>
           </div>
           {symmetricKeys.length > 0 ? (
@@ -217,42 +219,42 @@ function ChannelKeysContent({ isActive, channels = [], serverName }: ChannelKeys
               {symmetricKeys.map((key) => (
                 <li key={`${key.channelId}-${key.keyVersion}`} className="device-keys-list-item">
                   <div className="device-keys-list-main">
-                    <strong title={key.channelId}>Canal {formatChannelLabel(key.channelId)} · v{key.keyVersion}</strong>
-                    <span>Clau: {key.preview}</span>
-                    <span>Guardada: {new Date(key.acquiredAt).toLocaleString()}</span>
+                    <strong title={key.channelId}>{t('channelKeys.channelVersion', { label: formatChannelLabel(key.channelId), version: key.keyVersion })}</strong>
+                    <span>{t('channelKeys.keyLabel')} {key.preview}</span>
+                    <span>{t('channelKeys.savedLabel')} {new Date(key.acquiredAt).toLocaleString()}</span>
                   </div>
                   <div className="device-keys-list-actions">
                     <Button variant="danger" size="sm" onClick={() => void handleDeleteSymmetric(key.channelId)} disabled={isBusy}>
-                      Esborrar
+                      {t('common.erase')}
                     </Button>
                   </div>
                 </li>
               ))}
             </ul>
           ) : (
-            <p>No hi ha claus simètriques guardades localment.</p>
+            <p>{t('channelKeys.symEmpty')}</p>
           )}
           <textarea
             className="device-keys-textarea"
             value={symImportText}
             onChange={(e) => setSymImportText(e.target.value)}
-            placeholder="Enganxa aquí JSON de claus simètriques"
+            placeholder={t('channelKeys.symImportPlaceholder')}
             rows={5}
             disabled={isBusy}
           />
           <div className="modal-form-actions">
             <Button variant="secondary" size="sm" onClick={handleImportSymmetric} disabled={isBusy}>
-              Importar simètriques
+              {t('channelKeys.importSym')}
             </Button>
           </div>
         </section>
 
         <section className="device-keys-section">
-          <h4>Bundles asimètrics</h4>
-          <p>Bundles asimètrics guardats localment: <strong>{asymmetricKeys.length}</strong></p>
+          <h4>{t('channelKeys.asymTitle')}</h4>
+          <p>{t('channelKeys.asymCount')} <strong>{asymmetricKeys.length}</strong></p>
           <div className="modal-form-actions">
             <Button variant="secondary" size="sm" onClick={handleExportAsymmetric} disabled={isBusy}>
-              Exportar asimètriques
+              {t('channelKeys.exportAsym')}
             </Button>
           </div>
           {asymmetricKeys.length > 0 ? (
@@ -260,41 +262,41 @@ function ChannelKeysContent({ isActive, channels = [], serverName }: ChannelKeys
               {asymmetricKeys.map((key) => (
                 <li key={`${key.channelId}-${key.keyVersion}`} className="device-keys-list-item">
                   <div className="device-keys-list-main">
-                    <strong title={key.channelId}>Canal {formatChannelLabel(key.channelId)} · v{key.keyVersion}</strong>
-                    <span>KeyVersionId: {key.keyVersionId ?? 'sense id'}</span>
-                    <span>Guardat: {new Date(key.acquiredAt).toLocaleString()}</span>
+                    <strong title={key.channelId}>{t('channelKeys.channelVersion', { label: formatChannelLabel(key.channelId), version: key.keyVersion })}</strong>
+                    <span>{t('channelKeys.keyVersionId')} {key.keyVersionId ?? t('channelKeys.noId')}</span>
+                    <span>{t('channelKeys.savedNeuter')} {new Date(key.acquiredAt).toLocaleString()}</span>
                   </div>
                 </li>
               ))}
             </ul>
           ) : (
-            <p>No hi ha bundles asimètrics guardats localment.</p>
+            <p>{t('channelKeys.asymEmpty')}</p>
           )}
           <textarea
             className="device-keys-textarea"
             value={asymImportText}
             onChange={(e) => setAsymImportText(e.target.value)}
-            placeholder="Enganxa aquí JSON de bundles asimètrics"
+            placeholder={t('channelKeys.asymImportPlaceholder')}
             rows={5}
             disabled={isBusy}
           />
           <div className="modal-form-actions">
             <Button variant="secondary" size="sm" onClick={handleImportAsymmetric} disabled={isBusy}>
-              Importar asimètriques
+              {t('channelKeys.importAsym')}
             </Button>
           </div>
         </section>
 
         {exportedSymmetricBundle && (
           <section className="device-keys-section">
-            <h4>Backup de claus simètriques (JSON)</h4>
+            <h4>{t('channelKeys.symBackupTitle')}</h4>
             <textarea className="device-keys-textarea" value={exportedSymmetricBundle} readOnly rows={6} />
           </section>
         )}
 
         {exportedAsymmetricBundle && (
           <section className="device-keys-section">
-            <h4>Backup de claus asimètriques (JSON)</h4>
+            <h4>{t('channelKeys.asymBackupTitle')}</h4>
             <textarea className="device-keys-textarea" value={exportedAsymmetricBundle} readOnly rows={6} />
           </section>
         )}

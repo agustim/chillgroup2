@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { EncryptionType } from '../../types'
 import { Button } from '../shared/Button'
 
@@ -45,6 +46,7 @@ export function MessageInput({
   replyTo,
   onClearReplyTo,
 }: MessageInputProps) {
+  const { t } = useTranslation()
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const textInputRef = useRef<HTMLTextAreaElement>(null)
 

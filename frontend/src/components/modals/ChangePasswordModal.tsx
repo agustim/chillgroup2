@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { Button } from '../shared/Button'
 import { userChangePassword } from '../../lib/api'
@@ -10,6 +11,7 @@ interface ChangePasswordPanelProps {
 }
 
 function ChangePasswordContent({ onClose }: ChangePasswordPanelProps) {
+  const { t } = useTranslation()
   const [oldPassword, setOldPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [repeatNewPassword, setRepeatNewPassword] = useState('')
@@ -33,22 +35,22 @@ function ChangePasswordContent({ onClose }: ChangePasswordPanelProps) {
     const trimmedRepeat = repeatNewPassword.trim()
 
     if (!trimmedOld || !trimmedNew || !trimmedRepeat) {
-      setError('Has d\'omplir tots els camps')
+      setError(t('changePassword.errAllFields'))
       return
     }
 
     if (trimmedNew.length < 8) {
-      setError('La nova clau ha de tenir almenys 8 caràcters')
+      setError(t('changePassword.errNewMin'))
       return
     }
 
     if (trimmedOld === trimmedNew) {
-      setError('La nova clau ha de ser diferent de l\'antiga')
+      setError(t('changePassword.errSameAsOld'))
       return
     }
 
     if (trimmedNew !== trimmedRepeat) {
-      setError('La nova clau i la repetició no coincideixen')
+      setError(t('changePassword.errMismatch'))
       return
     }
 
@@ -64,9 +66,9 @@ function ChangePasswordContent({ onClose }: ChangePasswordPanelProps) {
       setOldPassword('')
       setNewPassword('')
       setRepeatNewPassword('')
-      setSuccess('Contrasenya actualitzada correctament')
+      setSuccess(t('changePassword.success'))
     } catch {
-      setError('No s\'ha pogut canviar la contrasenya')
+      setError(t('changePassword.errChange'))
     } finally {
       setIsSubmitting(false)
     }
@@ -78,7 +80,7 @@ function ChangePasswordContent({ onClose }: ChangePasswordPanelProps) {
     setLocalSuccess(null)
 
     if (!hasLocalVault()) {
-      setLocalError('Aquest dispositiu encara no té vault local configurat')
+      setLocalError(t('changePassword.errNoVault'))
       return
     }
 
@@ -87,22 +89,22 @@ function ChangePasswordContent({ onClose }: ChangePasswordPanelProps) {
     const trimmedRepeat = repeatNewLocalPassphrase.trim()
 
     if (!trimmedCurrent || !trimmedNew || !trimmedRepeat) {
-      setLocalError('Has d\'omplir tots els camps de la clau local')
+      setLocalError(t('changePassword.errLocalAllFields'))
       return
     }
 
     if (trimmedNew.length < 8) {
-      setLocalError('La nova clau local ha de tenir almenys 8 caràcters')
+      setLocalError(t('changePassword.errLocalMin'))
       return
     }
 
     if (trimmedCurrent === trimmedNew) {
-      setLocalError('La nova clau local ha de ser diferent de l\'actual')
+      setLocalError(t('changePassword.errLocalSame'))
       return
     }
 
     if (trimmedNew !== trimmedRepeat) {
-      setLocalError('La nova clau local i la repetició no coincideixen')
+      setLocalError(t('changePassword.errLocalMismatch'))
       return
     }
 
@@ -125,9 +127,9 @@ function ChangePasswordContent({ onClose }: ChangePasswordPanelProps) {
       setCurrentLocalPassphrase('')
       setNewLocalPassphrase('')
       setRepeatNewLocalPassphrase('')
-      setLocalSuccess('Clau local actualitzada i dades locals re-xifrades correctament')
+      setLocalSuccess(t('changePassword.localSuccess'))
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'No s\'ha pogut canviar la clau local'
+      const msg = err instanceof Error ? err.message : t('changePassword.errLocalChange')
       setLocalError(msg)
     } finally {
       setIsSubmittingLocal(false)
@@ -138,40 +140,40 @@ function ChangePasswordContent({ onClose }: ChangePasswordPanelProps) {
     <>
       <form onSubmit={handleSubmit} className="modal-form">
         <div className="form-group">
-          <label htmlFor="old-password">Clau antiga</label>
+          <label htmlFor="old-password">{t('changePassword.oldLabel')}</label>
           <input
             id="old-password"
             type="password"
             value={oldPassword}
             onChange={(event) => setOldPassword(event.target.value)}
             autoComplete="current-password"
-            placeholder="Introdueix la clau actual"
+            placeholder={t('changePassword.oldPlaceholder')}
             disabled={isSubmitting}
           />
         </div>
 
         <div className="form-group">
-          <label htmlFor="new-password">Nova clau</label>
+          <label htmlFor="new-password">{t('changePassword.newLabel')}</label>
           <input
             id="new-password"
             type="password"
             value={newPassword}
             onChange={(event) => setNewPassword(event.target.value)}
             autoComplete="new-password"
-            placeholder="Mínim 8 caràcters"
+            placeholder={t('changePassword.minPlaceholder')}
             disabled={isSubmitting}
           />
         </div>
 
         <div className="form-group">
-          <label htmlFor="repeat-new-password">Repetir nova clau</label>
+          <label htmlFor="repeat-new-password">{t('changePassword.newRepeatLabel')}</label>
           <input
             id="repeat-new-password"
             type="password"
             value={repeatNewPassword}
             onChange={(event) => setRepeatNewPassword(event.target.value)}
             autoComplete="new-password"
-            placeholder="Repeteix la nova clau"
+            placeholder={t('changePassword.repeatPlaceholder')}
             disabled={isSubmitting}
           />
         </div>
@@ -181,10 +183,10 @@ function ChangePasswordContent({ onClose }: ChangePasswordPanelProps) {
 
         <div className="modal-form-actions">
           <Button type="button" variant="ghost" onClick={onClose} disabled={isSubmitting}>
-            Tancar
+            {t('common.close')}
           </Button>
           <Button type="submit" variant="primary" disabled={isSubmitting}>
-            {isSubmitting ? 'Actualitzant...' : 'Canviar clau'}
+            {isSubmitting ? t('changePassword.submitting') : t('changePassword.submit')}
           </Button>
         </div>
       </form>
@@ -192,46 +194,46 @@ function ChangePasswordContent({ onClose }: ChangePasswordPanelProps) {
       <hr style={{ margin: '16px 0', border: 'none', borderTop: '1px solid var(--bg-active)' }} />
 
       <form onSubmit={handleLocalPassphraseSubmit} className="modal-form">
-        <h4 style={{ marginBottom: '8px' }}>Canviar clau local de desbloqueig</h4>
+        <h4 style={{ marginBottom: '8px' }}>{t('changePassword.localTitle')}</h4>
         <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '12px' }}>
-          Aquesta clau protegeix les dades locals xifrades del navegador. No s'envia al servidor.
+          {t('changePassword.localDesc')}
         </p>
 
         <div className="form-group">
-          <label htmlFor="current-local-passphrase">Clau local actual</label>
+          <label htmlFor="current-local-passphrase">{t('changePassword.localCurrentLabel')}</label>
           <input
             id="current-local-passphrase"
             type="password"
             value={currentLocalPassphrase}
             onChange={(event) => setCurrentLocalPassphrase(event.target.value)}
             autoComplete="current-password"
-            placeholder="Introdueix la clau local actual"
+            placeholder={t('changePassword.localCurrentPlaceholder')}
             disabled={isSubmittingLocal}
           />
         </div>
 
         <div className="form-group">
-          <label htmlFor="new-local-passphrase">Nova clau local</label>
+          <label htmlFor="new-local-passphrase">{t('changePassword.localNewLabel')}</label>
           <input
             id="new-local-passphrase"
             type="password"
             value={newLocalPassphrase}
             onChange={(event) => setNewLocalPassphrase(event.target.value)}
             autoComplete="new-password"
-            placeholder="Mínim 8 caràcters"
+            placeholder={t('changePassword.minPlaceholder')}
             disabled={isSubmittingLocal}
           />
         </div>
 
         <div className="form-group">
-          <label htmlFor="repeat-new-local-passphrase">Repetir nova clau local</label>
+          <label htmlFor="repeat-new-local-passphrase">{t('changePassword.localRepeatLabel')}</label>
           <input
             id="repeat-new-local-passphrase"
             type="password"
             value={repeatNewLocalPassphrase}
             onChange={(event) => setRepeatNewLocalPassphrase(event.target.value)}
             autoComplete="new-password"
-            placeholder="Repeteix la nova clau local"
+            placeholder={t('changePassword.localRepeatPlaceholder')}
             disabled={isSubmittingLocal}
           />
         </div>
@@ -241,7 +243,7 @@ function ChangePasswordContent({ onClose }: ChangePasswordPanelProps) {
 
         <div className="modal-form-actions">
           <Button type="submit" variant="primary" disabled={isSubmittingLocal}>
-            {isSubmittingLocal ? 'Re-xifrant...' : 'Canviar clau local'}
+            {isSubmittingLocal ? t('changePassword.localSubmitting') : t('changePassword.localSubmit')}
           </Button>
         </div>
       </form>

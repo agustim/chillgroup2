@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { Modal } from '../ui/Modal'
 import type { Channel, ServerFullInfo } from '../../types'
@@ -43,6 +44,7 @@ function PermissionsContent({
   currentDeviceId?: string | null
   isOpen: boolean
 }) {
+  const { t } = useTranslation()
   const [memberDevicesByChannel, setMemberDevicesByChannel] = useState<Record<string, ChannelMemberDevice[]>>({})
   const [permissionsByChannel, setPermissionsByChannel] = useState<Record<string, ChannelPermissionRow[]>>({})
   const [loading, setLoading] = useState(false)
@@ -77,7 +79,7 @@ function PermissionsContent({
 
     void load().catch((err) => {
       if (!cancelled) {
-        setError(err instanceof Error ? err.message : 'No s\'han pogut carregar els permisos')
+        setError(err instanceof Error ? err.message : t('permissions.errLoad'))
         setLoading(false)
       }
     })
@@ -87,7 +89,7 @@ function PermissionsContent({
     }
   }, [isOpen, server, asymmetricChannels])
 
-  const roleLabel = server?.myRole === 'owner' ? 'Propietari' : server?.myRole === 'admin' ? 'Administrador' : 'Membre'
+  const roleLabel = server?.myRole === 'owner' ? t('permissions.roleOwner') : server?.myRole === 'admin' ? t('permissions.roleAdmin') : t('permissions.roleMember')
   const canSeeManagement = server?.myRole === 'owner' || server?.myRole === 'admin'
   const serverScopedChannels = useMemo(() => channels.filter((channel) => channel.scope !== 'dm'), [channels])
 
@@ -112,7 +114,7 @@ function PermissionsContent({
 
     void loadPermissions().catch((err) => {
       if (!cancelled) {
-        setError(err instanceof Error ? err.message : 'No s\'han pogut carregar els permisos per usuari')
+        setError(err instanceof Error ? err.message : t('permissions.errLoadUser'))
       }
     })
 
@@ -124,41 +126,41 @@ function PermissionsContent({
   return (
     <div className="modal-inline-stack">
         <section className="device-keys-section">
-          <h4>Servidor</h4>
+          <h4>{t('permissions.server')}</h4>
           {server ? (
             <>
               <p><strong>{server.name}</strong></p>
-              <p>El teu rol: <strong>{roleLabel}</strong></p>
-              <p>Servidor: <strong>{canSeeManagement ? 'gestió visible' : 'vista restringida'}</strong></p>
+              <p>{t('permissions.yourRole')} <strong>{roleLabel}</strong></p>
+              <p>{t('permissions.serverLabel')} <strong>{canSeeManagement ? t('permissions.mgmtVisible') : t('permissions.mgmtRestricted')}</strong></p>
             </>
           ) : (
-            <p>No hi ha servidor seleccionat.</p>
+            <p>{t('permissions.noServer')}</p>
           )}
         </section>
 
         <section className="device-keys-section">
-          <h4>Canals</h4>
+          <h4>{t('permissions.channels')}</h4>
           {channels.length > 0 ? (
             <ul className="device-keys-list">
               {channels.map((channel) => (
                 <li key={channel.channelId} className="device-keys-list-item">
                   <div className="device-keys-list-main">
                     <strong>{channel.type === 'voice' ? '🔊' : '#'} {channel.name}</strong>
-                    <span>Privat: {channel.isPrivate ? 'sí' : 'no'}</span>
-                    <span>Encriptació: {channel.encryptionType}</span>
-                    <span>KeyVersion: {channel.keyVersion ?? 'sense versió'}</span>
+                    <span>{t('permissions.privateLabel')} {channel.isPrivate ? t('common.yesLower') : t('common.noLower')}</span>
+                    <span>{t('permissions.encryptionLabel')} {channel.encryptionType}</span>
+                    <span>{t('permissions.keyVersionLabel')} {channel.keyVersion ?? t('permissions.noVersion')}</span>
                   </div>
                 </li>
               ))}
             </ul>
           ) : (
-            <p>No hi ha canals carregats.</p>
+            <p>{t('permissions.noChannels')}</p>
           )}
         </section>
 
         {canSeeManagement && (
           <section className="device-keys-section">
-            <h4>Permisos per usuari i canal</h4>
+            <h4>{t('permissions.permsByUser')}</h4>
             {serverScopedChannels.length > 0 ? (
               serverScopedChannels.map((channel) => {
                 const rows = permissionsByChannel[channel.channelId] ?? []
@@ -166,7 +168,7 @@ function PermissionsContent({
                   <div key={channel.channelId} style={{ marginBottom: '12px' }}>
                     <strong>{channel.type === 'voice' ? '🔊' : '#'} {channel.name}</strong>
                     <span style={{ display: 'block', marginTop: '4px', color: 'var(--text-muted)', fontSize: '12px' }}>
-                      {channel.isPrivate ? 'Canal privat (permís explícit)' : 'Canal públic (permís per rol de servidor)'}
+                      {channel.isPrivate ? t('permissions.channelPrivate') : t('permissions.channelPublic')}
                     </span>
 
                     {rows.length > 0 ? (
@@ -174,9 +176,9 @@ function PermissionsContent({
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                           <thead>
                             <tr>
-                              <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>Usuari</th>
-                              <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>Nivell</th>
-                              <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>Permís</th>
+                              <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>{t('permissions.thUser')}</th>
+                              <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>{t('permissions.thLevel')}</th>
+                              <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>{t('permissions.thPermission')}</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -186,9 +188,9 @@ function PermissionsContent({
                                 <td style={{ padding: '6px 4px', borderBottom: '1px solid var(--bg-active)' }}>{row.permissionLevel}</td>
                                 <td style={{ padding: '6px 4px', borderBottom: '1px solid var(--bg-active)' }}>
                                   {channel.type === 'voice'
-                                    ? row.permission === 'read' ? 'escoltar-veure'
-                                      : row.permission === 'write' ? 'parlar-mostrar'
-                                      : row.permission === 'manage' ? 'manager'
+                                    ? row.permission === 'read' ? t('permissions.voiceRead')
+                                      : row.permission === 'write' ? t('permissions.voiceWrite')
+                                      : row.permission === 'manage' ? t('permissions.voiceManage')
                                       : row.permission
                                     : row.permission}
                                 </td>
@@ -198,20 +200,20 @@ function PermissionsContent({
                         </table>
                       </div>
                     ) : (
-                      <p style={{ marginTop: '8px' }}>Sense dades de permisos per aquest canal.</p>
+                      <p style={{ marginTop: '8px' }}>{t('permissions.noPermsData')}</p>
                     )}
                   </div>
                 )
               })
             ) : (
-              <p>No hi ha canals de servidor per mostrar permisos.</p>
+              <p>{t('permissions.noServerChannels')}</p>
             )}
           </section>
         )}
 
         <section className="device-keys-section">
-          <h4>Claus asimètriques per canal</h4>
-          {loading && <p>Carregant claus...</p>}
+          <h4>{t('permissions.asymKeys')}</h4>
+          {loading && <p>{t('permissions.loadingKeys')}</p>}
           {error && <div className="modal-error">{error}</div>}
           {asymmetricChannels.length > 0 ? (
             asymmetricChannels.map((channel) => {
@@ -225,21 +227,21 @@ function PermissionsContent({
                         <li key={device.deviceId} className="device-keys-list-item">
                           <div className="device-keys-list-main">
                             <strong>{device.deviceId}</strong>
-                            <span>KEM: {device.kemPublicKey ? 'sí' : 'no'}</span>
-                            <span>DSA: {device.dsaPublicKey ? 'sí' : 'no'}</span>
-                            <span>{device.deviceId === currentDeviceId ? 'Dispositiu actual' : 'Dispositiu membre'}</span>
+                            <span>{t('permissions.kem')} {device.kemPublicKey ? t('common.yesLower') : t('common.noLower')}</span>
+                            <span>{t('permissions.dsa')} {device.dsaPublicKey ? t('common.yesLower') : t('common.noLower')}</span>
+                            <span>{device.deviceId === currentDeviceId ? t('permissions.currentDevice') : t('permissions.memberDevice')}</span>
                           </div>
                         </li>
                       ))}
                     </ul>
                   ) : (
-                    <p>No hi ha dispositius membres visibles per aquest canal.</p>
+                    <p>{t('permissions.noDevices')}</p>
                   )}
                 </div>
               )
             })
           ) : (
-            <p>No hi ha canals asimètrics.</p>
+            <p>{t('permissions.noAsymChannels')}</p>
           )}
         </section>
       </div>
@@ -247,8 +249,9 @@ function PermissionsContent({
 }
 
 function PermissionsModal({ isOpen, onClose, server, channels, currentDeviceId }: PermissionsModalProps) {
+  const { t } = useTranslation()
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Permisos i accessos">
+    <Modal isOpen={isOpen} onClose={onClose} title={t('permissions.title')}>
       <PermissionsContent
         isOpen={isOpen}
         server={server}

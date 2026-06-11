@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { Button } from '../shared/Button'
 import type { FriendPresence, UserSearchResult } from '../../types'
@@ -16,6 +17,7 @@ function FriendsContent({
   onRemoveFriend,
   onSearchUsers,
 }: FriendsPanelProps) {
+  const { t } = useTranslation()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<UserSearchResult[]>([])
   const [isSearching, setIsSearching] = useState(false)
@@ -45,7 +47,7 @@ function FriendsContent({
         .catch((err) => {
           if (!cancelled) {
             setResults([])
-            setError(err instanceof Error ? err.message : 'No s\'ha pogut buscar usuaris')
+            setError(err instanceof Error ? err.message : t('friends.errSearch'))
           }
         })
         .finally(() => {
@@ -70,7 +72,7 @@ function FriendsContent({
   return (
     <div className="modal-inline-stack friends-modal">
       <section className="device-keys-section">
-        <h4>Els teus amics</h4>
+        <h4>{t('friends.yourFriends')}</h4>
         {friends.length > 0 ? (
           <ul className="device-keys-list">
             {friends.map((friend) => (
@@ -78,34 +80,34 @@ function FriendsContent({
                 <div className="device-keys-list-main">
                   <strong>{friend.username}</strong>
                   <span className={`friend-status-pill ${friend.status}`}>
-                    {friend.status === 'online' ? 'Actiu' : 'Inactiu'}
+                    {friend.status === 'online' ? t('channels.online') : t('channels.offline')}
                   </span>
                 </div>
                 <div className="device-keys-list-actions">
                   <Button type="button" variant="ghost" onClick={() => { void onRemoveFriend(friend.userId) }}>
-                    Treure
+                    {t('friends.remove')}
                   </Button>
                 </div>
               </li>
             ))}
           </ul>
         ) : (
-          <p>No tens cap amic desat encara.</p>
+          <p>{t('friends.noFriends')}</p>
         )}
       </section>
 
       <section className="device-keys-section">
-        <h4>Buscar amics</h4>
-        <p>Busca qualsevol usuari de l'eina, encara que no comparteixi servidor amb tu.</p>
+        <h4>{t('friends.searchFriends')}</h4>
+        <p>{t('friends.searchDesc')}</p>
 
         <div className="form-group friends-search-group">
-          <label htmlFor="friend-search">Cerca</label>
+          <label htmlFor="friend-search">{t('friends.searchLabel')}</label>
           <input
             id="friend-search"
             type="text"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Cerca per nom d'usuari"
+            placeholder={t('friends.searchPlaceholder')}
             autoComplete="off"
             autoFocus
           />
@@ -113,7 +115,7 @@ function FriendsContent({
 
         {error && <div className="modal-error">{error}</div>}
 
-        {isSearching && <p>Buscant...</p>}
+        {isSearching && <p>{t('friends.searching')}</p>}
 
         {results.length > 0 ? (
           <ul className="device-keys-list">
@@ -124,7 +126,7 @@ function FriendsContent({
                   <div className="device-keys-list-main">
                     <strong>{user.username}</strong>
                     <span className={`friend-status-pill ${user.status}`}>
-                      {user.status === 'online' ? 'Actiu' : 'Inactiu'}
+                      {user.status === 'online' ? t('channels.online') : t('channels.offline')}
                     </span>
                   </div>
                   <div className="device-keys-list-actions">
@@ -134,7 +136,7 @@ function FriendsContent({
                       onClick={() => { if (!alreadyFriend) { void handleAddFriend(user.username) } }}
                       disabled={alreadyFriend}
                     >
-                      {alreadyFriend ? 'Ja és amic' : 'Afegir'}
+                      {alreadyFriend ? t('friends.alreadyFriend') : t('friends.add')}
                     </Button>
                   </div>
                 </li>
@@ -142,9 +144,9 @@ function FriendsContent({
             })}
           </ul>
         ) : query.trim().length >= 2 && !isSearching ? (
-          <p>No s'han trobat coincidencies globals.</p>
+          <p>{t('friends.noResults')}</p>
         ) : (
-          <p>Escriu almenys 2 caracters per buscar.</p>
+          <p>{t('friends.minChars')}</p>
         )}
       </section>
     </div>

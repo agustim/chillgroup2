@@ -520,6 +520,36 @@ body {
   color: var(--text-primary);
 }
 
+.user-actions-language {
+  border-top: 1px solid var(--bg-active);
+  margin-top: 4px;
+  padding: 8px 10px 4px;
+}
+
+.chillgroup-language-switcher {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.chillgroup-language-switcher__select {
+  flex: 1;
+  background: var(--bg-input, var(--bg-sidebar));
+  color: var(--text-primary);
+  border: 1px solid var(--bg-active);
+  border-radius: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.login-language {
+  display: flex;
+  justify-content: center;
+  margin-top: 18px;
+}
+
 .channel-category.friends-category {
   gap: 8px;
 }

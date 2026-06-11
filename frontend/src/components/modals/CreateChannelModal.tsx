@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Modal } from '../ui/Modal'
 import { Button } from '../shared/Button'
 
@@ -9,6 +10,7 @@ interface CreateChannelModalProps {
 }
 
 export function CreateChannelModal({ isOpen, onClose, onCreate }: CreateChannelModalProps) {
+  const { t } = useTranslation()
   const [name, setName] = useState('')
   const [channelType, setChannelType] = useState<'text' | 'voice'>('text')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -18,11 +20,11 @@ export function CreateChannelModal({ isOpen, onClose, onCreate }: CreateChannelM
     e.preventDefault()
     const trimmed = name.trim()
     if (!trimmed) {
-      setError('El nom del canal és obligatori')
+      setError(t('channelForm.errNameRequired'))
       return
     }
     if (!/^[a-z0-9-]+$/.test(trimmed.toLowerCase())) {
-      setError('Nom vàlid: només lletres minúscules, números i guions (ex: general)')
+      setError(t('channelForm.errNamePattern'))
       return
     }
     setError('')
@@ -32,17 +34,17 @@ export function CreateChannelModal({ isOpen, onClose, onCreate }: CreateChannelM
       setName('')
       onClose()
     } catch {
-      setError('No s\'ha pogut crear el canal')
+      setError(t('channelForm.errCreate'))
     } finally {
       setIsSubmitting(false)
     }
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Crear canal">
+    <Modal isOpen={isOpen} onClose={onClose} title={t('channelForm.title')}>
       <form onSubmit={handleSubmit} className="modal-form">
         <div className="form-group">
-          <label htmlFor="channel-name">Nom del canal</label>
+          <label htmlFor="channel-name">{t('channelForm.nameLabel')}</label>
           <input
             id="channel-name"
             type="text"
@@ -52,15 +54,15 @@ export function CreateChannelModal({ isOpen, onClose, onCreate }: CreateChannelM
             autoFocus
             maxLength={30}
             pattern="[a-z0-9-]+"
-            title="Només lletres minúscules, números i guions"
+            title={t('channelForm.nameHint')}
           />
           <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Només lletres minúscules, números i guions
+            {t('channelForm.nameHint')}
           </span>
         </div>
 
         <div className="form-group">
-          <label>Tipo de canal</label>
+          <label>{t('channelForm.typeLabel')}</label>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button
               type="button"
@@ -72,7 +74,7 @@ export function CreateChannelModal({ isOpen, onClose, onCreate }: CreateChannelM
               onClick={() => setChannelType('text')}
               disabled={isSubmitting}
             >
-              # Text
+              {t('channelForm.typeText')}
             </button>
             <button
               type="button"
@@ -84,7 +86,7 @@ export function CreateChannelModal({ isOpen, onClose, onCreate }: CreateChannelM
               onClick={() => setChannelType('voice')}
               disabled={isSubmitting}
             >
-              🔊 Veu
+              {t('channelForm.typeVoice')}
             </button>
           </div>
         </div>
@@ -93,10 +95,10 @@ export function CreateChannelModal({ isOpen, onClose, onCreate }: CreateChannelM
 
         <div className="modal-form-actions">
           <Button type="button" variant="ghost" onClick={onClose} disabled={isSubmitting}>
-            Cancel·lar
+            {t('common.cancel')}
           </Button>
           <Button type="submit" variant="primary" disabled={isSubmitting || !name.trim()}>
-            {isSubmitting ? 'Creant...' : 'Crear'}
+            {isSubmitting ? t('common.creating') : t('common.create')}
           </Button>
         </div>
       </form>

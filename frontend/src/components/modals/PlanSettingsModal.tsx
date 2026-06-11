@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import i18n from '../../i18n'
 import { Button } from '../shared/Button'
 import {
   userLimitsGet,
@@ -13,7 +15,7 @@ interface PlanSettingsPanelProps {
 }
 
 function formatBytes(bytes: number): string {
-  if (bytes < 0) return 'Il·limitat'
+  if (bytes < 0) return i18n.t('common.unlimited')
   if (bytes === 0) return '0 B'
   const gb = bytes / (1024 * 1024 * 1024)
   if (gb >= 1) return `${gb.toFixed(1)} GB`
@@ -22,6 +24,7 @@ function formatBytes(bytes: number): string {
 }
 
 function UsageBar({ used, max, label }: { used: number; max: number; label: string }) {
+  const { t } = useTranslation()
   const pct = max <= 0 ? 0 : Math.min(100, Math.round((used / max) * 100))
   const color = pct >= 100 ? '#ef4444' : pct >= 90 ? '#f59e0b' : '#22c55e'
   return (
@@ -29,7 +32,7 @@ function UsageBar({ used, max, label }: { used: number; max: number; label: stri
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
         <span>{label}</span>
         <span style={{ color: 'var(--text-secondary)' }}>
-          {max < 0 ? 'Il·limitat' : `${formatBytes(used)} / ${formatBytes(max)}`}
+          {max < 0 ? t('common.unlimited') : `${formatBytes(used)} / ${formatBytes(max)}`}
         </span>
       </div>
       {max > 0 && (
@@ -42,6 +45,7 @@ function UsageBar({ used, max, label }: { used: number; max: number; label: stri
 }
 
 export function PlanSettingsPanel({ onClose }: PlanSettingsPanelProps) {
+  const { t } = useTranslation()
   const [limits, setLimits] = useState<UserLimitsInfo | null>(null)
   const [plans, setPlans] = useState<PlanTierInfo[]>([])
   const [loading, setLoading] = useState(true)
@@ -76,40 +80,40 @@ export function PlanSettingsPanel({ onClose }: PlanSettingsPanelProps) {
         setError(result.error.message)
         return
       }
-      setSuccess('Sol·licitud enviada. Un administrador la revisarà aviat.')
+      setSuccess(t('planSettings.successRequest'))
       setSelectedPlanId(null)
       setMessage('')
     } catch {
-      setError('No s\'ha pogut enviar la sol·licitud')
+      setError(t('planSettings.errRequest'))
     } finally {
       setSubmitting(false)
     }
   }
 
   if (loading) {
-    return <div style={{ padding: 16, color: 'var(--text-secondary)' }}>Carregant...</div>
+    return <div style={{ padding: 16, color: 'var(--text-secondary)' }}>{t('common.loadingShort')}</div>
   }
 
   return (
     <div className="modal-form">
       {limits && (
         <section style={{ marginBottom: 20 }}>
-          <h4 style={{ marginBottom: 12 }}>Pla actual: {limits.plan.displayName}</h4>
+          <h4 style={{ marginBottom: 12 }}>{t('planSettings.currentPlan', { name: limits.plan.displayName })}</h4>
 
           <div style={{ marginBottom: 16 }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 13 }}>
-              <div><span style={{ color: 'var(--text-secondary)' }}>Servidors: </span>{limits.usage.totalServers} / {limits.plan.limits.maxServers < 0 ? '∞' : limits.plan.limits.maxServers}</div>
-              <div><span style={{ color: 'var(--text-secondary)' }}>Membres: </span>{limits.usage.totalMembersAcrossServers} / {limits.plan.limits.maxMembersPerServer < 0 ? '∞' : limits.plan.limits.maxMembersPerServer}</div>
-              <div><span style={{ color: 'var(--text-secondary)' }}>Canals text: </span>{limits.usage.totalTextChannels} / {limits.plan.limits.maxChannelsTextPerServer < 0 ? '∞' : limits.plan.limits.maxChannelsTextPerServer}</div>
-              <div><span style={{ color: 'var(--text-secondary)' }}>Canals veu: </span>{limits.usage.totalVoiceChannels} / {limits.plan.limits.maxChannelsVoicePerServer < 0 ? '∞' : limits.plan.limits.maxChannelsVoicePerServer}</div>
+              <div><span style={{ color: 'var(--text-secondary)' }}>{t('planSettings.servers')} </span>{limits.usage.totalServers} / {limits.plan.limits.maxServers < 0 ? '∞' : limits.plan.limits.maxServers}</div>
+              <div><span style={{ color: 'var(--text-secondary)' }}>{t('planSettings.members')} </span>{limits.usage.totalMembersAcrossServers} / {limits.plan.limits.maxMembersPerServer < 0 ? '∞' : limits.plan.limits.maxMembersPerServer}</div>
+              <div><span style={{ color: 'var(--text-secondary)' }}>{t('planSettings.textChannels')} </span>{limits.usage.totalTextChannels} / {limits.plan.limits.maxChannelsTextPerServer < 0 ? '∞' : limits.plan.limits.maxChannelsTextPerServer}</div>
+              <div><span style={{ color: 'var(--text-secondary)' }}>{t('planSettings.voiceChannels')} </span>{limits.usage.totalVoiceChannels} / {limits.plan.limits.maxChannelsVoicePerServer < 0 ? '∞' : limits.plan.limits.maxChannelsVoicePerServer}</div>
             </div>
           </div>
 
           {limits.plan.limits.maxStorageBytes > 0 && (
-            <UsageBar used={limits.usage.storedBytes} max={limits.plan.limits.maxStorageBytes} label="Emmagatzematge" />
+            <UsageBar used={limits.usage.storedBytes} max={limits.plan.limits.maxStorageBytes} label={t('planSettings.storage')} />
           )}
           {limits.plan.limits.maxTransferBytesMonthly > 0 && (
-            <UsageBar used={limits.usage.transferBytesThisMonth} max={limits.plan.limits.maxTransferBytesMonthly} label="Transferència mensual" />
+            <UsageBar used={limits.usage.transferBytesThisMonth} max={limits.plan.limits.maxTransferBytesMonthly} label={t('planSettings.transferMonthly')} />
           )}
         </section>
       )}
@@ -117,11 +121,11 @@ export function PlanSettingsPanel({ onClose }: PlanSettingsPanelProps) {
       <hr style={{ margin: '0 0 20px', border: 'none', borderTop: '1px solid var(--bg-active)' }} />
 
       <section>
-        <h4 style={{ marginBottom: 12 }}>Sol·licitar canvi de pla</h4>
+        <h4 style={{ marginBottom: 12 }}>{t('planSettings.requestChange')}</h4>
         {plans.length > 0 ? (
           <form onSubmit={handleSubmit}>
             <div className="form-group">
-              <label>Pla desitjat</label>
+              <label>{t('planSettings.desiredPlan')}</label>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {plans
                   .filter((p) => p.id !== limits?.plan.id)
@@ -159,12 +163,12 @@ export function PlanSettingsPanel({ onClose }: PlanSettingsPanelProps) {
             </div>
 
             <div className="form-group" style={{ marginTop: 12 }}>
-              <label htmlFor="plan-message">Missatge (opcional)</label>
+              <label htmlFor="plan-message">{t('planSettings.messageLabel')}</label>
               <textarea
                 id="plan-message"
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                placeholder="Explica per què vols canviar de pla..."
+                placeholder={t('planSettings.messagePlaceholder')}
                 rows={3}
                 style={{ resize: 'vertical' }}
                 disabled={submitting}
@@ -176,15 +180,15 @@ export function PlanSettingsPanel({ onClose }: PlanSettingsPanelProps) {
 
             <div className="modal-form-actions">
               <Button type="button" variant="ghost" onClick={onClose} disabled={submitting}>
-                Tancar
+                {t('common.close')}
               </Button>
               <Button type="submit" variant="primary" disabled={submitting || !selectedPlanId}>
-                {submitting ? 'Enviant...' : 'Sol·licitar canvi'}
+                {submitting ? t('planSettings.submitting') : t('planSettings.requestSubmit')}
               </Button>
             </div>
           </form>
         ) : (
-          <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>No hi ha altres plans disponibles.</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{t('planSettings.noPlans')}</p>
         )}
       </section>
     </div>

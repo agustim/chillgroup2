@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '../shared/Button'
 
 interface CreateServerPanelProps {
@@ -12,6 +13,7 @@ interface CreateServerFormProps {
 }
 
 function CreateServerForm({ onClose, onCreate }: CreateServerFormProps) {
+  const { t } = useTranslation()
   const [name, setName] = useState('')
   const [iconUrl, setIconUrl] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -21,11 +23,11 @@ function CreateServerForm({ onClose, onCreate }: CreateServerFormProps) {
     e.preventDefault()
     const trimmed = name.trim()
     if (!trimmed) {
-      setError('El nom del servidor és obligatori')
+      setError(t('createServer.errNameRequired'))
       return
     }
     if (trimmed.length < 2) {
-      setError('El nom ha de tenir almenys 2 caràcters')
+      setError(t('createServer.errNameMin'))
       return
     }
     setError('')
@@ -36,7 +38,7 @@ function CreateServerForm({ onClose, onCreate }: CreateServerFormProps) {
       setIconUrl('')
       onClose()
     } catch {
-      setError('No s\'ha pogut crear el servidor')
+      setError(t('createServer.errCreate'))
     } finally {
       setIsSubmitting(false)
     }
@@ -45,26 +47,26 @@ function CreateServerForm({ onClose, onCreate }: CreateServerFormProps) {
   return (
     <form onSubmit={handleSubmit} className="modal-form">
       <div className="form-group">
-        <label htmlFor="server-name">Nom del servidor</label>
+        <label htmlFor="server-name">{t('createServer.nameLabel')}</label>
         <input
           id="server-name"
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Ex: El meu servidor"
+          placeholder={t('createServer.namePlaceholder')}
           autoFocus
           maxLength={50}
         />
       </div>
 
       <div className="form-group">
-        <label htmlFor="server-icon">URL de la icona (opcional)</label>
+        <label htmlFor="server-icon">{t('createServer.iconLabel')}</label>
         <input
           id="server-icon"
           type="url"
           value={iconUrl}
           onChange={(e) => setIconUrl(e.target.value)}
-          placeholder="https://exemple.com/icona.png"
+          placeholder={t('createServer.iconPlaceholder')}
         />
       </div>
 
@@ -72,10 +74,10 @@ function CreateServerForm({ onClose, onCreate }: CreateServerFormProps) {
 
       <div className="modal-form-actions">
         <Button type="button" variant="ghost" onClick={onClose} disabled={isSubmitting}>
-          Cancel·lar
+          {t('common.cancel')}
         </Button>
         <Button type="submit" variant="primary" disabled={isSubmitting || !name.trim()}>
-          {isSubmitting ? 'Creant...' : 'Crear'}
+          {isSubmitting ? t('common.creating') : t('common.create')}
         </Button>
       </div>
     </form>

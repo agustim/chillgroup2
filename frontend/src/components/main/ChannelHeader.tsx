@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Channel } from '../../types'
 import { EncryptionIcon } from '../shared/EncryptionIcon'
 import { TTLSelector, formatTTL } from '../shared/TTLSelector'
@@ -13,6 +14,7 @@ interface ChannelHeaderProps {
 }
 
 export function ChannelHeader({ channel, onRepairKey, onRotateKey, onUpdateTTL, keyActionBusy = false, isChannelAdmin = false }: ChannelHeaderProps) {
+  const { t } = useTranslation()
   const [confirmingRotate, setConfirmingRotate] = useState(false)
   const [editingTTL, setEditingTTL] = useState(false)
   const [ttlBusy, setTtlBusy] = useState(false)
@@ -53,11 +55,11 @@ export function ChannelHeader({ channel, onRepairKey, onRotateKey, onUpdateTTL, 
           <h2 className="channel-name">{channel.name}</h2>
           <EncryptionIcon type={channel.encryptionType} />
           {isDM && <span className="private-badge">DM</span>}
-          {channel.isPrivate && <span className="private-badge">Privat</span>}
+          {channel.isPrivate && <span className="private-badge">{t('channelHeader.private')}</span>}
           {channel.messageTTL != null && (
             <span
               className="ttl-badge"
-              title={`TTL missatges: ${formatTTL(channel.messageTTL)}`}
+              title={t('channelHeader.ttlBadge', { ttl: formatTTL(channel.messageTTL) })}
             >
               ⏱ {formatTTL(channel.messageTTL)}
             </span>
@@ -70,7 +72,7 @@ export function ChannelHeader({ channel, onRepairKey, onRotateKey, onUpdateTTL, 
               className="chillgroup-button chillgroup-button--ghost chillgroup-button--sm"
               onClick={() => setEditingTTL((v) => !v)}
               disabled={ttlBusy || confirmingRotate}
-              title="Configura el temps d'expiració dels missatges"
+              title={t('channelHeader.ttlBtnTitle')}
             >
               TTL
             </button>
@@ -81,9 +83,9 @@ export function ChannelHeader({ channel, onRepairKey, onRotateKey, onUpdateTTL, 
               className="chillgroup-button chillgroup-button--ghost chillgroup-button--sm"
               onClick={onRepairKey}
               disabled={keyActionBusy || confirmingRotate}
-              title="Redistribueix la clau actual als dispositius del canal"
+              title={t('channelHeader.repairTitle')}
             >
-              Arreglar claus
+              {t('channelHeader.repair')}
             </button>
           )}
           {showRotate && (
@@ -92,17 +94,17 @@ export function ChannelHeader({ channel, onRepairKey, onRotateKey, onUpdateTTL, 
               className="chillgroup-button chillgroup-button--secondary chillgroup-button--sm"
               onClick={handleRotateClick}
               disabled={keyActionBusy || confirmingRotate}
-              title="Genera una nova versió de clau per missatges futurs"
+              title={t('channelHeader.rotateTitle')}
             >
-              Rotar clau
+              {t('channelHeader.rotate')}
             </button>
           )}
-          {channel.type === 'voice' && <span className="voice-status">🎤 Connectat</span>}
+          {channel.type === 'voice' && <span className="voice-status">{t('channelHeader.connected')}</span>}
         </div>
       </div>
       {confirmingRotate && (
         <div className="feedback-banner feedback-banner--warning">
-          <span>Els altres usuaris no podran llegir nous missatges fins que rebin la nova clau. Vols continuar?</span>
+          <span>{t('channelHeader.rotateWarning')}</span>
           <div className="feedback-banner__actions">
             <button
               type="button"
@@ -110,7 +112,7 @@ export function ChannelHeader({ channel, onRepairKey, onRotateKey, onUpdateTTL, 
               onClick={handleRotateConfirm}
               disabled={keyActionBusy}
             >
-              Rotar
+              {t('channelHeader.rotateConfirm')}
             </button>
             <button
               type="button"
@@ -118,14 +120,14 @@ export function ChannelHeader({ channel, onRepairKey, onRotateKey, onUpdateTTL, 
               onClick={handleRotateCancel}
               disabled={keyActionBusy}
             >
-              Cancel·lar
+              {t('common.cancel')}
             </button>
           </div>
         </div>
       )}
       {editingTTL && (
         <div className="feedback-banner">
-          <span>Expiració de missatges:</span>
+          <span>{t('channelHeader.ttlEditLabel')}</span>
           <TTLSelector
             value={channel.messageTTL}
             onChange={(ttl) => void handleTTLChange(ttl)}
@@ -138,7 +140,7 @@ export function ChannelHeader({ channel, onRepairKey, onRotateKey, onUpdateTTL, 
               onClick={() => setEditingTTL(false)}
               disabled={ttlBusy}
             >
-              Cancel·lar
+              {t('common.cancel')}
             </button>
           </div>
         </div>

@@ -1243,3 +1243,48 @@ import { Virtuoso } from 'react-virtuoso'
 - **IndexedDB**: caché de persistència entre recarregues
 - **No caché**: canals asimètrics on la clau es desencripta sota demanda
 - ** TTL**: si el canal té TTL de missatges, la clau s'expira simultàniament
+
+---
+
+## Internacionalització (i18n)
+
+Multi-idioma amb `i18next` + `react-i18next` + `i18next-browser-languagedetector`. Idiomes: `ca` (per defecte/fallback) i `en`.
+
+### Estructura
+
+```
+src/i18n/
+  index.ts                 # init i18next, SUPPORTED_LNGS
+  apiError.ts              # translateApiError(code -> traducció)
+  locales/
+    ca/translation.json
+    en/translation.json
+```
+
+- `src/i18n` s'importa a `main.tsx` abans de `App` perquè la init sigui sincrònica.
+- Detecció: `localStorage` (clau `lang`) → idioma del navegador. La selecció es persisteix a `localStorage`.
+
+### Ús en components
+
+```tsx
+import { useTranslation } from 'react-i18next'
+
+const { t } = useTranslation()
+<button>{t('common.save')}</button>
+```
+
+### Selector d'idioma
+
+`components/shared/LanguageSwitcher.tsx` — `<select>` que crida `i18n.changeLanguage()`. Muntat a: pantalla de login (`LoginScreen`), pantalla de desbloqueig (`DeviceUnlockScreen`) i menú d'usuari (`sidebar/ChannelList`).
+
+### Cobertura d'extracció
+
+Strings extrets a `t()`: pantalles auth (`LoginScreen`, `DeviceUnlockScreen`), `sidebar/ChannelList` i **tots els modals** (`components/modals/*`). Namespaces per pantalla/modal (`login`, `unlock`, `channels`, `createServer`, `channelForm`, `inviteMember`, `leaveServer`, `friends`, `serverInvitations`, `changePassword`, `logoutBackup`, `configureChannel`, `planSettings`, `permissions`, `channelKeys`, `deviceKeys`) + `common` per a text compartit.
+
+### Tests
+
+`test-setup.ts` força `i18n.changeLanguage('ca')` perquè les asercions de text als tests siguin deterministes (sense detecció per navigator).
+
+### Errors del backend
+
+El backend envia `{ code, message }` en català. `translateApiError(error)` mapeja `code` → `apiErrors.<code>` i fa fallback al `message` si no hi ha clau. Per valors dinàmics (4001 `max`, 4004 `max_mb`) el backend els envia a `details` per interpolar-los. Veure `definitions/ERRORS.md`.

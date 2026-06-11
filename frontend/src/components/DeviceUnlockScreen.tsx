@@ -1,5 +1,7 @@
 import React, { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from './shared/Button'
+import { LanguageSwitcher } from './shared/LanguageSwitcher'
 import { createLocalVault, unlockLocalVault } from '../lib/local-vault'
 import { clearAll, migrateChannelKeysToLocalVault } from '../lib/storage'
 
@@ -12,6 +14,7 @@ interface DeviceUnlockScreenProps {
 }
 
 export function DeviceUnlockScreen({ mode, username, onUnlocked, onLogout, onReset }: DeviceUnlockScreenProps) {
+  const { t } = useTranslation()
   const [passphrase, setPassphrase] = useState('')
   const [confirmPassphrase, setConfirmPassphrase] = useState('')
   const [isBusy, setIsBusy] = useState(false)
@@ -28,7 +31,7 @@ export function DeviceUnlockScreen({ mode, username, onUnlocked, onLogout, onRes
       await clearAll()
       onReset?.()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No s\'ha pogut restablir el dispositiu')
+      setError(err instanceof Error ? err.message : t('unlock.errReset'))
       setShowResetConfirm(false)
     } finally {
       setIsBusy(false)
@@ -40,12 +43,12 @@ export function DeviceUnlockScreen({ mode, username, onUnlocked, onLogout, onRes
     setError(null)
 
     if (!passphrase.trim()) {
-      setError('Introdueix la clau de desbloqueig local')
+      setError(t('unlock.errPassphraseRequired'))
       return
     }
 
     if (needsConfirm && passphrase !== confirmPassphrase) {
-      setError('Les claus no coincideixen')
+      setError(t('unlock.errMismatch'))
       return
     }
 
@@ -59,7 +62,7 @@ export function DeviceUnlockScreen({ mode, username, onUnlocked, onLogout, onRes
       await migrateChannelKeysToLocalVault()
       onUnlocked()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No s\'ha pogut desbloquejar el dispositiu')
+      setError(err instanceof Error ? err.message : t('unlock.errUnlock'))
     } finally {
       setIsBusy(false)
     }
@@ -69,29 +72,26 @@ export function DeviceUnlockScreen({ mode, username, onUnlocked, onLogout, onRes
     <div className="login-screen">
       <div className="login-container">
         <div className="login-header">
-          <h1>{isSetup ? 'Protegeix aquest dispositiu' : 'Desbloqueja el dispositiu'}</h1>
-          <p>Compte: {username}</p>
+          <h1>{isSetup ? t('unlock.titleSetup') : t('unlock.titleUnlock')}</h1>
+          <p>{t('unlock.account', { username })}</p>
         </div>
 
         <div className="unlock-warning" role="note">
-          <strong>Per què existeix aquest bloqueig?</strong>
-          <p>
-            Les claus dels canals es guarden xifrades al navegador. Aquesta clau local evita que algú amb accés al teu perfil
-            pugui llegir les dades d'IndexedDB en fred.
-          </p>
+          <strong>{t('unlock.whyTitle')}</strong>
+          <p>{t('unlock.whyBody')}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="login-form">
           <div className="form-group">
             <label htmlFor="local-unlock-passphrase">
-              {isSetup ? 'Nova clau de desbloqueig local' : 'Clau de desbloqueig local'}
+              {isSetup ? t('unlock.passphraseLabelSetup') : t('unlock.passphraseLabel')}
             </label>
             <input
               id="local-unlock-passphrase"
               type="password"
               value={passphrase}
               onChange={(e) => setPassphrase(e.target.value)}
-              placeholder="Introdueix la clau local"
+              placeholder={t('unlock.passphrasePlaceholder')}
               autoComplete={isSetup ? 'new-password' : 'current-password'}
               disabled={isBusy}
               autoFocus
@@ -100,17 +100,17 @@ export function DeviceUnlockScreen({ mode, username, onUnlocked, onLogout, onRes
 
           {needsConfirm && (
             <div className="form-group">
-              <label htmlFor="local-unlock-passphrase-confirm">Confirma la clau local</label>
+              <label htmlFor="local-unlock-passphrase-confirm">{t('unlock.confirmLabel')}</label>
               <input
                 id="local-unlock-passphrase-confirm"
                 type="password"
                 value={confirmPassphrase}
                 onChange={(e) => setConfirmPassphrase(e.target.value)}
-                placeholder="Repeteix la clau local"
+                placeholder={t('unlock.confirmPlaceholder')}
                 autoComplete="new-password"
                 disabled={isBusy}
               />
-              {mismatch && <span className="password-hint">Les claus no coincideixen</span>}
+              {mismatch && <span className="password-hint">{t('unlock.errMismatch')}</span>}
             </div>
           )}
 
@@ -118,10 +118,10 @@ export function DeviceUnlockScreen({ mode, username, onUnlocked, onLogout, onRes
 
           <div className="form-actions" style={{ display: 'flex', gap: '8px' }}>
             <Button type="button" variant="secondary" onClick={onLogout} disabled={isBusy}>
-              Tancar sessió
+              {t('common.logout')}
             </Button>
             <Button type="submit" disabled={isBusy || mismatch}>
-              {isBusy ? 'Processant...' : isSetup ? 'Crear i desbloquejar' : 'Desbloquejar'}
+              {isBusy ? t('common.processing') : isSetup ? t('unlock.submitSetup') : t('unlock.submitUnlock')}
             </Button>
           </div>
         </form>
@@ -135,13 +135,12 @@ export function DeviceUnlockScreen({ mode, username, onUnlocked, onLogout, onRes
                 onClick={() => setShowResetConfirm(true)}
                 disabled={isBusy}
               >
-                No recordes la clau? Restablir dispositiu
+                {t('unlock.resetLink')}
               </button>
             ) : (
               <div className="reset-device-confirm">
                 <p className="reset-device-warning">
-                  <strong>Atenció:</strong> Això esborrarà totes les claus locals d'aquest navegador.
-                  No podràs desxifrar missatges anteriors xifrats per aquest dispositiu.
+                  <strong>{t('unlock.resetWarningStrong')}</strong> {t('unlock.resetWarningBody')}
                 </p>
                 <div className="form-actions" style={{ display: 'flex', gap: '8px' }}>
                   <Button
@@ -150,7 +149,7 @@ export function DeviceUnlockScreen({ mode, username, onUnlocked, onLogout, onRes
                     onClick={() => setShowResetConfirm(false)}
                     disabled={isBusy}
                   >
-                    Cancel·lar
+                    {t('common.cancel')}
                   </Button>
                   <Button
                     type="button"
@@ -158,13 +157,17 @@ export function DeviceUnlockScreen({ mode, username, onUnlocked, onLogout, onRes
                     onClick={handleReset}
                     disabled={isBusy}
                   >
-                    {isBusy ? 'Esborrant...' : 'Esborrar tot i reiniciar'}
+                    {isBusy ? t('unlock.resetting') : t('unlock.resetConfirm')}
                   </Button>
                 </div>
               </div>
             )}
           </div>
         )}
+
+        <div className="login-language">
+          <LanguageSwitcher />
+        </div>
       </div>
     </div>
   )

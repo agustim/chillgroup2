@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { Button } from '../shared/Button'
 import {
@@ -39,6 +40,7 @@ function DeviceKeysContent({
   channels = [],
   devices = [],
 }: DeviceKeysContentProps) {
+  const { t } = useTranslation()
   const [isBusy, setIsBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -91,7 +93,7 @@ function DeviceKeysContent({
         const server = serverMap.get(deviceId) ?? null
         return {
           deviceId,
-          label: server?.label ?? (deviceId === currentDeviceId ? 'Dispositiu actual' : 'Dispositiu local'),
+          label: server?.label ?? (deviceId === currentDeviceId ? t('deviceKeys.deviceCurrentLabel') : t('deviceKeys.deviceLocalLabel')),
           local,
           server,
           isCurrent: server?.isCurrent ?? deviceId === currentDeviceId,
@@ -136,7 +138,7 @@ function DeviceKeysContent({
       })))
     } else {
       setServerDevices([])
-      throw new Error(devicesResult.error.message || 'No s\'ha pogut carregar la llista de dispositius del servidor')
+      throw new Error(devicesResult.error.message || t('deviceKeys.errLoadDevices'))
     }
   }
 
@@ -157,7 +159,7 @@ function DeviceKeysContent({
   const handleGenerateDeviceKeys = async (overwrite = false) => {
     const resolvedDeviceId = keypairDeviceId.trim()
     if (!resolvedDeviceId) {
-      setError('Has d\'indicar un deviceId pel parell de claus')
+      setError(t('deviceKeys.errDeviceIdRequired'))
       return
     }
 
@@ -170,13 +172,13 @@ function DeviceKeysContent({
       await generateAndStoreDeviceKeypair(resolvedDeviceId, overwrite)
       persistDeviceId(resolvedDeviceId)
       await refreshState()
-      setSuccess('Parell de claus ML-KEM-1024 + ML-DSA-87 generat i guardat localment')
+      setSuccess(t('deviceKeys.successGenerate'))
     } catch (err) {
       if (err instanceof KeypairDeviceIdExistsError) {
         setPendingOverwrite({ kind: 'generate' })
-        setError(`${err.message}. Prem "Sobrescriure" si ho vols substituir.`)
+        setError(t('deviceKeys.overwriteHint', { message: err.message }))
       } else {
-        setError('No s\'han pogut generar les claus del dispositiu')
+        setError(t('deviceKeys.errGenerate'))
       }
     } finally {
       setIsBusy(false)
@@ -186,7 +188,7 @@ function DeviceKeysContent({
   const handleImportDeviceKeys = async (overwrite = false, forcedText?: string) => {
     const payload = forcedText ?? deviceImportText
     if (!payload.trim()) {
-      setError('Enganxa el JSON del backup del dispositiu')
+      setError(t('deviceKeys.errPasteImport'))
       return
     }
 
@@ -199,14 +201,14 @@ function DeviceKeysContent({
       const bundle = await importAndStoreDeviceKeypair(payload, overwrite)
       persistDeviceId(bundle.deviceId)
       await refreshState()
-      setSuccess(`Backup de dispositiu importat (${bundle.deviceId})`)
+      setSuccess(t('deviceKeys.successImport', { deviceId: bundle.deviceId }))
       setDeviceImportText('')
     } catch (err) {
       if (err instanceof KeypairDeviceIdExistsError) {
         setPendingOverwrite({ kind: 'import', text: payload })
-        setError(`${err.message}. Prem "Sobrescriure" si ho vols substituir.`)
+        setError(t('deviceKeys.overwriteHint', { message: err.message }))
       } else {
-        const msg = err instanceof Error ? err.message : 'No s\'ha pogut importar el backup'
+        const msg = err instanceof Error ? err.message : t('deviceKeys.errImport')
         setError(msg)
       }
     } finally {
@@ -222,9 +224,9 @@ function DeviceKeysContent({
     try {
       const json = await exportDeviceKeypair(deviceId)
       setExportedDeviceBundle(json)
-      setSuccess(`Backup de claus preparat (${deviceId})`)
+      setSuccess(t('deviceKeys.successExport', { deviceId }))
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'No s\'ha pogut exportar el keypair'
+      const msg = err instanceof Error ? err.message : t('deviceKeys.errExport')
       setError(msg)
     } finally {
       setIsBusy(false)
@@ -239,9 +241,9 @@ function DeviceKeysContent({
     try {
       await deleteDeviceKeypair(deviceId)
       await refreshState()
-      setSuccess(`Parell de claus "${deviceId}" esborrat`)
+      setSuccess(t('deviceKeys.successDelete', { deviceId }))
     } catch {
-      setError('No s\'ha pogut esborrar el parell de claus')
+      setError(t('deviceKeys.errDelete'))
     } finally {
       setIsBusy(false)
     }
@@ -259,9 +261,9 @@ function DeviceKeysContent({
         return
       }
       await refreshState()
-      setSuccess(`Dispositiu remot "${deviceId}" eliminat del servidor`)
+      setSuccess(t('deviceKeys.successRevoke', { deviceId }))
     } catch {
-      setError('No s\'ha pogut eliminar el dispositiu remot del servidor')
+      setError(t('deviceKeys.errRevoke'))
     } finally {
       setIsBusy(false)
     }
@@ -273,29 +275,29 @@ function DeviceKeysContent({
       {success && <div className="modal-success">{success}</div>}
 
       <section className="device-keys-section">
-        <h4>Dispositiu actiu</h4>
+        <h4>{t('deviceKeys.activeDevice')}</h4>
         <p>
-          ID: <strong>{currentDeviceId ?? 'No disponible'}</strong>
+          {t('deviceKeys.idLabel')} <strong>{currentDeviceId ?? t('deviceKeys.notAvailable')}</strong>
         </p>
         {activeDevice && (
           <p>
-            Etiqueta: <strong>{activeDevice.label}</strong> · Estat:{' '}
-            {activeDevice.revoked ? 'Revocat' : 'Actiu'}
+            {t('deviceKeys.labelLabel')} <strong>{activeDevice.label}</strong> · {t('deviceKeys.statusLabel')}{' '}
+            {activeDevice.revoked ? t('deviceKeys.revoked') : t('deviceKeys.active')}
           </p>
         )}
         <p>
-          Keypair local:{' '}
-          <strong>{deviceSummary?.hasKeypair ? 'Present' : 'No trobat'}</strong>
+          {t('deviceKeys.localKeypair')}{' '}
+          <strong>{deviceSummary?.hasKeypair ? t('deviceKeys.present') : t('deviceKeys.notFound')}</strong>
         </p>
         <p>
-          Signing key local:{' '}
-          <strong>{deviceSummary?.hasSigningKeypair ? 'Present' : 'No trobat'}</strong>
+          {t('deviceKeys.localSigning')}{' '}
+          <strong>{deviceSummary?.hasSigningKeypair ? t('deviceKeys.present') : t('deviceKeys.notFound')}</strong>
         </p>
         {deviceSummary?.kemPublicKeyPreview && (
-          <p>KEM public key: {deviceSummary.kemPublicKeyPreview}</p>
+          <p>{t('deviceKeys.kemPublic')} {deviceSummary.kemPublicKeyPreview}</p>
         )}
         {deviceSummary?.dsaPublicKeyPreview && (
-          <p>DSA public key: {deviceSummary.dsaPublicKeyPreview}</p>
+          <p>{t('deviceKeys.dsaPublic')} {deviceSummary.dsaPublicKeyPreview}</p>
         )}
         <div className="device-keys-form-grid">
           <input
@@ -303,26 +305,26 @@ function DeviceKeysContent({
             type="text"
             value={keypairDeviceId}
             onChange={(e) => setKeypairDeviceId(e.target.value)}
-            placeholder="Device ID del parell de claus"
+            placeholder={t('deviceKeys.deviceIdPlaceholder')}
             disabled={isBusy}
           />
         </div>
         <div className="modal-form-actions">
           <Button variant="primary" size="sm" onClick={() => void handleGenerateDeviceKeys(false)} disabled={isBusy}>
-            Generar claus noves
+            {t('deviceKeys.generateKeys')}
           </Button>
           {pendingOverwrite?.kind === 'generate' && (
             <Button variant="danger" size="sm" onClick={() => void handleGenerateDeviceKeys(true)} disabled={isBusy}>
-              Sobrescriure
+              {t('deviceKeys.overwrite')}
             </Button>
           )}
         </div>
       </section>
 
       <section className="device-keys-section">
-        <h4>Dispositius del compte</h4>
+        <h4>{t('deviceKeys.accountDevices')}</h4>
         {mergedDevices.length === 0 ? (
-          <p>Encara no hi ha dispositius disponibles.</p>
+          <p>{t('deviceKeys.noDevices')}</p>
         ) : (
           <ul className="device-keys-list">
             {mergedDevices.map((device) => (
@@ -330,21 +332,21 @@ function DeviceKeysContent({
                 <div className="device-keys-list-main">
                   <strong>{device.label} · {device.deviceId}</strong>
                   <span>
-                    {device.isCurrent ? 'Actual · ' : ''}
-                    {device.isRemoteOnly ? 'Nomes servidor' : device.isLocalOnly ? 'Nomes local' : 'Local + servidor'}
+                    {device.isCurrent ? t('deviceKeys.current') : ''}
+                    {device.isRemoteOnly ? t('deviceKeys.remoteOnly') : device.isLocalOnly ? t('deviceKeys.localOnly') : t('deviceKeys.localAndServer')}
                   </span>
                   {device.server && (
                     <span>
-                      KEM: {device.hasKemPublicKey ? 'registrada' : 'pendent'} ·
-                      DSA: {device.hasDsaPublicKey ? 'registrada' : 'pendent'} ·
-                      Estat: {device.server.revoked ? 'revocat' : 'actiu'}
+                      {t('deviceKeys.kem')} {device.hasKemPublicKey ? t('deviceKeys.registered') : t('deviceKeys.pending')} ·
+                      {t('deviceKeys.dsa')} {device.hasDsaPublicKey ? t('deviceKeys.registered') : t('deviceKeys.pending')} ·
+                      {t('deviceKeys.statusLabel')} {device.server.revoked ? t('deviceKeys.statusRevokedLower') : t('deviceKeys.statusActiveLower')}
                     </span>
                   )}
                   {device.server?.lastSeen && (
-                    <span>Darrer acces: {new Date(device.server.lastSeen).toLocaleString()}</span>
+                    <span>{t('deviceKeys.lastAccess')} {new Date(device.server.lastSeen).toLocaleString()}</span>
                   )}
                   {device.local && (
-                    <span>Keypair local actualitzat: {new Date(device.local.updatedAt).toLocaleString()}</span>
+                    <span>{t('deviceKeys.localKeypairUpdated')} {new Date(device.local.updatedAt).toLocaleString()}</span>
                   )}
                 </div>
                 <div className="device-keys-list-actions">
@@ -355,7 +357,7 @@ function DeviceKeysContent({
                       onClick={() => void handleExportDeviceKeys(device.deviceId)}
                       disabled={isBusy}
                     >
-                      Backup local
+                      {t('deviceKeys.backupLocal')}
                     </Button>
                   )}
                   {device.local && (
@@ -365,7 +367,7 @@ function DeviceKeysContent({
                       onClick={() => void handleDeleteKeypair(device.deviceId)}
                       disabled={isBusy}
                     >
-                      Esborrar local
+                      {t('deviceKeys.eraseLocal')}
                     </Button>
                   )}
                   {device.server && !device.isCurrent && !device.server.revoked && (
@@ -375,7 +377,7 @@ function DeviceKeysContent({
                       onClick={() => void handleRevokeServerDevice(device.deviceId)}
                       disabled={isBusy}
                     >
-                      Eliminar del servidor
+                      {t('deviceKeys.removeFromServer')}
                     </Button>
                   )}
                 </div>
@@ -386,18 +388,18 @@ function DeviceKeysContent({
       </section>
 
       <section className="device-keys-section">
-        <h4>Importar keypair de dispositiu</h4>
+        <h4>{t('deviceKeys.importTitle')}</h4>
         <textarea
           className="device-keys-textarea"
           value={deviceImportText}
           onChange={(e) => setDeviceImportText(e.target.value)}
-          placeholder="Enganxa aqui el JSON exportat del keypair"
+          placeholder={t('deviceKeys.importPlaceholder')}
           rows={5}
           disabled={isBusy}
         />
         <div className="modal-form-actions">
           <Button variant="secondary" size="sm" onClick={() => void handleImportDeviceKeys(false)} disabled={isBusy}>
-            Importar keypair
+            {t('deviceKeys.importKeypair')}
           </Button>
           {pendingOverwrite?.kind === 'import' && (
             <Button
@@ -406,7 +408,7 @@ function DeviceKeysContent({
               onClick={() => void handleImportDeviceKeys(true, pendingOverwrite.text)}
               disabled={isBusy}
             >
-              Sobrescriure
+              {t('deviceKeys.overwrite')}
             </Button>
           )}
         </div>
@@ -414,7 +416,7 @@ function DeviceKeysContent({
 
       {exportedDeviceBundle && (
         <section className="device-keys-section">
-          <h4>Backup del dispositiu (JSON)</h4>
+          <h4>{t('deviceKeys.backupTitle')}</h4>
           <textarea className="device-keys-textarea" value={exportedDeviceBundle} readOnly rows={6} />
         </section>
       )}

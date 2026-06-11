@@ -6,6 +6,7 @@
 - **Missatges en català**: Els errors es mostren al client en el idioma de l'usuari, però el codi és universal
 - **Codis reutilitzables**: Un codi d'error sempre significa la mateixa cosa independentment de l'endpoint
 - **Detalls opcionals**: `details` inclou informació extra només quan ajuda a depurar
+- **Traducció al frontend**: El backend envia sempre el missatge en català. El frontend mapeja `error.code` → clau `apiErrors.<code>` del catàleg i18n (`ca`/`en`) via `translateApiError()`. Si no hi ha traducció pel codi, fa fallback al `message` del backend. Per missatges amb valors dinàmics (p.ex. 4001 `max`, 4004 `max_mb`), aquests valors van a `details` perquè el frontend pugui interpolar-los en qualsevol idioma.
 
 ## Format Global de Resposta d'Error
 

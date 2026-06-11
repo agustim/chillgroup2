@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Channel, FriendPresence, ServerMember, VoiceConnection, VoiceParticipant } from '../../types'
 import { EncryptionIcon } from '../shared/EncryptionIcon'
+import { LanguageSwitcher } from '../shared/LanguageSwitcher'
 
 interface ChannelListProps {
   channels: Channel[]
@@ -83,6 +85,7 @@ export function ChannelList({
   serverMemberPresenceById = {},
   serverVersion,
 }: ChannelListProps) {
+  const { t } = useTranslation()
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [collapsedSections, setCollapsedSections] = useState({
     dm: false,
@@ -153,36 +156,39 @@ export function ChannelList({
           <button
             className="channel-list-toggle-btn"
             onClick={() => onCollapseList?.()}
-            title="Amagar panell de canals"
-            aria-label="Amagar panell de canals"
+            title={t('channels.collapsePanel')}
+            aria-label={t('channels.collapsePanel')}
           >
             ◀
           </button>
           <button
             className={`user-actions-toggle ${isUserMenuOpen ? 'active' : ''}`}
             onClick={() => setIsUserMenuOpen((current) => !current)}
-            title="Menú d'usuari"
+            title={t('channels.userMenu')}
           >
             ⚙️
           </button>
           {isUserMenuOpen && (
             <div className="user-actions-menu">
-              <button onClick={() => { setIsUserMenuOpen(false); onManageDevices?.() }}>📱 Gestió de dispositius</button>
-              <button onClick={() => { setIsUserMenuOpen(false); onManageChannelKeys?.() }}>🔑 Gestió claus-canals</button>
-              <button onClick={() => { setIsUserMenuOpen(false); onManageFriends?.() }}>👥 Gestió d'amics</button>
+              <button onClick={() => { setIsUserMenuOpen(false); onManageDevices?.() }}>{t('channels.menuDevices')}</button>
+              <button onClick={() => { setIsUserMenuOpen(false); onManageChannelKeys?.() }}>{t('channels.menuChannelKeys')}</button>
+              <button onClick={() => { setIsUserMenuOpen(false); onManageFriends?.() }}>{t('channels.menuFriends')}</button>
               <button onClick={() => { setIsUserMenuOpen(false); onShowInvitations?.() }} style={{ position: 'relative' }}>
-                📨 Invitacions de servidor
+                {t('channels.menuInvitations')}
                 {pendingInvitationCount > 0 && (
                   <span className="channel-unread-badge" style={{ marginLeft: 6 }}>{pendingInvitationCount}</span>
                 )}
               </button>
-              <button onClick={() => { setIsUserMenuOpen(false); onChangePassword?.() }}>🔒 Canviar password</button>
-              <button onClick={() => { setIsUserMenuOpen(false); onManagePlan?.() }}>📋 Pla de subscripció</button>
-              <button onClick={() => { setIsUserMenuOpen(false); onManagePermissions?.() }}>🛡️ Permisos</button>
+              <button onClick={() => { setIsUserMenuOpen(false); onChangePassword?.() }}>{t('channels.menuChangePassword')}</button>
+              <button onClick={() => { setIsUserMenuOpen(false); onManagePlan?.() }}>{t('channels.menuPlan')}</button>
+              <button onClick={() => { setIsUserMenuOpen(false); onManagePermissions?.() }}>{t('channels.menuPermissions')}</button>
               {canManageAdminUsers && (
-                <button onClick={() => { setIsUserMenuOpen(false); onManageAdminUsers?.() }}>🧑‍💼 Gestió usuaris</button>
+                <button onClick={() => { setIsUserMenuOpen(false); onManageAdminUsers?.() }}>{t('channels.menuAdminUsers')}</button>
               )}
-              <button onClick={() => { setIsUserMenuOpen(false); onLogout?.() }}>🚪 Sortir</button>
+              <button onClick={() => { setIsUserMenuOpen(false); onLogout?.() }}>{t('channels.menuLogout')}</button>
+              <div className="user-actions-language" onClick={(e) => e.stopPropagation()}>
+                <LanguageSwitcher />
+              </div>
             </div>
           )}
         </div>
@@ -196,9 +202,9 @@ export function ChannelList({
               className="category-toggle"
               onClick={() => toggleSection('dm')}
               aria-expanded={!collapsedSections.dm}
-              title={collapsedSections.dm ? 'Desplegar secció' : 'Plegar secció'}
+              title={collapsedSections.dm ? t('channels.expandSection') : t('channels.collapseSection')}
             >
-              <span className="category-name">💬 MISSATGES DIRECTES</span>
+              <span className="category-name">{t('channels.catDms')}</span>
               <span className="category-chevron">{collapsedSections.dm ? '🔻' : '🔺'}</span>
             </button>
           </div>
@@ -224,16 +230,16 @@ export function ChannelList({
             className="category-toggle"
             onClick={() => toggleSection('text')}
             aria-expanded={!collapsedSections.text}
-            title={collapsedSections.text ? 'Desplegar secció' : 'Plegar secció'}
+            title={collapsedSections.text ? t('channels.expandSection') : t('channels.collapseSection')}
           >
-            <span className="category-name"># CANALS DE TEXT</span>
+            <span className="category-name">{t('channels.catText')}</span>
             <span className="category-chevron">{collapsedSections.text ? '🔻' : '🔺'}</span>
           </button>
           {canCreateTextChannel && onCreateTextChannel && (
             <button
               className="create-channel-btn"
               onClick={onCreateTextChannel}
-              title="Crear canal de text"
+              title={t('channels.createTextChannel')}
             >
               +
             </button>
@@ -258,7 +264,7 @@ export function ChannelList({
                   event.stopPropagation()
                   onConfigureChannel(channel)
                 }}
-                title="Configuració del canal"
+                title={t('channels.channelConfig')}
               >
                 ⚙️
               </button>
@@ -274,16 +280,16 @@ export function ChannelList({
             className="category-toggle"
             onClick={() => toggleSection('voice')}
             aria-expanded={!collapsedSections.voice}
-            title={collapsedSections.voice ? 'Desplegar secció' : 'Plegar secció'}
+            title={collapsedSections.voice ? t('channels.expandSection') : t('channels.collapseSection')}
           >
-            <span className="category-name">🔊 CANALS DE VEUS</span>
+            <span className="category-name">{t('channels.catVoice')}</span>
             <span className="category-chevron">{collapsedSections.voice ? '🔻' : '🔺'}</span>
           </button>
           {canCreateVoiceChannel && onCreateVoiceChannel && (
             <button
               className="create-channel-btn"
               onClick={onCreateVoiceChannel}
-              title="Crear canal de veu"
+              title={t('channels.createVoiceChannel')}
             >
               +
             </button>
@@ -308,7 +314,7 @@ export function ChannelList({
                       event.stopPropagation()
                       onConfigureChannel(channel)
                     }}
-                    title="Configuració del canal"
+                    title={t('channels.channelConfig')}
                   >
                     ⚙️
                   </button>
@@ -324,8 +330,8 @@ export function ChannelList({
                         {p.username.charAt(0).toUpperCase()}
                       </span>
                       <span className="participant-name-small">{p.username}</span>
-                      {p.isSuppressed && <span className="deafened-dot" title="Micròfon apagat">🔕</span>}
-                      {p.isDeafened && <span className="deafened-dot" title="Altaveu apagat">🔇</span>}
+                      {p.isSuppressed && <span className="deafened-dot" title={t('channels.micOff')}>🔕</span>}
+                      {p.isDeafened && <span className="deafened-dot" title={t('channels.speakerOff')}>🔇</span>}
                     </div>
                   ))}
                 </div>
@@ -342,9 +348,9 @@ export function ChannelList({
               className="category-toggle"
               onClick={() => toggleSection('friends')}
               aria-expanded={!collapsedSections.friends}
-              title={collapsedSections.friends ? 'Desplegar secció' : 'Plegar secció'}
+              title={collapsedSections.friends ? t('channels.expandSection') : t('channels.collapseSection')}
             >
-              <span className="category-name">💛 AMICS</span>
+              <span className="category-name">{t('channels.catFriends')}</span>
               <span className="category-chevron">{collapsedSections.friends ? '🔻' : '🔺'}</span>
             </button>
           </div>
@@ -367,7 +373,7 @@ export function ChannelList({
                 >
                   <div
                     className={`friend-avatar ${friend.isOnline ? 'online' : 'offline'}`}
-                    title={friend.isOnline ? 'Actiu' : 'Inactiu'}
+                    title={friend.isOnline ? t('channels.online') : t('channels.offline')}
                   >
                     {friend.username.charAt(0).toUpperCase()}
                   </div>
@@ -381,7 +387,7 @@ export function ChannelList({
                         event.stopPropagation()
                         onStartDirectMessage(friend.userId, friend.username)
                       }}
-                      title="Obrir DM"
+                      title={t('channels.openDm')}
                     >
                       💬
                     </button>
@@ -399,9 +405,9 @@ export function ChannelList({
             className="category-toggle"
             onClick={() => toggleSection('members')}
             aria-expanded={!collapsedSections.members}
-            title={collapsedSections.members ? 'Desplegar secció' : 'Plegar secció'}
+            title={collapsedSections.members ? t('channels.expandSection') : t('channels.collapseSection')}
           >
-            <span className="category-name">👥 USUARIS DEL SERVIDOR</span>
+            <span className="category-name">{t('channels.catMembers')}</span>
             <span className="category-chevron">{collapsedSections.members ? '🔻' : '🔺'}</span>
           </button>
         </div>
@@ -426,7 +432,7 @@ export function ChannelList({
                 >
                   <div
                     className={`friend-avatar ${isActive ? 'online' : 'offline'}`}
-                    title={isActive ? 'Actiu' : 'Inactiu'}
+                    title={isActive ? t('channels.online') : t('channels.offline')}
                   >
                     {member.username.charAt(0).toUpperCase()}
                   </div>
@@ -440,7 +446,7 @@ export function ChannelList({
                         event.stopPropagation()
                         onStartDirectMessage(member.userId, member.username)
                       }}
-                      title="Obrir DM"
+                      title={t('channels.openDm')}
                     >
                       💬
                     </button>
@@ -450,14 +456,14 @@ export function ChannelList({
             })}
           </div>
         ) : (
-          <p className="friends-empty-state">Aquest servidor encara no té membres visibles.</p>
+          <p className="friends-empty-state">{t('channels.noMembers')}</p>
         ))}
       </div>
 
       <div className="channel-list-footer">
         {voiceControlsEnabled && !canSpeak && (
           <div className="voice-listen-only-notice">
-            👁️ Mode escoltar-veure — sense permís per parlar o mostrar
+            {t('channels.listenOnly')}
           </div>
         )}
         {serverVersion && (
@@ -469,7 +475,7 @@ export function ChannelList({
         <button
           className={`voice-user-btn ${isMuted ? 'active-off' : 'active-on'}`}
           onClick={onToggleMute}
-          title={isMuted ? 'Activar micròfon' : 'Silenciar micròfon'}
+          title={isMuted ? t('channels.micActivate') : t('channels.micMute')}
           disabled={!canSpeak}
         >
           🎤
@@ -477,7 +483,7 @@ export function ChannelList({
         <button
           className={`voice-user-btn ${isDeafened ? 'active-off' : 'active-on'}`}
           onClick={onToggleDeafen}
-          title={isDeafened ? 'Activar so' : 'Desactivar so'}
+          title={isDeafened ? t('channels.soundActivate') : t('channels.soundMute')}
           disabled={!voiceControlsEnabled}
         >
           🔊
@@ -485,7 +491,7 @@ export function ChannelList({
         <button
           className={`voice-user-btn ${isCameraOn ? 'active-on' : 'active-off'}`}
           onClick={onToggleCamera}
-          title={isCameraOn ? 'Apagar càmera' : 'Activar càmera'}
+          title={isCameraOn ? t('channels.cameraOff') : t('channels.cameraOn')}
           disabled={!canSpeak}
         >
           🎥
@@ -493,7 +499,7 @@ export function ChannelList({
         <button
           className={`voice-user-btn ${isScreenSharing ? 'active-on' : 'active-off'}`}
           onClick={onToggleScreenShare}
-          title={isScreenSharing ? 'Aturar compartir pantalla' : 'Compartir pantalla'}
+          title={isScreenSharing ? t('channels.screenStop') : t('channels.screenShare')}
           disabled={!canSpeak}
         >
           🖥️
@@ -501,7 +507,7 @@ export function ChannelList({
         <button
           className={`voice-user-btn ${isMediaFileSharing ? 'active-on' : 'active-off'}`}
           onClick={onToggleMediaFileShare}
-          title={isMediaFileSharing ? 'Aturar fitxer de media' : 'Compartir fitxer de media'}
+          title={isMediaFileSharing ? t('channels.mediaStop') : t('channels.mediaShare')}
           disabled={!canSpeak}
         >
           🎬

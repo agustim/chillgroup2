@@ -1,4 +1,5 @@
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { Modal } from '../ui/Modal'
 import { Button } from '../shared/Button'
 import { InviteUserSearch } from '../shared/InviteUserSearch'
@@ -21,20 +22,21 @@ export function InviteMemberModal({
   inviteType,
   targetName,
 }: InviteMemberModalProps) {
-  const contextLabel = inviteType === 'server' ? 'servidor' : 'canal'
+  const { t } = useTranslation()
+  const contextLabel = inviteType === 'server' ? t('inviteMember.contextServer') : t('inviteMember.contextChannel')
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={`Convidar al ${contextLabel}`}>
+    <Modal isOpen={isOpen} onClose={onClose} title={t('inviteMember.title', { context: contextLabel })}>
       <div className="modal-form">
         <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '8px' }}>
-          Convida un usuari a <strong>{targetName}</strong>
+          {t('inviteMember.invitePrompt')} <strong>{targetName}</strong>
         </p>
 
         <InviteUserSearch onSearchUsers={onSearchUsers} onInvite={onInvite} />
 
         <div className="modal-form-actions">
           <Button type="button" variant="ghost" onClick={onClose}>
-            Tancar
+            {t('common.close')}
           </Button>
         </div>
       </div>
