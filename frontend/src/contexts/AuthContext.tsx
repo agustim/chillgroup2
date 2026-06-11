@@ -5,7 +5,7 @@ import { authLogin, authRegister, authRegisterWithInvitation, authMe, authRefres
 import { disconnectSocket } from '../lib/socket'
 import { getStoredDeviceId, persistDeviceId } from '../lib/device-identity'
 import { generateAndStoreDeviceKeypair, hasLocalDeviceKeypair } from '../lib/device-keys'
-import { lockLocalVault } from '../lib/local-vault'
+import { isLocalVaultUnlocked, lockLocalVault } from '../lib/local-vault'
 
 const ML_KEM_1024_PUBLIC_KEY_BYTES = 1568
 
@@ -40,6 +40,7 @@ interface AuthContextType {
   registerWithInvitation: (code: string, username: string, password: string) => Promise<void>
   logout: () => void
   refreshToken: () => Promise<void>
+  ensureCurrentDeviceKeypair: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -109,11 +110,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Assegura que el dispositiu té un keypair ML-KEM generat i pujat al servidor.
   const ensureDeviceKeypairUploaded = useCallback(async (deviceId: string) => {
+    if (!isLocalVaultUnlocked()) {
+      // Vault bloquejat — no podem llegir ni generar claus xifrades.
+      // Intentem pujar les claus públiques existents (no necessiten vault).
+      const { getDevicePublicKeys } = await import('../lib/storage')
+      const existing = await getDevicePublicKeys(deviceId)
+      if (existing?.kemPublicKey && existing.dsaPublicKey) {
+        const kemPublicKey = uint8ArrayToBase64(existing.kemPublicKey)
+        const dsaPublicKey = uint8ArrayToBase64(existing.dsaPublicKey)
+        await deviceUpdatePublicKey(kemPublicKey, dsaPublicKey)
+      }
+      // Si no hi ha claus, diferim fins que el vault estigui desbloquejat.
+      return
+    }
+
     const alreadyHas = await hasLocalDeviceKeypair(deviceId)
     let kemPublicKey: string
     let dsaPublicKey: string
     if (alreadyHas) {
-      // Retrieve existing public key from IndexedDB
       const { getDevicePublicKeys } = await import('../lib/storage')
       const keypair = await getDevicePublicKeys(deviceId)
       if (
@@ -139,6 +153,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error(uploadResult.error.message || 'No s\'ha pogut registrar la clau pública del dispositiu')
     }
   }, [])
+
+  const ensureCurrentDeviceKeypair = useCallback(async () => {
+    const deviceId = getStoredDeviceId()
+    if (deviceId) {
+      await ensureDeviceKeypairUploaded(deviceId)
+    }
+  }, [ensureDeviceKeypairUploaded])
 
   const login = useCallback(async (username: string, password: string) => {
     setIsLoading(true)
@@ -284,6 +305,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         registerWithInvitation,
         logout,
         refreshToken,
+        ensureCurrentDeviceKeypair,
       }}
     >
       {children}

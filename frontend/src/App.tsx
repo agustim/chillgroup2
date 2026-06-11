@@ -8,7 +8,7 @@ import { hasLocalVault, isLocalVaultUnlocked, lockLocalVault } from './lib/local
 import { useIsMobile } from './hooks/useIsMobile'
 
 function AppContent() {
-  const { isAuthenticated, user, isLoading, logout } = useAuth()
+  const { isAuthenticated, user, isLoading, logout, ensureCurrentDeviceKeypair } = useAuth()
   const isMobile = useIsMobile()
   const [vaultConfigured, setVaultConfigured] = React.useState<boolean>(() => hasLocalVault())
   const [vaultUnlocked, setVaultUnlocked] = React.useState<boolean>(() => isLocalVaultUnlocked())
@@ -25,10 +25,15 @@ function AppContent() {
     setVaultUnlocked(isLocalVaultUnlocked())
   }, [isAuthenticated])
 
-  const handleVaultUnlocked = React.useCallback(() => {
+  const handleVaultUnlocked = React.useCallback(async () => {
     setVaultConfigured(hasLocalVault())
     setVaultUnlocked(isLocalVaultUnlocked())
-  }, [])
+    try {
+      await ensureCurrentDeviceKeypair()
+    } catch {
+      // best-effort; errors no bloquegen el flux
+    }
+  }, [ensureCurrentDeviceKeypair])
 
   if (isLoading) {
     return (
