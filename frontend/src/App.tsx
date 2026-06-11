@@ -51,6 +51,10 @@ function AppContent() {
           username={user.username}
           onUnlocked={handleVaultUnlocked}
           onLogout={logout}
+          onReset={() => {
+            setVaultConfigured(false)
+            setVaultUnlocked(false)
+          }}
         />
       )
     }

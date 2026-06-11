@@ -1,24 +1,39 @@
 import React, { useState } from 'react'
 import { Button } from './shared/Button'
 import { createLocalVault, unlockLocalVault } from '../lib/local-vault'
-import { migrateChannelKeysToLocalVault } from '../lib/storage'
+import { clearAll, migrateChannelKeysToLocalVault } from '../lib/storage'
 
 interface DeviceUnlockScreenProps {
   mode: 'setup' | 'unlock'
   username: string
   onUnlocked: () => void
   onLogout: () => void
+  onReset?: () => void
 }
 
-export function DeviceUnlockScreen({ mode, username, onUnlocked, onLogout }: DeviceUnlockScreenProps) {
+export function DeviceUnlockScreen({ mode, username, onUnlocked, onLogout, onReset }: DeviceUnlockScreenProps) {
   const [passphrase, setPassphrase] = useState('')
   const [confirmPassphrase, setConfirmPassphrase] = useState('')
   const [isBusy, setIsBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showResetConfirm, setShowResetConfirm] = useState(false)
 
   const isSetup = mode === 'setup'
   const needsConfirm = isSetup
   const mismatch = needsConfirm && confirmPassphrase.length > 0 && passphrase !== confirmPassphrase
+
+  const handleReset = async () => {
+    setIsBusy(true)
+    try {
+      await clearAll()
+      onReset?.()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No s\'ha pogut restablir el dispositiu')
+      setShowResetConfirm(false)
+    } finally {
+      setIsBusy(false)
+    }
+  }
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -110,6 +125,46 @@ export function DeviceUnlockScreen({ mode, username, onUnlocked, onLogout }: Dev
             </Button>
           </div>
         </form>
+
+        {!isSetup && onReset && (
+          <div className="reset-device-section">
+            {!showResetConfirm ? (
+              <button
+                type="button"
+                className="reset-device-link"
+                onClick={() => setShowResetConfirm(true)}
+                disabled={isBusy}
+              >
+                No recordes la clau? Restablir dispositiu
+              </button>
+            ) : (
+              <div className="reset-device-confirm">
+                <p className="reset-device-warning">
+                  <strong>Atenció:</strong> Això esborrarà totes les claus locals d'aquest navegador.
+                  No podràs desxifrar missatges anteriors xifrats per aquest dispositiu.
+                </p>
+                <div className="form-actions" style={{ display: 'flex', gap: '8px' }}>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => setShowResetConfirm(false)}
+                    disabled={isBusy}
+                  >
+                    Cancel·lar
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="danger"
+                    onClick={handleReset}
+                    disabled={isBusy}
+                  >
+                    {isBusy ? 'Esborrant...' : 'Esborrar tot i reiniciar'}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

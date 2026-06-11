@@ -199,6 +199,49 @@ body {
   line-height: 1.4;
 }
 
+.reset-device-section {
+  margin-top: 16px;
+  text-align: center;
+}
+
+.reset-device-link {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.reset-device-link:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.reset-device-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.reset-device-confirm {
+  border: 1px solid rgba(220, 53, 69, 0.45);
+  background: rgba(220, 53, 69, 0.08);
+  border-radius: var(--input-radius);
+  padding: 12px;
+  text-align: left;
+}
+
+.reset-device-warning {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+  margin: 0 0 12px 0;
+}
+
+.reset-device-warning strong {
+  color: #dc3545;
+}
+
 /* App Logged In */
 .app-logged-in {
   display: flex;
