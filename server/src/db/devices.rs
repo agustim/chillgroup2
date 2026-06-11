@@ -220,7 +220,7 @@ impl DatabasePool {
         match self {
             DatabasePool::Postgres(pool) => {
                 let rows = sqlx::query(
-                    "SELECT id, label, kem_public_key, dsa_public_key, created_at, last_seen, revoked \
+                    "SELECT id, label, kem_public_key, dsa_public_key, created_at::text, last_seen::text, revoked \
                      FROM devices \
                      WHERE user_id = $1 \
                      ORDER BY created_at ASC"
