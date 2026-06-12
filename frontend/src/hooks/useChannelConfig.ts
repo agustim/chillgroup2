@@ -175,11 +175,12 @@ export function useChannelConfig({
       parsedTtl = value
     }
 
-    const result = await channelsUpdate(channel.channelId, trimmedName, parsedTtl, channelConfigIsPrivate)
+    const parsedPosition = channelConfigPosition.trim() ? Number(channelConfigPosition) : undefined
+    const result = await channelsUpdate(channel.channelId, trimmedName, parsedTtl, channelConfigIsPrivate, parsedPosition)
     if (result.success) {
       if (selectedServer) await fetchChannels(selectedServer)
       setSelectedChannel((current) =>
-        current ? { ...current, name: trimmedName, messageTTL: parsedTtl, isPrivate: channelConfigIsPrivate } : current
+        current ? { ...current, name: trimmedName, messageTTL: parsedTtl, isPrivate: channelConfigIsPrivate, position: parsedPosition ?? current.position } : current
       )
       setFeedback(`Canal "${trimmedName}" actualitzat`)
     } else {

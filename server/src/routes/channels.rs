@@ -161,6 +161,8 @@ pub struct UpdateChannelRequest {
     pub encryption_type: Option<EncryptionType>,
     #[serde(default)]
     pub is_private: Option<bool>,
+    #[serde(default)]
+    pub position: Option<i32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -979,6 +981,11 @@ pub async fn update_channel(
         message_ttl,
         is_private,
     ).await.map_err(|e| AppError::DatabaseError(e))?;
+
+    if let Some(position) = req.position {
+        state.db.update_channel_position(channel_id, position).await
+            .map_err(|e| AppError::DatabaseError(e))?;
+    }
 
     // Read back the updated channel
     let updated = state.db.get_channel(channel_id).await

@@ -1111,12 +1111,14 @@ export async function channelsUpdate(
   channelId: string,
   name?: string,
   messageTTL?: number | null,
-  isPrivate?: boolean
+  isPrivate?: boolean,
+  position?: number
 ): Promise<ApiResult<Channel>> {
   const body: Record<string, unknown> = {}
   if (name !== undefined) body.name = name
   if (messageTTL !== undefined) body.message_ttl = messageTTL
   if (isPrivate !== undefined) body.is_private = isPrivate
+  if (position !== undefined) body.position = position
   const result = await apiRequest<any>('PUT', `/api/channels/${channelId}`, body)
   if (!result.success) return result
   return { success: true, data: mapChannelToTypes(result.data) }
