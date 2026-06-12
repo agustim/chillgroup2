@@ -18,6 +18,7 @@ Aquesta carpeta conté **tota la especificació tècnica** necessària per const
 | [DATABASE.md](DATABASE.md) | 536 | Migrations SQL, models Rust, multi-DB (PostgreSQL/SQLite) |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | 834 | Pla de 7 fases, workspace Cargo, Docker |
 | [FRONTEND.md](FRONTEND.md) | 1077 | Layout, CSS variables, temes, fonts, storage, components |
+| [I18N.md](I18N.md) | 265 | i18next, catàlegs ca/en, namespaces, errors backend, com afegir idioma |
 | [TESTING.md](TESTING.md) | 1264 | TDD, Playwright E2E, fixtures, escenaris, CI/CD |
 | [API.md](API.md) | 951 | 27 endpoints amb request/response JSON exactes, incloent amics i cerca global |
 | [DM.md](DM.md) | 205 | Disseny objectiu de DM 1:1 asimètric amb TTL, API i migració |
