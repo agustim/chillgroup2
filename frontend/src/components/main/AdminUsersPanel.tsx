@@ -419,6 +419,16 @@ export function AdminUsersPanel({
     }
   }
 
+  const handleCopyLink = async (code: string) => {
+    try {
+      const url = `${window.location.origin}/?invite=${code}`
+      await navigator.clipboard.writeText(url)
+      onFeedback(t('admin.linkCopied'))
+    } catch {
+      onFeedback(t('admin.codeCopyFail'))
+    }
+  }
+
   const handleCreateServer = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const name = newServerName.trim()
@@ -767,6 +777,9 @@ export function AdminUsersPanel({
                 <Button type="button" variant="secondary" size="sm" onClick={() => { void handleCopyCode(lastCreatedCode) }}>
                   {t('admin.copy')}
                 </Button>
+                <Button type="button" variant="secondary" size="sm" onClick={() => { void handleCopyLink(lastCreatedCode) }}>
+                  {t('admin.copyLink')}
+                </Button>
               </div>
             )}
           </section>
@@ -782,6 +795,9 @@ export function AdminUsersPanel({
                       <span className="admin-invite-code-inline">{inv.code}</span>
                       <Button type="button" variant="ghost" size="sm" onClick={() => { void handleCopyCode(inv.code) }}>
                         {t('admin.copy')}
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => { void handleCopyLink(inv.code) }}>
+                        {t('admin.copyLink')}
                       </Button>
                     </div>
                     <div className="admin-compact-invite-meta">
