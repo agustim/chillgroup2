@@ -2,10 +2,8 @@
 ALTER TABLE channels ADD COLUMN position INTEGER DEFAULT 0;
 
 -- Set positions based on existing creation order within each server
--- group by server_id and assign position
-UPDATE channels
-SET position = (
-    SELECT ROW_NUMBER() OVER (PARTITION BY c.server_id ORDER BY c.created_at ASC)
-    FROM channels c
-    WHERE c.id = channels.id
-);
+UPDATE channels SET position = (
+    SELECT COUNT(*) FROM channels c2
+    WHERE c2.server_id = channels.server_id
+    AND c2.created_at <= channels.created_at
+) - 1;
