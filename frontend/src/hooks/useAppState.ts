@@ -835,12 +835,30 @@ export function useAppState() {
     setPanel('adminUsers')
   }
 
-  const handleOpenAdminServerConfig = (serverId: string) => {
+  const handleOpenAdminServerConfig = async (serverId: string) => {
     setSelectedChannel(null)
     if (selectedServer === serverId) {
       setPanel('serverConfig')
       return
     }
+
+    const serverExists = servers.some((s) => s.serverId === serverId)
+    if (!serverExists) {
+      const result = await serversGet(serverId)
+      if (result.success) {
+        const tempServer: Server = {
+          serverId: result.data.serverId,
+          name: result.data.name,
+          iconUrl: result.data.iconUrl,
+          ownerId: result.data.ownerId,
+          memberCount: result.data.members.length,
+          myRole: result.data.myRole,
+          createdAt: result.data.createdAt,
+        }
+        setServers((prev) => [...prev, tempServer])
+      }
+    }
+
     setPendingServerConfigOpenId(serverId)
     setSelectedServer(serverId)
   }

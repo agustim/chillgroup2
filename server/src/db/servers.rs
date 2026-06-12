@@ -4,93 +4,51 @@ use uuid::Uuid;
 use shared::types::{ServerInfo, ServerFullInfo, ServerLiveKitConfig, ServerMember as SharedServerMember, ServerRole};
 
 impl DatabasePool {
-    pub async fn list_servers_for_user(&self, user_id: Uuid, is_admin: bool) -> Result<Vec<ServerInfo>, sqlx::Error> {
+    pub async fn list_servers_for_user(&self, user_id: Uuid) -> Result<Vec<ServerInfo>, sqlx::Error> {
+        let query = "SELECT s.id, s.name, s.icon_url, s.owner_id, COUNT(sm2.user_id) as member_count, sm.role as my_role, s.created_at
+            FROM servers s
+            JOIN server_members sm ON sm.server_id = s.id AND sm.user_id = $1
+            JOIN server_members sm2 ON sm2.server_id = s.id
+            GROUP BY s.id, s.name, s.icon_url, s.owner_id, sm.role, s.created_at
+            ORDER BY s.created_at DESC";
+
         let mut servers = Vec::new();
         match self {
             DatabasePool::Postgres(pool) => {
-                if is_admin {
-                    let query_pg = "SELECT s.id, s.name, s.icon_url, s.owner_id, COUNT(sm2.user_id) as member_count, COALESCE(sm.role, 'admin') as my_role, s.created_at::text
-                        FROM servers s
-                        LEFT JOIN server_members sm ON sm.server_id = s.id AND sm.user_id = $1
-                        LEFT JOIN server_members sm2 ON sm2.server_id = s.id
-                        GROUP BY s.id, s.name, s.icon_url, s.owner_id, sm.role, s.created_at
-                        ORDER BY s.created_at DESC";
-                    let rows = sqlx::query(query_pg).bind(user_id).fetch_all(pool).await?;
-                    for row in rows {
-                        let my_role = row.get::<String, _>(5);
-                        servers.push(ServerInfo {
-                            server_id: row.get(0),
-                            name: row.get(1),
-                            icon_url: row.get(2),
-                            owner_id: row.get(3),
-                            member_count: row.get::<i64, _>(4) as u32,
-                            my_role: parse_server_role(&my_role),
-                            created_at: row.get::<String, _>(6),
-                        });
-                    }
-                } else {
-                    let query_pg = "SELECT s.id, s.name, s.icon_url, s.owner_id, COUNT(sm2.user_id) as member_count, sm.role as my_role, s.created_at::text
-                        FROM servers s
-                        JOIN server_members sm ON sm.server_id = s.id AND sm.user_id = $1
-                        JOIN server_members sm2 ON sm2.server_id = s.id
-                        GROUP BY s.id, s.name, s.icon_url, s.owner_id, sm.role, s.created_at
-                        ORDER BY s.created_at DESC";
-                    let rows = sqlx::query(query_pg).bind(user_id).fetch_all(pool).await?;
-                    for row in rows {
-                        let my_role = row.get::<String, _>(5);
-                        servers.push(ServerInfo {
-                            server_id: row.get(0),
-                            name: row.get(1),
-                            icon_url: row.get(2),
-                            owner_id: row.get(3),
-                            member_count: row.get::<i64, _>(4) as u32,
-                            my_role: parse_server_role(&my_role),
-                            created_at: row.get::<String, _>(6),
-                        });
-                    }
+                let query_pg = "SELECT s.id, s.name, s.icon_url, s.owner_id, COUNT(sm2.user_id) as member_count, sm.role as my_role, s.created_at::text
+                    FROM servers s
+                    JOIN server_members sm ON sm.server_id = s.id AND sm.user_id = $1
+                    JOIN server_members sm2 ON sm2.server_id = s.id
+                    GROUP BY s.id, s.name, s.icon_url, s.owner_id, sm.role, s.created_at
+                    ORDER BY s.created_at DESC";
+                let rows = sqlx::query(query_pg).bind(user_id).fetch_all(pool).await?;
+                for row in rows {
+                    let my_role = row.get::<String, _>(5);
+                    servers.push(ServerInfo {
+                        server_id: row.get(0),
+                        name: row.get(1),
+                        icon_url: row.get(2),
+                        owner_id: row.get(3),
+                        member_count: row.get::<i64, _>(4) as u32,
+                        my_role: parse_server_role(&my_role),
+                        created_at: row.get::<String, _>(6),
+                    });
                 }
             }
             DatabasePool::Sqlite(pool) => {
-                if is_admin {
-                    let query = "SELECT s.id, s.name, s.icon_url, s.owner_id, COUNT(sm2.user_id) as member_count, COALESCE(sm.role, 'admin') as my_role, s.created_at
-                        FROM servers s
-                        LEFT JOIN server_members sm ON sm.server_id = s.id AND sm.user_id = ?
-                        LEFT JOIN server_members sm2 ON sm2.server_id = s.id
-                        GROUP BY s.id, s.name, s.icon_url, s.owner_id, sm.role, s.created_at
-                        ORDER BY s.created_at DESC";
-                    let rows = sqlx::query(query).bind(user_id).fetch_all(pool).await?;
-                    for row in rows {
-                        let my_role = row.get::<String, _>(5);
-                        servers.push(ServerInfo {
-                            server_id: row.get(0),
-                            name: row.get(1),
-                            icon_url: row.get(2),
-                            owner_id: row.get(3),
-                            member_count: row.get::<i64, _>(4) as u32,
-                            my_role: parse_server_role(&my_role),
-                            created_at: row.get::<String, _>(6),
-                        });
-                    }
-                } else {
-                    let query = "SELECT s.id, s.name, s.icon_url, s.owner_id, COUNT(sm2.user_id) as member_count, sm.role as my_role, s.created_at
-                        FROM servers s
-                        JOIN server_members sm ON sm.server_id = s.id AND sm.user_id = ?
-                        JOIN server_members sm2 ON sm2.server_id = s.id
-                        GROUP BY s.id, s.name, s.icon_url, s.owner_id, sm.role, s.created_at
-                        ORDER BY s.created_at DESC";
-                    let rows = sqlx::query(query).bind(user_id).fetch_all(pool).await?;
-                    for row in rows {
-                        let my_role = row.get::<String, _>(5);
-                        servers.push(ServerInfo {
-                            server_id: row.get(0),
-                            name: row.get(1),
-                            icon_url: row.get(2),
-                            owner_id: row.get(3),
-                            member_count: row.get::<i64, _>(4) as u32,
-                            my_role: parse_server_role(&my_role),
-                            created_at: row.get::<String, _>(6),
-                        });
-                    }
+                let query = query.replace("$1", "?");
+                let rows = sqlx::query(&query).bind(user_id).fetch_all(pool).await?;
+                for row in rows {
+                    let my_role = row.get::<String, _>(5);
+                    servers.push(ServerInfo {
+                        server_id: row.get(0),
+                        name: row.get(1),
+                        icon_url: row.get(2),
+                        owner_id: row.get(3),
+                        member_count: row.get::<i64, _>(4) as u32,
+                        my_role: parse_server_role(&my_role),
+                        created_at: row.get::<String, _>(6),
+                    });
                 }
             }
         }
