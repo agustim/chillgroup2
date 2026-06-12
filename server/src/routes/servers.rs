@@ -107,7 +107,7 @@ pub async fn list_servers(
     info!("Endpoint list_servers cridat per user_id={}", claims.user_id);
     let servers = state
         .db
-        .list_servers_for_user(claims.user_id)
+        .list_servers_for_user(claims.user_id, claims.is_admin)
         .await
         .map_err(AppError::DatabaseError)?;
     Ok(Json(servers))
