@@ -19,6 +19,7 @@ import {
   serverLeave,
   serverUpdateMemberRole,
   serverRemoveMember,
+  serverAddMemberDirect,
   serversCreate,
   serversGet,
   serversList,
@@ -138,6 +139,8 @@ export function useAppState() {
     setChannelConfigMessageTTL,
     channelConfigIsPrivate,
     setChannelConfigIsPrivate,
+    channelConfigPosition,
+    setChannelConfigPosition,
     channelExplicitPermissions,
     channelExplicitPermissionsLoading,
     canViewChannelExplicitPermissions,
@@ -775,6 +778,17 @@ export function useAppState() {
     setFeedback('Membre eliminat del servidor')
   }
 
+  const handleAddServerMemberDirect = async (username: string, role: 'admin' | 'member') => {
+    if (!selectedServer) return
+    const result = await serverAddMemberDirect(selectedServer, username, role)
+    if (!result.success) {
+      setFeedback(result.error.message)
+      return
+    }
+    await fetchServerDetails(selectedServer)
+    setFeedback(`${username} afegit com ${role}`)
+  }
+
   const handleInviteChannelSubmit = async (username: string) => {
     const channel = resolvedSelectedChannel
     if (!channel) return
@@ -1081,6 +1095,8 @@ export function useAppState() {
     setChannelConfigMessageTTL,
     channelConfigIsPrivate,
     setChannelConfigIsPrivate,
+    channelConfigPosition,
+    setChannelConfigPosition,
     channelExplicitPermissionsLoading,
     canViewChannelExplicitPermissions,
     channelPermissionRows,
@@ -1109,6 +1125,7 @@ export function useAppState() {
     handleCreateTextChannel,
     handleCreateVoiceChannel,
     handleInviteServerSubmit,
+    handleAddServerMemberDirect,
     handleUpdateServerMemberRole,
     handleRemoveServerMember,
     handleInviteChannelSubmit,

@@ -92,6 +92,8 @@ export function AppLayout({ username }: AppLayoutProps) {
     setChannelConfigMessageTTL,
     channelConfigIsPrivate,
     setChannelConfigIsPrivate,
+    channelConfigPosition,
+    setChannelConfigPosition,
     channelExplicitPermissionsLoading,
     canViewChannelExplicitPermissions,
     channelPermissionRows,
@@ -119,6 +121,7 @@ export function AppLayout({ username }: AppLayoutProps) {
     handleCreateTextChannel,
     handleCreateVoiceChannel,
     handleInviteServerSubmit,
+    handleAddServerMemberDirect,
     handleUpdateServerMemberRole,
     handleRemoveServerMember,
     handleInviteChannelSubmit,
@@ -397,6 +400,7 @@ export function AppLayout({ username }: AppLayoutProps) {
             onSetPendingMemberRemovalId={setPendingMemberRemovalId}
             onSearchUsers={handleSearchUsers}
             onInviteServerSubmit={handleInviteServerSubmit}
+            onAddMemberDirect={handleAddServerMemberDirect}
             onConfigureChannel={handleConfigureChannel}
             onUpdateServerMemberRole={handleUpdateServerMemberRole}
             onRemoveServerMember={handleRemoveServerMember}
@@ -418,6 +422,8 @@ export function AppLayout({ username }: AppLayoutProps) {
             setChannelConfigMessageTTL={setChannelConfigMessageTTL}
             channelConfigIsPrivate={channelConfigIsPrivate}
             setChannelConfigIsPrivate={setChannelConfigIsPrivate}
+            channelConfigPosition={channelConfigPosition}
+            setChannelConfigPosition={setChannelConfigPosition}
             onSave={handleChannelConfigSave}
             onSearchUsers={handleSearchUsers}
             onInviteChannelSubmit={handleInviteChannelSubmit}

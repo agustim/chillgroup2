@@ -13,6 +13,7 @@
     "create": "Crear",
     "creating": "Creant...",
     "saving": "Desant...",
+    "adding": "Afegint...",
     "erase": "Esborrar",
     "erasing": "Esborrant...",
     "yes": "Sí",
@@ -105,6 +106,7 @@
     "encSymmetric": "Simètrica (clau compartida)",
     "encAsymmetric": "Asimètrica (clau pública/privada)",
     "ttlLabel": "TTL missatges",
+    "positionLabel": "Posició de l'ordre",
     "privateLabel": "Canal privat (secret)"
   },
   "inviteMember": {
@@ -395,6 +397,8 @@
     "permsTab": "Permisos usuaris/canals",
     "role": "Rol:",
     "inviteMember": "Convidar membre al servidor",
+    "addMemberDirect": "Afegir membre directament",
+    "addMember": "Afegir",
     "serverChannels": "Canals del servidor",
     "members": "Membres",
     "roleOf": "Rol de {{username}}"

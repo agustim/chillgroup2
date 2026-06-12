@@ -13,6 +13,7 @@
     "create": "Create",
     "creating": "Creating...",
     "saving": "Saving...",
+    "adding": "Adding...",
     "erase": "Delete",
     "erasing": "Deleting...",
     "yes": "Yes",
@@ -105,6 +106,7 @@
     "encSymmetric": "Symmetric (shared key)",
     "encAsymmetric": "Asymmetric (public/private key)",
     "ttlLabel": "Message TTL",
+    "positionLabel": "Display order",
     "privateLabel": "Private channel (secret)"
   },
   "inviteMember": {
@@ -395,6 +397,8 @@
     "permsTab": "User/channel permissions",
     "role": "Role:",
     "inviteMember": "Invite member to server",
+    "addMemberDirect": "Add member directly",
+    "addMember": "Add",
     "serverChannels": "Server channels",
     "members": "Members",
     "roleOf": "Role of {{username}}"

@@ -13,6 +13,8 @@ interface ChannelConfigPanelProps {
   setChannelConfigMessageTTL: (v: string) => void
   channelConfigIsPrivate: boolean
   setChannelConfigIsPrivate: (v: boolean) => void
+  channelConfigPosition: string
+  setChannelConfigPosition: (v: string) => void
   onSave: (event: React.FormEvent) => void
   onSearchUsers: (query: string) => Promise<UserSearchResult[]>
   onInviteChannelSubmit: (username: string) => Promise<void>
@@ -33,6 +35,8 @@ export function ChannelConfigPanel({
   setChannelConfigMessageTTL,
   channelConfigIsPrivate,
   setChannelConfigIsPrivate,
+  channelConfigPosition,
+  setChannelConfigPosition,
   onSave,
   onSearchUsers,
   onInviteChannelSubmit,
@@ -80,6 +84,17 @@ export function ChannelConfigPanel({
           />
           {t('configureChannel.privateLabel')}
         </label>
+        <div className="form-group">
+          <label htmlFor="channel-position">{t('channelForm.positionLabel')}</label>
+          <input
+            id="channel-position"
+            type="number"
+            min="0"
+            value={channelConfigPosition}
+            onChange={(e) => setChannelConfigPosition(e.target.value)}
+            placeholder="0"
+          />
+        </div>
         <div className="modal-form-actions" style={{ justifyContent: 'flex-end' }}>
           <button type="submit" className="admin-panel-tab active">
             {t('configureChannel.saveChanges')}

@@ -91,6 +91,8 @@ export function MobileLayout({ username }: MobileLayoutProps) {
     setChannelConfigMessageTTL,
     channelConfigIsPrivate,
     setChannelConfigIsPrivate,
+    channelConfigPosition,
+    setChannelConfigPosition,
     channelExplicitPermissionsLoading,
     canViewChannelExplicitPermissions,
     channelPermissionRows,
@@ -372,6 +374,8 @@ export function MobileLayout({ username }: MobileLayoutProps) {
               setChannelConfigMessageTTL={setChannelConfigMessageTTL}
               channelConfigIsPrivate={channelConfigIsPrivate}
               setChannelConfigIsPrivate={setChannelConfigIsPrivate}
+              channelConfigPosition={channelConfigPosition}
+              setChannelConfigPosition={setChannelConfigPosition}
               onSave={handleChannelConfigSave}
               onSearchUsers={handleSearchUsers}
               onInviteChannelSubmit={handleInviteChannelSubmit}

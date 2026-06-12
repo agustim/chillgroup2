@@ -87,6 +87,7 @@ export interface Channel {
   dmPeerUserId?: string | null
   messageTTL: number | null
   isPrivate: boolean
+  position?: number
   unreadCount?: number
   lastReadMessageId?: string | null
   keyVersionId?: string | null

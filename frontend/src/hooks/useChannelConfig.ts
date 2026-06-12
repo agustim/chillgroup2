@@ -44,6 +44,7 @@ export function useChannelConfig({
   const [channelConfigName, setChannelConfigName] = useState('')
   const [channelConfigMessageTTL, setChannelConfigMessageTTL] = useState('')
   const [channelConfigIsPrivate, setChannelConfigIsPrivate] = useState(false)
+  const [channelConfigPosition, setChannelConfigPosition] = useState('')
   const [channelExplicitPermissions, setChannelExplicitPermissions] = useState<ChannelExplicitPermission[]>([])
   const [channelExplicitPermissionsLoading, setChannelExplicitPermissionsLoading] = useState(false)
   const [canViewChannelExplicitPermissions, setCanViewChannelExplicitPermissions] = useState(false)
@@ -59,7 +60,8 @@ export function useChannelConfig({
         : String(channel.messageTTL)
     )
     setChannelConfigIsPrivate(!!channel.isPrivate)
-  }, [isActive, channel?.channelId, channel?.name, channel?.messageTTL, channel?.isPrivate])
+    setChannelConfigPosition(channel.position !== undefined && channel.position !== null ? String(channel.position) : '0')
+  }, [isActive, channel?.channelId, channel?.name, channel?.messageTTL, channel?.isPrivate, channel?.position])
 
   useEffect(() => {
     if (!isActive || !channel) {
@@ -192,6 +194,8 @@ export function useChannelConfig({
     setChannelConfigMessageTTL,
     channelConfigIsPrivate,
     setChannelConfigIsPrivate,
+    channelConfigPosition,
+    setChannelConfigPosition,
     channelExplicitPermissions,
     channelExplicitPermissionsLoading,
     canViewChannelExplicitPermissions,

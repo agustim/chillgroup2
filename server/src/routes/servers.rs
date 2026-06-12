@@ -4,7 +4,7 @@ use axum::{
     extract::{Query, State},
     http::StatusCode,
     Json,
-    routing::{delete, get, put},
+    routing::{delete, get, post, put},
     Router, extract::Path,
 };
 use serde::{Deserialize, Serialize};
@@ -30,6 +30,12 @@ pub struct CreateServerRequest {
 #[derive(Debug, Deserialize)]
 pub struct InviteMemberRequest {
     pub username: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AddMemberDirectRequest {
+    pub username: String,
+    pub role: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -349,6 +355,57 @@ pub async fn invite_server_member(
     ))
 }
 
+pub async fn add_server_member_direct(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path(server_id): Path<Uuid>,
+    Json(req): Json<AddMemberDirectRequest>,
+) -> Result<(StatusCode, Json<ServerMember>), AppError> {
+    info!("Endpoint add_server_member_direct cridat: server_id={}, username={}, role={}, user_id={}", server_id, req.username, req.role, claims.user_id);
+
+    ensure_server_permission(&state, server_id, claims.user_id, claims.is_admin, SERVER_PERMISSION_MANAGE_MEMBERS).await?;
+
+    let user = state
+        .db
+        .find_user_by_username(&req.username)
+        .await
+        .map_err(|_| AppError::InternalError)?
+        .ok_or(AppError::UserNotFound)?;
+
+    let new_user_id = user.0;
+    if state
+        .db
+        .is_server_member(server_id, new_user_id)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .is_some()
+    {
+        return Err(AppError::MemberExists);
+    }
+
+    let role = if req.role == "admin" { "admin" } else { "member" };
+    state
+        .db
+        .add_server_member(server_id, new_user_id, role)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+    let server_info = state
+        .db
+        .get_server_full_info(server_id, claims.user_id, claims.is_admin)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .ok_or(AppError::ServerNotFound)?;
+
+    let member = server_info
+        .members
+        .into_iter()
+        .find(|m| m.user_id == new_user_id)
+        .ok_or(AppError::MemberNotFound)?;
+
+    Ok((StatusCode::CREATED, Json(member)))
+}
+
 pub async fn update_member_role(
     State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
@@ -471,6 +528,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/servers", get(list_servers).post(create_server))
         .route("/api/servers/{server_id}", get(get_server).put(update_server).delete(delete_server))
         .route("/api/servers/{server_id}/members", get(list_server_members).post(invite_server_member))
+        .route("/api/servers/{server_id}/members/add-direct", post(add_server_member_direct))
         .route("/api/servers/{server_id}/members/me", delete(leave_server))
         .route("/api/servers/{server_id}/members/{user_id}/role", put(update_member_role))
         .route("/api/servers/{server_id}/members/{user_id}", delete(remove_server_member))

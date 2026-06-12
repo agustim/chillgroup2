@@ -713,6 +713,12 @@ export async function serverInviteMember(serverId: string, username: string): Pr
   return { success: true, data: mapInviteResponse(result.data) }
 }
 
+export async function serverAddMemberDirect(serverId: string, username: string, role: ServerRole): Promise<ApiResult<ServerMember>> {
+  const result = await apiRequest<any>('POST', `/api/servers/${serverId}/members/add-direct`, { username, role })
+  if (!result.success) return result
+  return { success: true, data: mapServerMember(result.data) }
+}
+
 export async function serverUpdateMemberRole(serverId: string, userId: string, role: ServerRole) {
   const result = await apiRequest<any>('PUT', `/api/servers/${serverId}/members/${userId}/role`, { role })
   if (!result.success) return result
