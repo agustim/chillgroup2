@@ -107,6 +107,53 @@ docker compose up --build
 
 L'API quedarà a `http://localhost:8080`, Postgres a `localhost:5432`, LiveKit a `localhost:7880` i RustFS a `http://localhost:9000` (consola `http://localhost:9001`).
 
+## Últimes Característiques (Juny 2026)
+
+### T1: Admin pot veure i configurar servidors sense pertinença
+- **Backend**: `list_servers_for_user()` amb paràmetre `is_admin`
+  - Admin global (JWT `is_admin: true`) veu tots els servidors
+  - LEFT JOIN a server_members, rol per defecte admin si no member
+- **Frontend**: Adminitrador pot clicar "Configure" en qualsevol servidor
+  - Fetch server details, addició temporal a state sidebar
+  - Accés complet a ServerConfigPanel sense ser member
+
+### T2: Botó per copiar link d'invitació amb URL HTTP completa
+- **Frontend**: Doble botó a AdminUsersPanel
+  - Botó 1: Copiar codi invitació (original)
+  - Botó 2: Copiar URL completa `https://site.com/?invite=CODE`
+- **i18n**: Nous strings `copyLink`, `linkCopied`, `codeCopied`, `codeCopyFail` (ca+en)
+
+### T3: Suport underscore en noms de canal
+- **Frontend**: Actualització regex pattern `[a-z0-9_-]+`
+  - CreateChannelModal, CreateTextChannelModal
+- **Backend**: Ja acceptava underscores (sense validació)
+
+### T4: Ordre personalitzat de canals
+- **Backend**: 
+  - Columna `position` (INTEGER) afegida a canals
+  - Migration compatible PostgreSQL + SQLite (COUNT subquery)
+  - Endpoint `PUT /api/servers/{id}/channels/reorder` per actualitzar
+  - SQLite: ALTER TABLE automàtic al startup via `create_tables_sqlite()`
+- **Frontend**:
+  - Input number a ChannelConfigPanel per editar posició
+  - État `channelConfigPosition` via useChannelConfig
+  - PUT request envia position si modificada
+
+### T5: Admin pot afegir membres directament (sense invitació)
+- **Backend**:
+  - Endpoint `POST /api/servers/{id}/members/add-direct`
+  - Request: `{ username, role: "member"|"admin" }`
+  - Validació via `ensure_server_permission(SERVER_PERMISSION_MANAGE_MEMBERS)`
+- **Frontend**:
+  - Formulari a ServerConfigPanel (visible només si `canManageServer`)
+  - Input username + select role (member/admin) + botó Add
+  - Handler `handleAddServerMemberDirect` a useAppState
+
+### T6: Camp posició a configuració de canal
+- **Backend**: `UpdateChannelRequest` inclou `position: Option<i32>`
+- **Frontend**: ChannelConfigPanel mostra + edita position
+- **Database**: Position inicialitza per ordre creació dins servidor
+
 ## Accions Ràpides
 
 ```bash
