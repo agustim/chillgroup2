@@ -70,7 +70,7 @@ function CreateChannelForm({ type, onClose, onCreate }: CreateChannelFormProps) 
           placeholder={placeholder}
           autoFocus
           maxLength={30}
-          pattern="[a-z0-9-]+"
+          pattern="[a-z0-9_-]+"
           title={t('channelForm.nameHint')}
         />
         <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
