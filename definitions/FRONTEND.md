@@ -1279,7 +1279,9 @@ const { t } = useTranslation()
 
 ### Cobertura d'extracció
 
-Strings extrets a `t()`: pantalles auth (`LoginScreen`, `DeviceUnlockScreen`), `sidebar/ChannelList` i **tots els modals** (`components/modals/*`). Namespaces per pantalla/modal (`login`, `unlock`, `channels`, `createServer`, `channelForm`, `inviteMember`, `leaveServer`, `friends`, `serverInvitations`, `changePassword`, `logoutBackup`, `configureChannel`, `planSettings`, `permissions`, `channelKeys`, `deviceKeys`) + `common` per a text compartit.
+Strings extrets a `t()` a tota la UI: pantalles auth (`LoginScreen`, `DeviceUnlockScreen`), `sidebar/ChannelList`, **tots els modals** (`components/modals/*`), els panells `components/main/*` (`ChannelHeader`, `MessageInput`, `MessageList`, `MainContent`, `VoiceArea`, `MediaFilePlayer`, `ServerConfigPanel`, `ChannelConfigPanel`, `AdminUsersPanel`) i els layouts (`AppLayout`, `MobileLayout`). Namespaces per pantalla/modal/panell (`login`, `unlock`, `channels`, `createServer`, `channelForm`, `inviteMember`, `leaveServer`, `friends`, `serverInvitations`, `changePassword`, `logoutBackup`, `configureChannel`, `planSettings`, `permissions`, `channelKeys`, `deviceKeys`, `channelHeader`, `messageInput`, `serverConfig`, `mediaPlayer`, `channelConfigPanel`, `mainContent`, `voiceArea`, `messageList`, `appLayout`, `admin`) + `common` per a text compartit.
+
+Codis literals que **no** es tradueixen (intencional): rols `User`/`Admin`, badges curts (`MOS`, `FCS`, `CAM`, `SCREEN`…), marca `ChillGroup`, placeholders d'exemple (`general`, `team_plus`).
 
 ### Tests
 

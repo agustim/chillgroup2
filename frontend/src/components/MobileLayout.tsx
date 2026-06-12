@@ -1,4 +1,6 @@
 import React, { useState, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
+import i18n from '../i18n'
 import { ServerBar } from './sidebar/ServerBar'
 import { ChannelList } from './sidebar/ChannelList'
 import { MainContent } from './main/MainContent'
@@ -26,6 +28,7 @@ interface MobileLayoutProps {
 }
 
 export function MobileLayout({ username }: MobileLayoutProps) {
+  const { t } = useTranslation()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const mediaFileInputRef = useRef<HTMLInputElement>(null)
 
@@ -248,7 +251,7 @@ export function MobileLayout({ username }: MobileLayoutProps) {
           <button
             className="mobile-hamburger"
             onClick={() => setDrawerOpen(true)}
-            aria-label="Obrir menú"
+            aria-label={t('appLayout.openMenu')}
           >
             ☰
           </button>
@@ -263,7 +266,7 @@ export function MobileLayout({ username }: MobileLayoutProps) {
             <button
               className="mobile-header-back"
               onClick={() => setPanel('channelConfig')}
-              title="Configurar canal"
+              title={t('appLayout.configChannel')}
             >
               ⚙️
             </button>
@@ -339,7 +342,7 @@ export function MobileLayout({ username }: MobileLayoutProps) {
           </div>
         ) : panel === 'permissions' ? (
           <div className="mobile-panel-content">
-            <button className="mobile-back-btn" onClick={() => setPanel('serverConfig')}>← Servidor</button>
+            <button className="mobile-back-btn" onClick={() => setPanel('serverConfig')}>← {t('appLayout.tabServer')}</button>
             <PermissionsPanel server={serverDetails} channels={channels} currentDeviceId={currentDeviceId} />
           </div>
         ) : panel === 'serverConfig' && serverDetails ? (
@@ -425,9 +428,9 @@ export function MobileLayout({ username }: MobileLayoutProps) {
           />
         ) : (
           <div className="welcome-screen">
-            <p>Selecciona un servidor i un canal.</p>
+            <p>{t('appLayout.welcomeHintShort')}</p>
             <button className="mobile-open-drawer-btn" onClick={() => setDrawerOpen(true)}>
-              Obrir menú ☰
+              {t('appLayout.openMenu')} ☰
             </button>
           </div>
         )}
@@ -476,17 +479,17 @@ export function MobileLayout({ username }: MobileLayoutProps) {
 
 function panelTitle(panel: string): string {
   const titles: Record<string, string> = {
-    serverConfig: 'Servidor',
-    channelConfig: 'Canal',
-    devices: 'Dispositius',
-    adminUsers: 'Usuaris',
-    permissions: 'Permisos',
-    friends: 'Amics',
-    createServer: 'Nou servidor',
-    changePassword: 'Contrasenya',
-    channelKeys: 'Claus',
-    createTextChannel: 'Nou canal text',
-    createVoiceChannel: 'Nou canal veu',
+    serverConfig: i18n.t('appLayout.tabServer'),
+    channelConfig: i18n.t('appLayout.mobileTitleChannel'),
+    devices: i18n.t('appLayout.tabDevices'),
+    adminUsers: i18n.t('appLayout.tabUsers'),
+    permissions: i18n.t('appLayout.tabPermissions'),
+    friends: i18n.t('appLayout.tabFriends'),
+    createServer: i18n.t('appLayout.tabNewServer'),
+    changePassword: i18n.t('appLayout.mobileTitlePassword'),
+    channelKeys: i18n.t('appLayout.tabKeys'),
+    createTextChannel: i18n.t('appLayout.mobileTitleNewText'),
+    createVoiceChannel: i18n.t('appLayout.mobileTitleNewVoice'),
   }
   return titles[panel] ?? ''
 }

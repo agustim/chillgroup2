@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import remarkBreaks from 'remark-breaks'
 import remarkGfm from 'remark-gfm'
@@ -49,11 +50,12 @@ interface MessageListProps {
 }
 
 function MessageCountdown({ expiresAt }: { expiresAt: string }) {
+  const { t } = useTranslation()
   const [remaining, setRemaining] = useState('')
   useEffect(() => {
     const update = () => {
       const diff = new Date(expiresAt).getTime() - Date.now()
-      if (diff <= 0) { setRemaining('Expirat'); return }
+      if (diff <= 0) { setRemaining(t('messageList.expired')); return }
       const s = Math.floor(diff / 1000)
       const m = Math.floor(s / 60)
       const h = Math.floor(m / 60)
@@ -84,6 +86,7 @@ export function MessageList({
   socketDeletedMessageIds,
   socketEditedMessages,
 }: MessageListProps) {
+  const { t } = useTranslation()
   const { user, currentDeviceId } = useAuth()
   const [messages, setMessages] = useState<Message[]>([])
   const [decryptedPayloads, setDecryptedPayloads] = useState<Record<string, string>>({})
@@ -177,7 +180,7 @@ export function MessageList({
 
   const loadMessages = async () => {
     if (!channelId) {
-      setError('Canal no seleccionat')
+      setError(t('messageList.errNoChannel'))
       setLoading(false)
       return
     }
@@ -193,7 +196,7 @@ export function MessageList({
       if (hasUnread) {
         const unreadResult = await messagesList(channelId, 50, undefined, scope, lastReadMessageId!)
         if (!unreadResult.success || !unreadResult.data) {
-          setError('No es poden carregar els missatges')
+          setError(t('messageList.errLoad'))
           return
         }
         const unreadMsgs = filterExpiring(unreadResult.data.data)
@@ -226,11 +229,11 @@ export function MessageList({
           const decrypted = await decryptMessagesForChannel(channelId, encryptionType, loaded)
           setDecryptedPayloads(decrypted)
         } else {
-          setError('No es poden carregar els missatges')
+          setError(t('messageList.errLoad'))
         }
       }
     } catch {
-      setError('Error de connexió')
+      setError(t('messageList.errConnection'))
     } finally {
       setLoading(false)
     }
@@ -571,7 +574,7 @@ export function MessageList({
 
   const handleReply = (msg: Message) => {
     const plaintext = decryptedPayloads[msg.messageId] ?? msg.encryptedPayload
-    const text = plaintext || (msg.attachmentIds?.length ? '[Imatge]' : '')
+    const text = plaintext || (msg.attachmentIds?.length ? t('messageList.imagePlaceholder') : '')
     onReplyTo?.(msg, text)
   }
 
@@ -582,7 +585,7 @@ export function MessageList({
   if (loading) {
     return (
       <div className="message-list loading">
-        <p>Carregant missatges...</p>
+        <p>{t('messageList.loading')}</p>
       </div>
     )
   }
@@ -591,7 +594,7 @@ export function MessageList({
     return (
       <div className="message-list error">
         <p>{error}</p>
-        <button onClick={loadMessages}>Reintentar</button>
+        <button onClick={loadMessages}>{t('messageList.retry')}</button>
       </div>
     )
   }
@@ -599,8 +602,8 @@ export function MessageList({
   if (combined.length === 0) {
     return (
       <div className="message-list empty">
-        <p>Sense missatges encara</p>
-        <p className="empty-hint">Sigues el primer a enviar missatge!</p>
+        <p>{t('messageList.empty')}</p>
+        <p className="empty-hint">{t('messageList.emptyHint')}</p>
       </div>
     )
   }
@@ -608,8 +611,8 @@ export function MessageList({
   return (
     <div className="message-list" onClick={() => setEmojiPickerMessageId(null)} onTouchStart={() => setHoveredMessageId(null)}>
       <div ref={messagesTopRef} className="messages-top-sentinel">
-        {loadingMore && <p className="loading-more-indicator">Carregant més...</p>}
-        {!loadingMore && hasPrevPage && <p className="load-more-hint">Fes scroll cap amunt per veure més</p>}
+        {loadingMore && <p className="loading-more-indicator">{t('messageList.loadingMore')}</p>}
+        {!loadingMore && hasPrevPage && <p className="load-more-hint">{t('messageList.scrollUp')}</p>}
       </div>
 
       {combined.map((msg, index) => {
@@ -626,14 +629,14 @@ export function MessageList({
           ? (decryptedPayloads[replyParent.messageId] ?? replyParent.encryptedPayload)
           : null
         const replyParentText = replyParent
-          ? (replyParentRaw || (replyParent.attachmentIds?.length ? '[Imatge]' : ''))
+          ? (replyParentRaw || (replyParent.attachmentIds?.length ? t('messageList.imagePlaceholder') : ''))
           : null
 
         return (
           <React.Fragment key={msg.messageId}>
             {showDivider && (
               <div ref={unreadDividerRef} id="unread-divider" className="unread-divider">
-                <span>Missatges nous</span>
+                <span>{t('messageList.newMessages')}</span>
               </div>
             )}
             <div
@@ -649,13 +652,13 @@ export function MessageList({
                   {onReplyTo && (
                     <button
                       className="message-action-btn"
-                      title="Respondre"
+                      title={t('messageList.reply')}
                       onClick={() => handleReply(msg)}
                     >↩</button>
                   )}
                   <button
                     className="message-action-btn"
-                    title="Reaccionar"
+                    title={t('messageList.react')}
                     onClick={(e) => {
                       e.stopPropagation()
                       setEmojiPickerMessageId((prev) => prev === msg.messageId ? null : msg.messageId)
@@ -664,20 +667,20 @@ export function MessageList({
                   {canEdit && (
                     <button
                       className="message-action-btn"
-                      title="Editar"
+                      title={t('messageList.edit')}
                       onClick={() => handleEdit(msg)}
                     >✏️</button>
                   )}
                   {canDelete && (
                     <button
                       className="message-action-btn message-action-btn--danger"
-                      title="Eliminar"
+                      title={t('common.remove')}
                       onClick={() => setConfirmDeleteMessageId(msg.messageId)}
                     >🗑</button>
                   )}
                   <button
                     className="message-action-btn"
-                    title="Informació"
+                    title={t('messageList.info')}
                     onClick={(e) => {
                       e.stopPropagation()
                       setInfoMessageId((prev) => prev === msg.messageId ? null : msg.messageId)
@@ -686,18 +689,18 @@ export function MessageList({
                   {infoMessageId === msg.messageId && (
                     <div className="message-info-popover">
                       <div className="message-info-row">
-                        <span className="message-info-label">Enviat</span>
+                        <span className="message-info-label">{t('messageList.infoSent')}</span>
                         <span className="message-info-value">{new Date(msg.timestamp).toLocaleString('ca-ES')}</span>
                       </div>
                       {msg.editedAt && (
                         <div className="message-info-row">
-                          <span className="message-info-label">Editat</span>
+                          <span className="message-info-label">{t('messageList.infoEdited')}</span>
                           <span className="message-info-value">{new Date(msg.editedAt).toLocaleString('ca-ES')}</span>
                         </div>
                       )}
                       {msg.expiresAt && (
                         <div className="message-info-row">
-                          <span className="message-info-label">⏱ S'elimina en</span>
+                          <span className="message-info-label">{t('messageList.infoExpires')}</span>
                           <span className="message-info-value message-info-expiry">
                             <MessageCountdown expiresAt={msg.expiresAt} />
                           </span>
@@ -705,7 +708,7 @@ export function MessageList({
                       )}
                       {msg.keyVersion != null && (
                         <div className="message-info-row">
-                          <span className="message-info-label">Clau</span>
+                          <span className="message-info-label">{t('messageList.infoKey')}</span>
                           <span className="message-info-value">v{msg.keyVersion}</span>
                         </div>
                       )}
@@ -732,7 +735,7 @@ export function MessageList({
                   </span>
                   <span className="sender-name">{msg.senderUsername}</span>
                   {msg.senderDeviceId && (
-                    <span className="device-badge" title="Dispositiu">
+                    <span className="device-badge" title={t('messageList.deviceBadge')}>
                       💻
                     </span>
                   )}
@@ -754,7 +757,7 @@ export function MessageList({
                 )}
 
                 {msg.deletedAt ? (
-                  <p className="deleted-message">Missatge eliminat</p>
+                  <p className="deleted-message">{t('messageList.deletedMessage')}</p>
                 ) : isEditing ? (
                   <div className="message-edit-form">
                     <input
@@ -773,12 +776,12 @@ export function MessageList({
                         className="message-edit-save"
                         onClick={() => void handleEditSave(msg)}
                         disabled={editSaving}
-                      >Desar</button>
+                      >{t('messageList.editSave')}</button>
                       <button
                         className="message-edit-cancel"
                         onClick={() => setEditingMessageId(null)}
                         disabled={editSaving}
-                      >Cancel·lar</button>
+                      >{t('common.cancel')}</button>
                     </div>
                   </div>
                 ) : (
@@ -792,7 +795,7 @@ export function MessageList({
                       if (!attachment) {
                         return (
                           <span key={attachmentId} className="message-attachment-item loading">
-                            Adjunt carregant...
+                            {t('messageList.attachmentLoading')}
                           </span>
                         )
                       }
@@ -848,15 +851,15 @@ export function MessageList({
               {/* Confirmació d'esborrar inline */}
               {confirmDeleteMessageId === msg.messageId && (
                 <div className="message-delete-confirm" onClick={(e) => e.stopPropagation()}>
-                  <span className="message-delete-confirm-text">Eliminar aquest missatge?</span>
+                  <span className="message-delete-confirm-text">{t('messageList.confirmDelete')}</span>
                   <button
                     className="message-delete-confirm-yes"
                     onClick={() => void handleDeleteConfirm(msg)}
-                  >Eliminar</button>
+                  >{t('common.remove')}</button>
                   <button
                     className="message-delete-confirm-no"
                     onClick={() => setConfirmDeleteMessageId(null)}
-                  >Cancel·lar</button>
+                  >{t('common.cancel')}</button>
                 </div>
               )}
 
@@ -865,14 +868,14 @@ export function MessageList({
                   hour: '2-digit',
                   minute: '2-digit',
                 })}
-                {msg.editedAt && <span className="edited-label">(editat)</span>}
+                {msg.editedAt && <span className="edited-label">{t('messageList.editedLabel')}</span>}
                 {msg.expiresAt && (
                   <span className="expires-label" title={msg.expiresAt}>
                     ⏰
                   </span>
                 )}
                 {isEncryptedChannel && msg.keyVersion != null && (
-                  <span className="key-version-label" title={`Versió de clau: ${msg.keyVersion}`}>
+                  <span className="key-version-label" title={t('messageList.keyVersionTitle', { version: msg.keyVersion })}>
                     🔐v{msg.keyVersion}
                   </span>
                 )}

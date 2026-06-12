@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect, MutableRefObject } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Channel, Message, VoiceConnection } from '../../types'
 import { messagesSend } from '../../lib/api'
 import { encryptChannelMessage, ensureChannelKey, distributeChannelKey } from '../../lib/channel-crypto'
@@ -62,6 +63,7 @@ export function MainContent({
   keyActionBusy = false,
   isChannelAdmin = false,
 }: MainContentProps) {
+  const { t } = useTranslation()
   const [message, setMessage] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
   const [sending, setSending] = useState(false)
@@ -290,10 +292,10 @@ export function MainContent({
         setRefreshKey((current) => current + 1)
         setFocusTrigger((n) => n + 1)
       } else {
-        setSendError(response.error.message || "No s'ha pogut enviar el missatge")
+        setSendError(response.error.message || t('mainContent.errSend'))
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Error en enviar el missatge'
+      const message = error instanceof Error ? error.message : t('mainContent.errSendGeneric')
       setSendError(message)
     } finally {
       setUploadingAttachmentNames([])
@@ -313,7 +315,7 @@ export function MainContent({
     return (
       <div className="main-content">
         <div className="empty-state">
-          <p>Selecciona un canal per començar</p>
+          <p>{t('mainContent.selectChannel')}</p>
         </div>
       </div>
     )
@@ -403,7 +405,7 @@ export function MainContent({
                 name: item.file.name,
                 size: item.file.size,
               }))}
-              placeholder={`Missatjar a #${channel.name}`}
+              placeholder={t('mainContent.messagePlaceholder', { name: channel.name })}
               encryptionType={channel.encryptionType}
               isBusy={sending}
               focusKey={String(focusTrigger)}
@@ -412,7 +414,7 @@ export function MainContent({
             />
             {uploadingAttachmentNames.length > 0 && (
               <div className="message-send-info">
-                Pujant adjunts: {uploadingAttachmentNames.join(', ')}
+                {t('mainContent.uploading', { names: uploadingAttachmentNames.join(', ') })}
               </div>
             )}
           </div>
@@ -423,7 +425,7 @@ export function MainContent({
       {voiceConnection && !isTextChannel && !voiceAsTextMode && (
         <div className="text-area empty-text-area">
           <div className="empty-state">
-            <p>Selecciona un canal de text per xatejar</p>
+            <p>{t('mainContent.selectTextChannel')}</p>
           </div>
         </div>
       )}

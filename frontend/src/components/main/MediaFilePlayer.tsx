@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, MutableRefObject } from 'react'
+import { useTranslation } from 'react-i18next'
 
 interface MediaFilePlayerProps {
   mediaFileElementRef: MutableRefObject<HTMLVideoElement | null>
@@ -7,6 +8,7 @@ interface MediaFilePlayerProps {
 }
 
 export function MediaFilePlayer({ mediaFileElementRef, fileName, onStop }: MediaFilePlayerProps) {
+  const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -97,7 +99,7 @@ export function MediaFilePlayer({ mediaFileElementRef, fileName, onStop }: Media
         <span className="media-file-player-name" title={fileName}>
           🎬 {displayName}
         </span>
-        <button className="media-file-player-close" onClick={onStop} title="Aturar i tancar">
+        <button className="media-file-player-close" onClick={onStop} title={t('mediaPlayer.stopClose')}>
           ✕
         </button>
       </div>
@@ -107,10 +109,10 @@ export function MediaFilePlayer({ mediaFileElementRef, fileName, onStop }: Media
         style={isVideo ? undefined : { display: 'none' }}
       />
       <div className="media-file-player-controls">
-        <button className="media-file-player-btn" onClick={togglePlayPause} title={isPlaying ? 'Pausar' : 'Reproduir'}>
+        <button className="media-file-player-btn" onClick={togglePlayPause} title={isPlaying ? t('mediaPlayer.pause') : t('mediaPlayer.play')}>
           {isPlaying ? '⏸' : '▶'}
         </button>
-        <button className="media-file-player-btn" onClick={toggleLocalMute} title={isLocallyMuted ? 'Activar so local' : 'Silenciar localment'}>
+        <button className="media-file-player-btn" onClick={toggleLocalMute} title={isLocallyMuted ? t('mediaPlayer.unmuteLocal') : t('mediaPlayer.muteLocal')}>
           {isLocallyMuted ? '🔇' : '🔊'}
         </button>
         <input

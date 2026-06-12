@@ -1,4 +1,5 @@
 import React, { useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ServerBar } from './sidebar/ServerBar'
 import { ChannelList } from './sidebar/ChannelList'
 import { MainContent } from './main/MainContent'
@@ -144,6 +145,7 @@ export function AppLayout({ username }: AppLayoutProps) {
   } = useAppState()
 
   const mediaFileInputRef = useRef<HTMLInputElement>(null)
+  const { t } = useTranslation()
 
   const handleMediaFileShareToggle = () => {
     if (liveKitMediaFileSharing) {
@@ -245,7 +247,7 @@ export function AppLayout({ username }: AppLayoutProps) {
                   type="button"
                   className="main-content-tab-close"
                   onClick={(event) => { event.stopPropagation(); handleCloseTextTab(channel.channelId) }}
-                  title="Tancar pestanya"
+                  title={t('appLayout.closeTab')}
                 >
                   ✕
                 </button>
@@ -263,25 +265,25 @@ export function AppLayout({ username }: AppLayoutProps) {
                   type="button"
                   className="main-content-tab-close"
                   onClick={(event) => { event.stopPropagation(); handleLeaveVoiceChannel() }}
-                  title="Surt del canal de veu"
+                  title={t('appLayout.leaveVoiceTab')}
                 >
                   ✕
                 </button>
               </div>
             )}
 
-            <PanelTab icon="⚙️" label="Servidor" isActive={panel === 'serverConfig'} onClick={() => setPanel('serverConfig')} onClose={() => setPanel('none')} />
+            <PanelTab icon="⚙️" label={t('appLayout.tabServer')} isActive={panel === 'serverConfig'} onClick={() => setPanel('serverConfig')} onClose={() => setPanel('none')} />
             <PanelTab icon="#" label={resolvedSelectedChannel?.name ?? ''} isActive={panel === 'channelConfig' && !!resolvedSelectedChannel} onClick={() => setPanel('channelConfig')} onClose={() => setPanel('none')} />
-            <PanelTab icon="🛡️" label="Permisos" isActive={panel === 'permissions'} onClick={() => setPanel('permissions')} onClose={() => setPanel('none')} />
-            <PanelTab icon="🛠️" label="Usuaris" isActive={panel === 'adminUsers'} onClick={() => setPanel('adminUsers')} onClose={() => setPanel('none')} />
-            <PanelTab icon="➕" label="Nou servidor" isActive={panel === 'createServer'} onClick={() => setPanel('createServer')} onClose={() => setPanel('none')} />
-            <PanelTab icon="👥" label="Amics" isActive={panel === 'friends'} onClick={() => setPanel('friends')} onClose={() => setPanel('none')} />
-            <PanelTab icon="📱" label="Dispositius" isActive={panel === 'devices'} onClick={() => setPanel('devices')} onClose={() => setPanel('none')} />
-            <PanelTab icon="🔒" label="Password" isActive={panel === 'changePassword'} onClick={() => setPanel('changePassword')} onClose={() => setPanel('none')} />
-            <PanelTab icon="🔑" label="Claus" isActive={panel === 'channelKeys'} onClick={() => setPanel('channelKeys')} onClose={() => setPanel('none')} />
-            <PanelTab icon="📋" label="Pla" isActive={panel === 'planSettings'} onClick={() => setPanel('planSettings')} onClose={() => setPanel('none')} />
-            <PanelTab icon="#" label="Nou text" isActive={panel === 'createTextChannel'} onClick={() => setPanel('createTextChannel')} onClose={() => setPanel('none')} />
-            <PanelTab icon="🔊" label="Nou veu" isActive={panel === 'createVoiceChannel'} onClick={() => setPanel('createVoiceChannel')} onClose={() => setPanel('none')} />
+            <PanelTab icon="🛡️" label={t('appLayout.tabPermissions')} isActive={panel === 'permissions'} onClick={() => setPanel('permissions')} onClose={() => setPanel('none')} />
+            <PanelTab icon="🛠️" label={t('appLayout.tabUsers')} isActive={panel === 'adminUsers'} onClick={() => setPanel('adminUsers')} onClose={() => setPanel('none')} />
+            <PanelTab icon="➕" label={t('appLayout.tabNewServer')} isActive={panel === 'createServer'} onClick={() => setPanel('createServer')} onClose={() => setPanel('none')} />
+            <PanelTab icon="👥" label={t('appLayout.tabFriends')} isActive={panel === 'friends'} onClick={() => setPanel('friends')} onClose={() => setPanel('none')} />
+            <PanelTab icon="📱" label={t('appLayout.tabDevices')} isActive={panel === 'devices'} onClick={() => setPanel('devices')} onClose={() => setPanel('none')} />
+            <PanelTab icon="🔒" label={t('appLayout.tabPassword')} isActive={panel === 'changePassword'} onClick={() => setPanel('changePassword')} onClose={() => setPanel('none')} />
+            <PanelTab icon="🔑" label={t('appLayout.tabKeys')} isActive={panel === 'channelKeys'} onClick={() => setPanel('channelKeys')} onClose={() => setPanel('none')} />
+            <PanelTab icon="📋" label={t('appLayout.tabPlan')} isActive={panel === 'planSettings'} onClick={() => setPanel('planSettings')} onClose={() => setPanel('none')} />
+            <PanelTab icon="#" label={t('appLayout.tabNewText')} isActive={panel === 'createTextChannel'} onClick={() => setPanel('createTextChannel')} onClose={() => setPanel('none')} />
+            <PanelTab icon="🔊" label={t('appLayout.tabNewVoice')} isActive={panel === 'createVoiceChannel'} onClick={() => setPanel('createVoiceChannel')} onClose={() => setPanel('none')} />
           </div>
         )}
 
@@ -295,12 +297,12 @@ export function AppLayout({ username }: AppLayoutProps) {
         )}
         {storageQuotaExceeded && (
           <div className="feedback-banner" style={{ backgroundColor: '#ef4444', color: '#fff', display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span>Has superat la quota d'emmagatzematge del teu pla. Els nous adjunts estan bloquejats.</span>
+            <span>{t('appLayout.quotaExceeded')}</span>
             <button
               onClick={() => setPanel('planSettings')}
               style={{ background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.4)', color: '#fff', borderRadius: 4, padding: '2px 10px', cursor: 'pointer', whiteSpace: 'nowrap' }}
             >
-              Sol·licitar upgrade
+              {t('appLayout.requestUpgrade')}
             </button>
           </div>
         )}
@@ -308,14 +310,14 @@ export function AppLayout({ username }: AppLayoutProps) {
         {panel === 'createServer' ? (
           <div className="panel admin-users-panel">
             <div className="admin-users-panel-header">
-              <h3>Crear servidor</h3>
+              <h3>{t('appLayout.panelCreateServer')}</h3>
             </div>
             <CreateServerPanel onClose={() => setPanel('none')} onCreate={handleCreateServerSubmit} />
           </div>
         ) : panel === 'friends' ? (
           <div className="panel admin-users-panel">
             <div className="admin-users-panel-header">
-              <h3>Gestio d'amics</h3>
+              <h3>{t('friends.title')}</h3>
             </div>
             <FriendsPanel
               friends={friends}
@@ -327,35 +329,35 @@ export function AppLayout({ username }: AppLayoutProps) {
         ) : panel === 'devices' ? (
           <div className="panel admin-users-panel">
             <div className="admin-users-panel-header">
-              <h3>Gestio de dispositius</h3>
+              <h3>{t('appLayout.panelDevices')}</h3>
             </div>
             <DeviceKeysPanel currentDeviceId={currentDeviceId} channels={channels} devices={user?.devices ?? []} />
           </div>
         ) : panel === 'changePassword' ? (
           <div className="panel admin-users-panel">
             <div className="admin-users-panel-header">
-              <h3>Canviar password</h3>
+              <h3>{t('appLayout.panelChangePassword')}</h3>
             </div>
             <ChangePasswordPanel onClose={() => setPanel('none')} />
           </div>
         ) : panel === 'channelKeys' ? (
           <div className="panel admin-users-panel">
             <div className="admin-users-panel-header">
-              <h3>Gestió de claus de canals</h3>
+              <h3>{t('appLayout.panelChannelKeys')}</h3>
             </div>
             <ChannelKeysPanel channels={channels} serverName={serverDetails?.name} />
           </div>
         ) : panel === 'createTextChannel' ? (
           <div className="panel admin-users-panel">
             <div className="admin-users-panel-header">
-              <h3>Crear canal de text</h3>
+              <h3>{t('channels.createTextChannel')}</h3>
             </div>
             <CreateTextChannelPanel onClose={() => setPanel('none')} onCreate={handleCreateTextChannel} />
           </div>
         ) : panel === 'createVoiceChannel' ? (
           <div className="panel admin-users-panel">
             <div className="admin-users-panel-header">
-              <h3>Crear canal de veu</h3>
+              <h3>{t('channels.createVoiceChannel')}</h3>
             </div>
             <CreateVoiceChannelPanel onClose={() => setPanel('none')} onCreate={handleCreateVoiceChannel} />
           </div>
@@ -378,9 +380,9 @@ export function AppLayout({ username }: AppLayoutProps) {
         ) : panel === 'permissions' ? (
           <div className="panel admin-users-panel">
             <div className="admin-users-panel-header">
-              <h3>Permisos i accessos</h3>
+              <h3>{t('permissions.title')}</h3>
               <button className="admin-panel-tab" onClick={() => setPanel('serverConfig')}>
-                Tornar a servidor
+                {t('channelConfigPanel.backToServer')}
               </button>
             </div>
             <PermissionsPanel server={serverDetails} channels={channels} currentDeviceId={currentDeviceId} />
@@ -403,7 +405,7 @@ export function AppLayout({ username }: AppLayoutProps) {
         ) : panel === 'planSettings' ? (
           <div className="panel admin-users-panel">
             <div className="admin-users-panel-header">
-              <h3>Pla de subscripció</h3>
+              <h3>{t('appLayout.panelPlan')}</h3>
             </div>
             <PlanSettingsPanel onClose={() => setPanel('none')} />
           </div>
@@ -471,8 +473,8 @@ export function AppLayout({ username }: AppLayoutProps) {
           />
         ) : (
           <div className="welcome-screen">
-            <h1>Benvingut/da, {username}!</h1>
-            <p>Selecciona un servidor i un canal per començar.</p>
+            <h1>{t('appLayout.welcome', { username })}</h1>
+            <p>{t('appLayout.welcomeHint')}</p>
           </div>
         )}
 

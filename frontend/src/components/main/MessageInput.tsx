@@ -100,8 +100,8 @@ export function MessageInput({
     <div className="message-input">
       {replyTo && (
         <div className="reply-to-bar">
-          <span className="reply-to-label">Responent a <strong>{replyTo.senderUsername}</strong>{replyTo.text ? `: ${replyTo.text.slice(0, 80)}${replyTo.text.length > 80 ? '…' : ''}` : ''}</span>
-          <button type="button" className="reply-to-clear" onClick={onClearReplyTo} aria-label="Cancel·lar resposta">×</button>
+          <span className="reply-to-label">{t('messageInput.replyingTo')} <strong>{replyTo.senderUsername}</strong>{replyTo.text ? `: ${replyTo.text.slice(0, 80)}${replyTo.text.length > 80 ? '…' : ''}` : ''}</span>
+          <button type="button" className="reply-to-clear" onClick={onClearReplyTo} aria-label={t('messageInput.cancelReply')}>×</button>
         </div>
       )}
       {pendingAttachments.length > 0 && (
@@ -117,7 +117,7 @@ export function MessageInput({
                 className="message-attachment-chip-remove"
                 onClick={() => onRemoveAttachment?.(attachment.id)}
                 disabled={isBusy}
-                aria-label={`Eliminar ${attachment.name}`}
+                aria-label={t('messageInput.removeAttachment', { name: attachment.name })}
               >
                 ×
               </button>
@@ -151,13 +151,13 @@ export function MessageInput({
             value={value}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={placeholder || 'Escriu un missatge...'}
+            placeholder={placeholder || t('messageInput.placeholder')}
             autoComplete="off"
             disabled={isBusy}
             rows={1}
           />
           {cryptoIndicator && (
-            <span className="input-crypto-indicator" title={`Encriptació ${encryptionType}`}>
+            <span className="input-crypto-indicator" title={t('messageInput.encryptionTitle', { type: encryptionType })}>
               {cryptoIndicator}
             </span>
           )}

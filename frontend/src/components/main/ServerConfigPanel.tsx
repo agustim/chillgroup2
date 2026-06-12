@@ -1,4 +1,5 @@
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { Channel, ServerFullInfo, UserSearchResult } from '../../types'
 import { InviteUserSearch } from '../shared/InviteUserSearch'
 
@@ -31,22 +32,23 @@ export function ServerConfigPanel({
   onRemoveServerMember,
   onOpenPermissions,
 }: ServerConfigPanelProps) {
+  const { t } = useTranslation()
   return (
     <div className="panel admin-users-panel">
       <div className="admin-users-panel-header">
-        <h3>Configuració del servidor</h3>
+        <h3>{t('serverConfig.title')}</h3>
         <button className="admin-panel-tab" onClick={onOpenPermissions}>
-          Permisos usuaris/canals
+          {t('serverConfig.permsTab')}
         </button>
       </div>
 
       <p>
-        <strong>{serverDetails.name}</strong> · Rol: {serverDetails.myRole}
+        <strong>{serverDetails.name}</strong> · {t('serverConfig.role')} {serverDetails.myRole}
       </p>
 
       {canManageServer && (
         <div className="modal-form" style={{ marginTop: '12px', marginBottom: '12px' }}>
-          <h4 style={{ marginBottom: '8px' }}>Convidar membre al servidor</h4>
+          <h4 style={{ marginBottom: '8px' }}>{t('serverConfig.inviteMember')}</h4>
           <InviteUserSearch
             onSearchUsers={onSearchUsers}
             onInvite={onInviteServerSubmit}
@@ -55,7 +57,7 @@ export function ServerConfigPanel({
       )}
 
       <div className="server-members" style={{ marginTop: '12px' }}>
-        <h4>Canals del servidor</h4>
+        <h4>{t('serverConfig.serverChannels')}</h4>
         <ul>
           {channels.filter((channel) => channel.scope !== 'dm').map((channel) => (
             <li key={channel.channelId} style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
@@ -65,7 +67,7 @@ export function ServerConfigPanel({
                 className="admin-panel-tab"
                 onClick={() => onConfigureChannel(channel)}
               >
-                Configurar
+                {t('common.configure')}
               </button>
             </li>
           ))}
@@ -73,7 +75,7 @@ export function ServerConfigPanel({
       </div>
 
       <div className="server-members" style={{ marginTop: '12px' }}>
-        <h4>Membres</h4>
+        <h4>{t('serverConfig.members')}</h4>
         <ul>
           {serverDetails.members.map((member) => {
             const isCurrentUser = member.userId === currentUserId
@@ -85,7 +87,7 @@ export function ServerConfigPanel({
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     {member.role !== 'owner' && (
                       <select
-                        aria-label={`Rol de ${member.username}`}
+                        aria-label={t('serverConfig.roleOf', { username: member.username })}
                         value={member.role}
                         onChange={(e) => {
                           const nextRole = e.target.value as 'admin' | 'member'
@@ -105,7 +107,7 @@ export function ServerConfigPanel({
                       disabled={!canModify}
                       onClick={() => onSetPendingMemberRemovalId(member.userId)}
                     >
-                      Eliminar
+                      {t('common.remove')}
                     </button>
                     {pendingMemberRemovalId === member.userId && (
                       <>
@@ -114,14 +116,14 @@ export function ServerConfigPanel({
                           className="admin-panel-tab"
                           onClick={() => onRemoveServerMember(member.userId)}
                         >
-                          Confirmar
+                          {t('common.confirmAction')}
                         </button>
                         <button
                           type="button"
                           className="admin-panel-tab"
                           onClick={() => onSetPendingMemberRemovalId(null)}
                         >
-                          Cancel·lar
+                          {t('common.cancel')}
                         </button>
                       </>
                     )}

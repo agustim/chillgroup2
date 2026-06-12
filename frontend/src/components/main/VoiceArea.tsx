@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, MutableRefObject } from 'react'
+import { useTranslation } from 'react-i18next'
 import { VoiceConnection } from '../../types'
 import { MediaFilePlayer } from './MediaFilePlayer'
 
@@ -53,6 +54,7 @@ function ParticipantTile({
   onOpenPopout?: () => void
   onToggleLocalMute?: () => void
 }) {
+  const { t } = useTranslation()
   const videoRef = useRef<HTMLVideoElement>(null)
 
   useEffect(() => {
@@ -69,14 +71,14 @@ function ParticipantTile({
         <button
           className={`participant-action-btn ${isPinned ? 'active-on' : ''}`}
           onClick={onTogglePin}
-          title={isPinned ? 'Treure fixació' : 'Fixar participant'}
+          title={isPinned ? t('voiceArea.unpin') : t('voiceArea.pin')}
         >
           📌
         </button>
         <button
           className="participant-action-btn"
           onClick={onOpenPopout}
-          title="Obrir en finestra nova"
+          title={t('voiceArea.popout')}
         >
           ⛶
         </button>
@@ -84,7 +86,7 @@ function ParticipantTile({
           <button
             className={`participant-action-btn ${isLocallyMuted ? 'active-off' : ''}`}
             onClick={onToggleLocalMute}
-            title={isLocallyMuted ? 'Activar so localment' : 'Silenciar localment'}
+            title={isLocallyMuted ? t('voiceArea.unmuteLocal') : t('voiceArea.muteLocal')}
           >
             {isLocallyMuted ? '🔇' : '🔊'}
           </button>
@@ -106,8 +108,8 @@ function ParticipantTile({
       <span className="participant-name">{participant.username}</span>
       {streamBadge && <span className="participant-stream-badge">{streamBadge}</span>}
       <div className="participant-status-icons">
-        {participant.isSuppressed && <span title="Micròfon apagat">🔕</span>}
-        {participant.isDeafened && <span title="Altaveu apagat">🔇</span>}
+        {participant.isSuppressed && <span title={t('channels.micOff')}>🔕</span>}
+        {participant.isDeafened && <span title={t('channels.speakerOff')}>🔇</span>}
       </div>
     </div>
   )
@@ -134,6 +136,7 @@ export function VoiceArea({
   const MAX_ZOOM = 2.2
   const DEFAULT_ZOOM = 1.5
 
+  const { t } = useTranslation()
   const [participantZoom, setParticipantZoom] = useState(DEFAULT_ZOOM)
   const [viewMode, setViewMode] = useState<ViewMode>('mosaic')
   const [pinnedParticipantId, setPinnedParticipantId] = useState<string | null>(null)
@@ -271,7 +274,7 @@ export function VoiceArea({
       return '&#39;'
     })
 
-    popup.document.title = `${item.participant.username} - Live View`
+    popup.document.title = `${item.participant.username} - ${t('voiceArea.liveView')}`
     popup.document.body.innerHTML = `
       <style>
         html, body { margin: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
@@ -282,7 +285,7 @@ export function VoiceArea({
         .popout-btn { position: absolute; top: 16px; right: 16px; border: 1px solid rgba(255,255,255,0.35); background: rgba(0,0,0,0.45); color: #fff; border-radius: 8px; padding: 8px 10px; cursor: pointer; }
       </style>
       <div class="popout-wrap">
-        <button class="popout-btn" id="fs-btn">Fullscreen</button>
+        <button class="popout-btn" id="fs-btn">${t('voiceArea.fullscreen')}</button>
         <div class="popout-label">${safeName}${item.streamBadge ? ` · ${item.streamBadge}` : ''}</div>
       </div>
     `
@@ -335,28 +338,28 @@ export function VoiceArea({
           <button
             className={`voice-control-btn voice-mode-btn ${viewMode === 'mosaic' ? 'active-on' : ''}`}
             onClick={() => setViewMode('mosaic')}
-            title="Mode mosaic"
+            title={t('voiceArea.modeMosaic')}
           >
             MOS
           </button>
           <button
             className={`voice-control-btn voice-mode-btn ${viewMode === 'focus' ? 'active-on' : ''}`}
             onClick={() => setViewMode('focus')}
-            title="Mode focus"
+            title={t('voiceArea.modeFocus')}
           >
             FCS
           </button>
           <button
             className={`voice-control-btn voice-mode-btn ${voiceAsTextMode ? 'active-on' : 'active-off'}`}
             onClick={onToggleVoiceAsTextMode}
-            title={voiceAsTextMode ? 'Mode veu com text activat' : 'Mode fixat activat'}
+            title={voiceAsTextMode ? t('voiceArea.modeTabOn') : t('voiceArea.modeFixOn')}
           >
             {voiceAsTextMode ? 'TAB' : 'FIX'}
           </button>
           <button
             className="voice-control-btn"
             onClick={zoomOut}
-            title="Fer més petits els participants"
+            title={t('voiceArea.zoomOut')}
             disabled={isAtMinZoom}
           >
             -
@@ -364,14 +367,14 @@ export function VoiceArea({
           <button
             className="voice-control-btn"
             onClick={resetZoom}
-            title="Restablir zoom"
+            title={t('voiceArea.zoomReset')}
           >
             {Math.round(participantZoom * 100)}%
           </button>
           <button
             className="voice-control-btn"
             onClick={zoomIn}
-            title="Fer més grans els participants"
+            title={t('voiceArea.zoomIn')}
             disabled={isAtMaxZoom}
           >
             +

@@ -1,4 +1,5 @@
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { Channel, UserSearchResult } from '../../types'
 import { InviteUserSearch } from '../shared/InviteUserSearch'
 import { ChannelPermissionRow } from '../../hooks/useChannelConfig'
@@ -43,18 +44,19 @@ export function ChannelConfigPanel({
   updatingChannelPermissionUserId,
   onUpdateChannelExplicitPermission,
 }: ChannelConfigPanelProps) {
+  const { t } = useTranslation()
   return (
     <div className="panel admin-users-panel">
       <div className="admin-users-panel-header">
-        <h3>Configuració integrada del canal</h3>
+        <h3>{t('channelConfigPanel.title')}</h3>
         <button className="admin-panel-tab" onClick={onBackToServer}>
-          Tornar a servidor
+          {t('channelConfigPanel.backToServer')}
         </button>
       </div>
 
       <form onSubmit={onSave} className="modal-form" style={{ marginBottom: '12px' }}>
         <div className="form-group">
-          <label htmlFor="integrated-channel-name">Nom del canal</label>
+          <label htmlFor="integrated-channel-name">{t('channelForm.nameLabel')}</label>
           <input
             id="integrated-channel-name"
             type="text"
@@ -64,7 +66,7 @@ export function ChannelConfigPanel({
           />
         </div>
         <div className="form-group">
-          <label>TTL missatges</label>
+          <label>{t('channelForm.ttlLabel')}</label>
           <TTLSelector
             value={channelConfigMessageTTL ? Number(channelConfigMessageTTL) : null}
             onChange={(ttl) => setChannelConfigMessageTTL(ttl === null ? '' : String(ttl))}
@@ -76,17 +78,17 @@ export function ChannelConfigPanel({
             checked={channelConfigIsPrivate}
             onChange={(e) => setChannelConfigIsPrivate(e.target.checked)}
           />
-          Canal privat
+          {t('configureChannel.privateLabel')}
         </label>
         <div className="modal-form-actions" style={{ justifyContent: 'flex-end' }}>
           <button type="submit" className="admin-panel-tab active">
-            Desar canvis
+            {t('configureChannel.saveChanges')}
           </button>
         </div>
       </form>
 
       <div className="modal-form" style={{ marginBottom: '12px' }}>
-        <h4 style={{ marginBottom: '8px' }}>Convidar usuari</h4>
+        <h4 style={{ marginBottom: '8px' }}>{t('configureChannel.inviteUser')}</h4>
         <InviteUserSearch
           onSearchUsers={onSearchUsers}
           onInvite={onInviteChannelSubmit}
@@ -100,24 +102,24 @@ export function ChannelConfigPanel({
           style={{ borderColor: '#ff6b6b', color: '#ff6b6b' }}
           onClick={() => onDeleteChannel(channel.channelId)}
         >
-          Esborrar canal
+          {t('configureChannel.deleteChannel')}
         </button>
       </div>
 
       {canViewChannelExplicitPermissions && (
         <div className="server-members" style={{ marginTop: '12px' }}>
-          <h4>Permisos del canal (efectius + override explícit)</h4>
+          <h4>{t('channelConfigPanel.permsTitle')}</h4>
           {channelExplicitPermissionsLoading ? (
-            <p>Carregant permisos explícits...</p>
+            <p>{t('channelConfigPanel.loadingPerms')}</p>
           ) : channelPermissionRows.length > 0 ? (
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                 <thead>
                   <tr>
-                    <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>Usuari</th>
-                    <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>Permís efectiu</th>
-                    <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>Origen</th>
-                    <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>Override explícit</th>
+                    <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>{t('permissions.thUser')}</th>
+                    <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>{t('channelConfigPanel.thEffective')}</th>
+                    <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>{t('channelConfigPanel.thOrigin')}</th>
+                    <th style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-active)', padding: '6px 4px' }}>{t('channelConfigPanel.thOverride')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -138,7 +140,7 @@ export function ChannelConfigPanel({
                             background: entry.explicitLevel === null ? 'transparent' : 'var(--bg-active)',
                           }}
                         >
-                          {entry.explicitLevel === null ? 'heretat' : 'explícit'}
+                          {entry.explicitLevel === null ? t('channelConfigPanel.inherited') : t('channelConfigPanel.explicit')}
                         </span>
                       </td>
                       <td style={{ padding: '6px 4px', borderBottom: '1px solid var(--bg-active)' }}>
@@ -151,18 +153,18 @@ export function ChannelConfigPanel({
                           className="device-keys-input"
                           style={{ width: '180px', padding: '4px 8px' }}
                         >
-                          <option value="inherited">heretat (rol servidor)</option>
+                          <option value="inherited">{t('channelConfigPanel.inheritedOption')}</option>
                           {channel.type === 'voice' ? (
                             <>
-                              <option value="1">escoltar-veure (1)</option>
-                              <option value="2">parlar-mostrar (2)</option>
-                              <option value="3">manager (3)</option>
+                              <option value="1">{t('channelConfigPanel.voiceOpt1')}</option>
+                              <option value="2">{t('channelConfigPanel.voiceOpt2')}</option>
+                              <option value="3">{t('channelConfigPanel.voiceOpt3')}</option>
                             </>
                           ) : (
                             <>
-                              <option value="1">read (1)</option>
-                              <option value="2">write (2)</option>
-                              <option value="3">manage (3)</option>
+                              <option value="1">{t('channelConfigPanel.textOpt1')}</option>
+                              <option value="2">{t('channelConfigPanel.textOpt2')}</option>
+                              <option value="3">{t('channelConfigPanel.textOpt3')}</option>
                             </>
                           )}
                         </select>
@@ -173,7 +175,7 @@ export function ChannelConfigPanel({
               </table>
             </div>
           ) : (
-            <p>No hi ha dades de permisos visibles en aquest canal.</p>
+            <p>{t('channelConfigPanel.noPerms')}</p>
           )}
         </div>
       )}

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import {
   adminPlansCreate,
@@ -71,6 +72,7 @@ export function AdminUsersPanel({
   onOpenServerConfig,
   onServerListRefresh,
 }: AdminUsersPanelProps) {
+  const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState<ActiveTab>('users')
   const [error, setError] = useState('')
 
@@ -226,13 +228,13 @@ export function AdminUsersPanel({
   const handleCreateUser = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const username = newUsername.trim()
-    if (!username || !newPassword.trim()) { setError('Usuari i contrasenya son obligatoris'); return }
+    if (!username || !newPassword.trim()) { setError(t('admin.errUserPassRequired')); return }
     setIsCreatingUser(true)
     setError('')
     const result = await adminUsersCreate(username, newPassword, newRole, newPlanId)
     setIsCreatingUser(false)
     if (!result.success) { setError(result.error.message); return }
-    onFeedback(`Usuari ${result.data.username} creat`)
+    onFeedback(t('admin.userCreated', { username: result.data.username }))
     setNewUsername('')
     setNewPassword('')
     setNewRole('user')
@@ -264,7 +266,7 @@ export function AdminUsersPanel({
     }
 
     if (!payload.name || !payload.displayName) {
-      setError('Nom intern i display name del pla són obligatoris')
+      setError(t('admin.errPlanNamesRequired'))
       return
     }
 
@@ -277,7 +279,7 @@ export function AdminUsersPanel({
       return
     }
 
-    onFeedback(`Pla ${result.data.displayName} creat`)
+    onFeedback(t('admin.planCreated', { name: result.data.displayName }))
     setNewPlan(DEFAULT_PLAN_INPUT)
     await loadPlans()
   }
@@ -313,7 +315,7 @@ export function AdminUsersPanel({
     }
 
     if (!payload.name || !payload.displayName) {
-      setError('Nom intern i display name del pla són obligatoris')
+      setError(t('admin.errPlanNamesRequired'))
       return
     }
 
@@ -326,7 +328,7 @@ export function AdminUsersPanel({
       return
     }
 
-    onFeedback('Pla actualitzat')
+    onFeedback(t('admin.planUpdated'))
     setEditingPlanId(null)
     setEditingPlan(DEFAULT_PLAN_INPUT)
     await loadPlans()
@@ -342,7 +344,7 @@ export function AdminUsersPanel({
       return
     }
 
-    onFeedback('Pla eliminat')
+    onFeedback(t('admin.planDeleted'))
     setPendingDeletePlanId(null)
     if (editingPlanId === planId) {
       setEditingPlanId(null)
@@ -355,21 +357,21 @@ export function AdminUsersPanel({
     const result = await adminUsersUpdateRole(userId, role)
     if (!result.success) { setError(result.error.message); return }
     setUsers((c) => c.map((u) => (u.userId === userId ? { ...u, role } : u)))
-    onFeedback('Rol actualitzat')
+    onFeedback(t('admin.roleUpdated'))
   }
 
   const handlePlanChange = async (userId: string, planId: string) => {
     const result = await adminUsersUpdatePlan(userId, planId)
     if (!result.success) { setError(result.error.message); return }
     setUsers((c) => c.map((u) => (u.userId === userId ? { ...u, planId } : u)))
-    onFeedback('Pla actualitzat')
+    onFeedback(t('admin.planUpdated'))
   }
 
   const handleDeleteUser = async (userId: string, username: string) => {
     const result = await adminUsersDelete(userId)
     if (!result.success) { setError(result.error.message); return }
     setUsers((c) => c.filter((u) => u.userId !== userId))
-    onFeedback(`Usuari ${username} eliminat`)
+    onFeedback(t('admin.userDeleted', { username }))
   }
 
   const handleToggleTiers = async (userId: string) => {
@@ -404,16 +406,16 @@ export function AdminUsersPanel({
     setIsCreatingInvite(false)
     if (!result.success) { setError(result.error.message); return }
     setLastCreatedCode(result.data.code)
-    onFeedback('Invitacio creada')
+    onFeedback(t('admin.inviteCreated'))
     await loadInvitations()
   }
 
   const handleCopyCode = async (code: string) => {
     try {
       await navigator.clipboard.writeText(code)
-      onFeedback('Codi copiat al porta-retalls')
+      onFeedback(t('admin.codeCopied'))
     } catch {
-      onFeedback('No s\'ha pogut copiar el codi')
+      onFeedback(t('admin.codeCopyFail'))
     }
   }
 
@@ -421,7 +423,7 @@ export function AdminUsersPanel({
     event.preventDefault()
     const name = newServerName.trim()
     if (!name) {
-      setError('El nom del servidor és obligatori')
+      setError(t('createServer.errNameRequired'))
       return
     }
 
@@ -436,7 +438,7 @@ export function AdminUsersPanel({
       return
     }
 
-    onFeedback(`Servidor ${result.data.name} creat`)
+    onFeedback(t('admin.serverCreated', { name: result.data.name }))
     setNewServerName('')
     setNewServerIconUrl('')
     await loadAdminServers()
@@ -459,7 +461,7 @@ export function AdminUsersPanel({
   const handleSaveServer = async (serverId: string) => {
     const name = editingServerName.trim()
     if (!name) {
-      setError('El nom del servidor és obligatori')
+      setError(t('createServer.errNameRequired'))
       return
     }
 
@@ -481,7 +483,7 @@ export function AdminUsersPanel({
 
       if (!livekitHost || !livekitApiKey) {
         setSavingServerId(null)
-        setError('Per usar un LiveKit específic cal indicar host i API key')
+        setError(t('admin.errLiveKit'))
         return
       }
     }
@@ -494,7 +496,7 @@ export function AdminUsersPanel({
       return
     }
 
-    onFeedback('Servidor actualitzat')
+    onFeedback(t('admin.serverUpdated'))
     setEditingServerId(null)
     setEditingServerName('')
     setEditingServerIconUrl('')
@@ -519,7 +521,7 @@ export function AdminUsersPanel({
       return
     }
 
-    onFeedback('Servidor eliminat')
+    onFeedback(t('admin.serverDeleted'))
     setPendingDeleteServerId(null)
     await loadAdminServers()
     if (onServerListRefresh) {
@@ -537,35 +539,35 @@ export function AdminUsersPanel({
   return (
     <div className="panel admin-users-panel">
       <div className="admin-users-panel-header">
-        <h3>Gestio (admin)</h3>
+        <h3>{t('admin.title')}</h3>
         <div className="admin-panel-tabs">
           <button
             type="button"
             className={`admin-panel-tab${activeTab === 'users' ? ' active' : ''}`}
             onClick={() => setActiveTab('users')}
           >
-            Usuaris
+            {t('appLayout.tabUsers')}
           </button>
           <button
             type="button"
             className={`admin-panel-tab${activeTab === 'invitations' ? ' active' : ''}`}
             onClick={() => setActiveTab('invitations')}
           >
-            Invitacions
+            {t('admin.tabInvitations')}
           </button>
           <button
             type="button"
             className={`admin-panel-tab${activeTab === 'servers' ? ' active' : ''}`}
             onClick={() => setActiveTab('servers')}
           >
-            Servidors
+            {t('admin.tabServers')}
           </button>
           <button
             type="button"
             className={`admin-panel-tab${activeTab === 'plans' ? ' active' : ''}`}
             onClick={() => setActiveTab('plans')}
           >
-            Plans
+            {t('admin.tabPlans')}
           </button>
           <button
             type="button"
@@ -573,7 +575,7 @@ export function AdminUsersPanel({
             onClick={() => { setActiveTab('planRequests'); setPlanRequestsBadge(0) }}
             style={{ position: 'relative' }}
           >
-            Sol·licituds
+            {t('admin.tabRequests')}
             {planRequestsBadge > 0 && (
               <span style={{
                 position: 'absolute', top: -4, right: -4,
@@ -594,20 +596,20 @@ export function AdminUsersPanel({
       {activeTab === 'users' && (
         <div className="admin-users-grid">
           <section className="device-keys-section">
-            <h4>Crear usuari</h4>
+            <h4>{t('admin.createUser')}</h4>
             <form className="modal-inline-stack" onSubmit={handleCreateUser}>
               <div className="form-group">
-                <label htmlFor="admin-create-username">Nom d'usuari</label>
+                <label htmlFor="admin-create-username">{t('login.username')}</label>
                 <input
                   id="admin-create-username"
                   type="text"
                   value={newUsername}
                   onChange={(e) => setNewUsername(e.target.value)}
-                  placeholder="nou-usuari"
+                  placeholder={t('admin.newUserPlaceholder')}
                 />
               </div>
               <div className="form-group">
-                <label htmlFor="admin-create-password">Contrasenya</label>
+                <label htmlFor="admin-create-password">{t('login.password')}</label>
                 <input
                   id="admin-create-password"
                   type="password"
@@ -617,7 +619,7 @@ export function AdminUsersPanel({
                 />
               </div>
               <div className="form-group">
-                <label htmlFor="admin-create-role">Rol</label>
+                <label htmlFor="admin-create-role">{t('admin.role')}</label>
                 <select
                   id="admin-create-role"
                   value={newRole}
@@ -628,7 +630,7 @@ export function AdminUsersPanel({
                 </select>
               </div>
               <div className="form-group">
-                <label htmlFor="admin-create-plan">Pla</label>
+                <label htmlFor="admin-create-plan">{t('admin.plan')}</label>
                 <select
                   id="admin-create-plan"
                   value={newPlanId}
@@ -641,19 +643,19 @@ export function AdminUsersPanel({
                 </select>
               </div>
               {plans.length === 0 && (
-                <p className="admin-server-row-meta">No hi ha plans disponibles. Crea'n un a la pestanya Plans.</p>
+                <p className="admin-server-row-meta">{t('admin.noPlansHint')}</p>
               )}
               <div className="modal-actions-row">
                 <Button type="submit" disabled={isCreatingUser || plans.length === 0}>
-                  {isCreatingUser ? 'Creant...' : 'Crear usuari'}
+                  {isCreatingUser ? t('common.creating') : t('admin.createUser')}
                 </Button>
               </div>
             </form>
           </section>
 
           <section className="device-keys-section">
-            <h4>Usuaris {loadingUsers ? '...' : `(${users.length})`}</h4>
-            {!loadingUsers && users.length === 0 && <p>No hi ha usuaris.</p>}
+            <h4>{t('appLayout.tabUsers')} {loadingUsers ? '...' : `(${users.length})`}</h4>
+            {!loadingUsers && users.length === 0 && <p>{t('admin.noUsers')}</p>}
             {users.length > 0 && (
               <ul className="admin-compact-list">
                 {users.map((user) => {
@@ -683,32 +685,32 @@ export function AdminUsersPanel({
                           ))}
                         </select>
                         <Button type="button" variant="danger" size="sm" onClick={() => { void handleDeleteUser(user.userId, user.username) }}>
-                          Eliminar
+                          {t('common.remove')}
                         </Button>
                         <Button type="button" variant="secondary" size="sm" onClick={() => { void handleToggleTiers(user.userId) }}>
-                          Tiers
+                          {t('admin.tiers')}
                         </Button>
                       </div>
 
                       {isExpanded && (
                         <div className="admin-tier-panel">
-                          {isLoadingTier && <span>Carregant tiers...</span>}
+                          {isLoadingTier && <span>{t('admin.loadingTiers')}</span>}
                           {!isLoadingTier && tierInfo && (
                             <>
                               <div className="admin-tier-grid">
-                                <span>Pla: <strong>{tierInfo.plan.displayName}</strong></span>
-                                <span>Servidors: <strong>{tierInfo.usage.totalServers}</strong> / {tierInfo.plan.limits.maxServers === -1 ? '∞' : tierInfo.plan.limits.maxServers}</span>
-                                <span>Text: <strong>{tierInfo.usage.totalTextChannels}</strong> / {tierInfo.plan.limits.maxChannelsTextPerServer === -1 ? '∞' : tierInfo.plan.limits.maxChannelsTextPerServer}</span>
-                                <span>Veu: <strong>{tierInfo.usage.totalVoiceChannels}</strong> / {tierInfo.plan.limits.maxChannelsVoicePerServer === -1 ? '∞' : tierInfo.plan.limits.maxChannelsVoicePerServer}</span>
-                                <span>Membres: <strong>{tierInfo.usage.totalMembersAcrossServers}</strong> / {tierInfo.plan.limits.maxMembersPerServer === -1 ? '∞' : tierInfo.plan.limits.maxMembersPerServer}</span>
-                                <span>Msgs avui: <strong>{tierInfo.usage.messagesToday}</strong> / {tierInfo.plan.limits.messagesPerDay === -1 ? '∞' : tierInfo.plan.limits.messagesPerDay}</span>
+                                <span>{t('admin.tierPlan')} <strong>{tierInfo.plan.displayName}</strong></span>
+                                <span>{t('planSettings.servers')} <strong>{tierInfo.usage.totalServers}</strong> / {tierInfo.plan.limits.maxServers === -1 ? '∞' : tierInfo.plan.limits.maxServers}</span>
+                                <span>{t('admin.tierText')} <strong>{tierInfo.usage.totalTextChannels}</strong> / {tierInfo.plan.limits.maxChannelsTextPerServer === -1 ? '∞' : tierInfo.plan.limits.maxChannelsTextPerServer}</span>
+                                <span>{t('admin.tierVoice')} <strong>{tierInfo.usage.totalVoiceChannels}</strong> / {tierInfo.plan.limits.maxChannelsVoicePerServer === -1 ? '∞' : tierInfo.plan.limits.maxChannelsVoicePerServer}</span>
+                                <span>{t('planSettings.members')} <strong>{tierInfo.usage.totalMembersAcrossServers}</strong> / {tierInfo.plan.limits.maxMembersPerServer === -1 ? '∞' : tierInfo.plan.limits.maxMembersPerServer}</span>
+                                <span>{t('admin.tierMsgsToday')} <strong>{tierInfo.usage.messagesToday}</strong> / {tierInfo.plan.limits.messagesPerDay === -1 ? '∞' : tierInfo.plan.limits.messagesPerDay}</span>
                               </div>
                               <div className="admin-tier-grid admin-tier-grid--remaining">
-                                <span>Restant servidors: <strong>{tierInfo.remaining.servers === -1 ? '∞' : tierInfo.remaining.servers}</strong></span>
-                                <span>Restant text: <strong>{tierInfo.remaining.textChannels === -1 ? '∞' : tierInfo.remaining.textChannels}</strong></span>
-                                <span>Restant veu: <strong>{tierInfo.remaining.voiceChannels === -1 ? '∞' : tierInfo.remaining.voiceChannels}</strong></span>
-                                <span>Restant membres: <strong>{tierInfo.remaining.members === -1 ? '∞' : tierInfo.remaining.members}</strong></span>
-                                <span>Restant msgs avui: <strong>{tierInfo.remaining.messagesToday === -1 ? '∞' : tierInfo.remaining.messagesToday}</strong></span>
+                                <span>{t('admin.remainingServers')} <strong>{tierInfo.remaining.servers === -1 ? '∞' : tierInfo.remaining.servers}</strong></span>
+                                <span>{t('admin.remainingText')} <strong>{tierInfo.remaining.textChannels === -1 ? '∞' : tierInfo.remaining.textChannels}</strong></span>
+                                <span>{t('admin.remainingVoice')} <strong>{tierInfo.remaining.voiceChannels === -1 ? '∞' : tierInfo.remaining.voiceChannels}</strong></span>
+                                <span>{t('admin.remainingMembers')} <strong>{tierInfo.remaining.members === -1 ? '∞' : tierInfo.remaining.members}</strong></span>
+                                <span>{t('admin.remainingMsgsToday')} <strong>{tierInfo.remaining.messagesToday === -1 ? '∞' : tierInfo.remaining.messagesToday}</strong></span>
                               </div>
                             </>
                           )}
@@ -726,10 +728,10 @@ export function AdminUsersPanel({
       {activeTab === 'invitations' && (
         <div className="admin-users-grid">
           <section className="device-keys-section">
-            <h4>Crear invitacio</h4>
+            <h4>{t('admin.createInvite')}</h4>
             <form className="modal-inline-stack" onSubmit={handleCreateInvitation}>
               <div className="form-group">
-                <label htmlFor="admin-invite-max-uses">Usos maxims</label>
+                <label htmlFor="admin-invite-max-uses">{t('admin.maxUses')}</label>
                 <input
                   id="admin-invite-max-uses"
                   type="number"
@@ -740,13 +742,13 @@ export function AdminUsersPanel({
                 />
               </div>
               <div className="form-group">
-                <label htmlFor="admin-invite-server-target">Servidor objectiu</label>
+                <label htmlFor="admin-invite-server-target">{t('admin.targetServer')}</label>
                 <select
                   id="admin-invite-server-target"
                   value={inviteServerId}
                   onChange={(e) => setInviteServerId(e.target.value)}
                 >
-                  <option value="">Cap (nomes registre)</option>
+                  <option value="">{t('admin.noneRegisterOnly')}</option>
                   {adminServers.map((server) => (
                     <option key={server.serverId} value={server.serverId}>{server.name}</option>
                   ))}
@@ -754,7 +756,7 @@ export function AdminUsersPanel({
               </div>
               <div className="modal-actions-row">
                 <Button type="submit" disabled={isCreatingInvite}>
-                  {isCreatingInvite ? 'Creant...' : 'Crear invitacio'}
+                  {isCreatingInvite ? t('common.creating') : t('admin.createInvite')}
                 </Button>
               </div>
             </form>
@@ -763,15 +765,15 @@ export function AdminUsersPanel({
               <div className="admin-invite-code-box">
                 <span className="admin-invite-code">{lastCreatedCode}</span>
                 <Button type="button" variant="secondary" size="sm" onClick={() => { void handleCopyCode(lastCreatedCode) }}>
-                  Copiar
+                  {t('admin.copy')}
                 </Button>
               </div>
             )}
           </section>
 
           <section className="device-keys-section">
-            <h4>Invitacions {loadingInvitations ? '...' : `(${invitations.length})`}</h4>
-            {!loadingInvitations && invitations.length === 0 && <p>No hi ha invitacions creades.</p>}
+            <h4>{t('admin.tabInvitations')} {loadingInvitations ? '...' : `(${invitations.length})`}</h4>
+            {!loadingInvitations && invitations.length === 0 && <p>{t('admin.noInvites')}</p>}
             {invitations.length > 0 && (
               <ul className="admin-compact-list">
                 {invitations.map((inv) => (
@@ -779,21 +781,21 @@ export function AdminUsersPanel({
                     <div className="admin-compact-invite-row">
                       <span className="admin-invite-code-inline">{inv.code}</span>
                       <Button type="button" variant="ghost" size="sm" onClick={() => { void handleCopyCode(inv.code) }}>
-                        Copiar
+                        {t('admin.copy')}
                       </Button>
                     </div>
                     <div className="admin-compact-invite-meta">
-                      <span>Server ID: <strong>{inv.serverId ?? 'Cap'}</strong></span>
+                      <span>{t('admin.serverIdLabel')} <strong>{inv.serverId ?? t('admin.none')}</strong></span>
                       {inv.serverId && (
                         <span>
-                          Server: <strong>{adminServers.find((server) => server.serverId === inv.serverId)?.name ?? 'Desconegut'}</strong>
+                          {t('admin.serverLabel')} <strong>{adminServers.find((server) => server.serverId === inv.serverId)?.name ?? t('admin.unknown')}</strong>
                         </span>
                       )}
-                      <span>Fets: <strong>{inv.usesCount}</strong></span>
-                      <span>Restants: <strong>{inv.remainingUses === null ? '∞' : inv.remainingUses}</strong></span>
-                      <span>Max: <strong>{inv.maxUses < 0 ? '∞' : inv.maxUses}</strong></span>
+                      <span>{t('admin.uses')} <strong>{inv.usesCount}</strong></span>
+                      <span>{t('admin.remaining')} <strong>{inv.remainingUses === null ? '∞' : inv.remainingUses}</strong></span>
+                      <span>{t('admin.max')} <strong>{inv.maxUses < 0 ? '∞' : inv.maxUses}</strong></span>
                       <span className={inv.isActive ? 'admin-badge-active' : 'admin-badge-inactive'}>
-                        {inv.isActive ? 'Activa' : 'Inactiva'}
+                        {inv.isActive ? t('admin.active') : t('admin.inactive')}
                       </span>
                     </div>
                   </li>
@@ -807,20 +809,20 @@ export function AdminUsersPanel({
       {activeTab === 'servers' && (
         <div className="admin-users-grid">
           <section className="device-keys-section">
-            <h4>Alta de servidor</h4>
+            <h4>{t('admin.createServerHeading')}</h4>
             <form className="modal-inline-stack" onSubmit={handleCreateServer}>
               <div className="form-group">
-                <label htmlFor="admin-server-create-name">Nom</label>
+                <label htmlFor="admin-server-create-name">{t('admin.name')}</label>
                 <input
                   id="admin-server-create-name"
                   type="text"
                   value={newServerName}
                   onChange={(e) => setNewServerName(e.target.value)}
-                  placeholder="Nou servidor"
+                  placeholder={t('appLayout.tabNewServer')}
                 />
               </div>
               <div className="form-group">
-                <label htmlFor="admin-server-create-icon">Icon URL (opcional)</label>
+                <label htmlFor="admin-server-create-icon">{t('admin.iconUrlOptional')}</label>
                 <input
                   id="admin-server-create-icon"
                   type="text"
@@ -831,15 +833,15 @@ export function AdminUsersPanel({
               </div>
               <div className="modal-actions-row">
                 <Button type="submit" disabled={creatingServer}>
-                  {creatingServer ? 'Creant...' : 'Crear servidor'}
+                  {creatingServer ? t('common.creating') : t('appLayout.panelCreateServer')}
                 </Button>
               </div>
             </form>
           </section>
 
           <section className="device-keys-section">
-            <h4>Servidors {loadingServers ? '...' : `(${adminServers.length})`}</h4>
-            {!loadingServers && adminServers.length === 0 && <p>No hi ha servidors disponibles.</p>}
+            <h4>{t('admin.tabServers')} {loadingServers ? '...' : `(${adminServers.length})`}</h4>
+            {!loadingServers && adminServers.length === 0 && <p>{t('admin.noServers')}</p>}
             {adminServers.length > 0 && (
               <ul className="admin-compact-list">
                 {adminServers.map((server) => {
@@ -854,26 +856,26 @@ export function AdminUsersPanel({
                           <span className="admin-compact-name">{server.name}</span>
                           <span className="admin-server-row-meta">{server.serverId}</span>
                           <span className="admin-server-row-meta">
-                            LiveKit: {server.livekitConfig?.isOverride ? server.livekitConfig.host : 'per defecte'}
+                            {t('admin.livekitLabel')} {server.livekitConfig?.isOverride ? server.livekitConfig.host : t('admin.livekitDefault')}
                           </span>
                         </div>
 
                         <div className="admin-server-row-actions">
                           <Button type="button" variant="secondary" size="sm" onClick={() => handleOpenConfig(server.serverId)}>
-                            Configuració
+                            {t('admin.configuration')}
                           </Button>
                           {isEditing ? (
                             <>
                               <Button type="button" variant="primary" size="sm" disabled={isSaving} onClick={() => { void handleSaveServer(server.serverId) }}>
-                                {isSaving ? 'Desant...' : 'Desar'}
+                                {isSaving ? t('common.saving') : t('common.saveAction')}
                               </Button>
                               <Button type="button" variant="ghost" size="sm" onClick={() => setEditingServerId(null)}>
-                                Cancel·lar
+                                {t('common.cancel')}
                               </Button>
                             </>
                           ) : (
                             <Button type="button" variant="ghost" size="sm" onClick={() => handleStartEditServer(server)}>
-                              Modificar
+                              {t('common.modify')}
                             </Button>
                           )}
                           <Button
@@ -883,7 +885,7 @@ export function AdminUsersPanel({
                             disabled={isDeleting}
                             onClick={() => setPendingDeleteServerId(server.serverId)}
                           >
-                            {isDeleting ? 'Esborrant...' : 'Esborrar'}
+                            {isDeleting ? t('common.erasing') : t('common.erase')}
                           </Button>
                         </div>
                       </div>
@@ -891,7 +893,7 @@ export function AdminUsersPanel({
                       {isEditing && (
                         <div className="admin-server-edit-grid">
                           <div className="form-group">
-                            <label htmlFor={`admin-server-name-${server.serverId}`}>Nom del servidor</label>
+                            <label htmlFor={`admin-server-name-${server.serverId}`}>{t('createServer.nameLabel')}</label>
                             <input
                               id={`admin-server-name-${server.serverId}`}
                               type="text"
@@ -900,13 +902,13 @@ export function AdminUsersPanel({
                             />
                           </div>
                           <div className="form-group">
-                            <label htmlFor={`admin-server-icon-${server.serverId}`}>Icon URL (opcional)</label>
+                            <label htmlFor={`admin-server-icon-${server.serverId}`}>{t('admin.iconUrlOptional')}</label>
                             <input
                               id={`admin-server-icon-${server.serverId}`}
                               type="text"
                               value={editingServerIconUrl}
                               onChange={(e) => setEditingServerIconUrl(e.target.value)}
-                              placeholder="Deixa buit per eliminar"
+                              placeholder={t('admin.leaveEmptyToRemove')}
                             />
                           </div>
                           <div className="form-group" style={{ gridColumn: '1 / -1' }}>
@@ -916,39 +918,39 @@ export function AdminUsersPanel({
                                 checked={editingServerUsesDefaultLiveKit}
                                 onChange={(e) => setEditingServerUsesDefaultLiveKit(e.target.checked)}
                               />
-                              Usar LiveKit global per defecte
+                              {t('admin.useDefaultLiveKit')}
                             </label>
                           </div>
                           {!editingServerUsesDefaultLiveKit && (
                             <>
                               <div className="form-group">
-                                <label htmlFor={`admin-server-livekit-host-${server.serverId}`}>LiveKit host</label>
+                                <label htmlFor={`admin-server-livekit-host-${server.serverId}`}>{t('admin.livekitHost')}</label>
                                 <input
                                   id={`admin-server-livekit-host-${server.serverId}`}
                                   type="text"
                                   value={editingServerLiveKitHost}
                                   onChange={(e) => setEditingServerLiveKitHost(e.target.value)}
-                                  placeholder="https://livekit.exemple.com"
+                                  placeholder={t('admin.livekitHostPlaceholder')}
                                 />
                               </div>
                               <div className="form-group">
-                                <label htmlFor={`admin-server-livekit-key-${server.serverId}`}>LiveKit API key</label>
+                                <label htmlFor={`admin-server-livekit-key-${server.serverId}`}>{t('admin.livekitApiKey')}</label>
                                 <input
                                   id={`admin-server-livekit-key-${server.serverId}`}
                                   type="text"
                                   value={editingServerLiveKitApiKey}
                                   onChange={(e) => setEditingServerLiveKitApiKey(e.target.value)}
-                                  placeholder="API key"
+                                  placeholder={t('admin.apiKeyPlaceholder')}
                                 />
                               </div>
                               <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                                <label htmlFor={`admin-server-livekit-secret-${server.serverId}`}>LiveKit API secret</label>
+                                <label htmlFor={`admin-server-livekit-secret-${server.serverId}`}>{t('admin.livekitApiSecret')}</label>
                                 <input
                                   id={`admin-server-livekit-secret-${server.serverId}`}
                                   type="password"
                                   value={editingServerLiveKitApiSecret}
                                   onChange={(e) => setEditingServerLiveKitApiSecret(e.target.value)}
-                                  placeholder={server.livekitConfig?.isOverride ? 'Deixa buit per mantenir el secret actual' : 'API secret'}
+                                  placeholder={server.livekitConfig?.isOverride ? t('admin.secretKeepPlaceholder') : t('admin.apiSecretPlaceholder')}
                                 />
                               </div>
                             </>
@@ -958,7 +960,7 @@ export function AdminUsersPanel({
 
                       {pendingDeleteServerId === server.serverId && (
                         <div className="admin-server-delete-confirm">
-                          <span>Segur que vols eliminar aquest servidor?</span>
+                          <span>{t('admin.confirmDeleteServer')}</span>
                           <div className="admin-server-delete-actions">
                             <Button
                               type="button"
@@ -967,10 +969,10 @@ export function AdminUsersPanel({
                               disabled={isDeleting}
                               onClick={() => { void handleDeleteServer(server.serverId) }}
                             >
-                              Confirmar
+                              {t('common.confirmAction')}
                             </Button>
                             <Button type="button" variant="ghost" size="sm" onClick={() => setPendingDeleteServerId(null)}>
-                              Cancel·lar
+                              {t('common.cancel')}
                             </Button>
                           </div>
                         </div>
@@ -987,10 +989,10 @@ export function AdminUsersPanel({
       {activeTab === 'plans' && (
         <div className="admin-users-grid">
           <section className="device-keys-section">
-            <h4>Crear pla</h4>
+            <h4>{t('admin.createPlan')}</h4>
             <form className="modal-inline-stack" onSubmit={handleCreatePlan}>
               <div className="form-group">
-                <label htmlFor="admin-plan-create-name">Nom intern</label>
+                <label htmlFor="admin-plan-create-name">{t('admin.internalName')}</label>
                 <input
                   id="admin-plan-create-name"
                   type="text"
@@ -1000,7 +1002,7 @@ export function AdminUsersPanel({
                 />
               </div>
               <div className="form-group">
-                <label htmlFor="admin-plan-create-display-name">Nom visible</label>
+                <label htmlFor="admin-plan-create-display-name">{t('admin.displayName')}</label>
                 <input
                   id="admin-plan-create-display-name"
                   type="text"
@@ -1010,18 +1012,18 @@ export function AdminUsersPanel({
                 />
               </div>
               <div className="form-group">
-                <label htmlFor="admin-plan-create-description">Descripció (opcional)</label>
+                <label htmlFor="admin-plan-create-description">{t('admin.descriptionOptional')}</label>
                 <input
                   id="admin-plan-create-description"
                   type="text"
                   value={newPlan.description ?? ''}
                   onChange={(e) => handlePlanFieldChange('description', e.target.value)}
-                  placeholder="Pla per equips"
+                  placeholder={t('admin.planExampleDesc')}
                 />
               </div>
               <div className="admin-plan-limits-grid">
                 <div className="form-group">
-                  <label htmlFor="admin-plan-create-max-servers">Max servidors</label>
+                  <label htmlFor="admin-plan-create-max-servers">{t('admin.maxServers')}</label>
                   <input
                     id="admin-plan-create-max-servers"
                     type="number"
@@ -1031,7 +1033,7 @@ export function AdminUsersPanel({
                   />
                 </div>
                 <div className="form-group">
-                  <label htmlFor="admin-plan-create-max-text">Max canals text</label>
+                  <label htmlFor="admin-plan-create-max-text">{t('admin.maxTextChannels')}</label>
                   <input
                     id="admin-plan-create-max-text"
                     type="number"
@@ -1041,7 +1043,7 @@ export function AdminUsersPanel({
                   />
                 </div>
                 <div className="form-group">
-                  <label htmlFor="admin-plan-create-max-voice">Max canals veu</label>
+                  <label htmlFor="admin-plan-create-max-voice">{t('admin.maxVoiceChannels')}</label>
                   <input
                     id="admin-plan-create-max-voice"
                     type="number"
@@ -1051,7 +1053,7 @@ export function AdminUsersPanel({
                   />
                 </div>
                 <div className="form-group">
-                  <label htmlFor="admin-plan-create-max-members">Max membres</label>
+                  <label htmlFor="admin-plan-create-max-members">{t('admin.maxMembers')}</label>
                   <input
                     id="admin-plan-create-max-members"
                     type="number"
@@ -1061,7 +1063,7 @@ export function AdminUsersPanel({
                   />
                 </div>
                 <div className="form-group">
-                  <label htmlFor="admin-plan-create-max-api">API calls/min</label>
+                  <label htmlFor="admin-plan-create-max-api">{t('admin.apiPerMin')}</label>
                   <input
                     id="admin-plan-create-max-api"
                     type="number"
@@ -1071,7 +1073,7 @@ export function AdminUsersPanel({
                   />
                 </div>
                 <div className="form-group">
-                  <label htmlFor="admin-plan-create-max-messages">Msgs/dia</label>
+                  <label htmlFor="admin-plan-create-max-messages">{t('admin.msgsPerDay')}</label>
                   <input
                     id="admin-plan-create-max-messages"
                     type="number"
@@ -1083,15 +1085,15 @@ export function AdminUsersPanel({
               </div>
               <div className="modal-actions-row">
                 <Button type="submit" disabled={creatingPlan}>
-                  {creatingPlan ? 'Creant...' : 'Crear pla'}
+                  {creatingPlan ? t('common.creating') : t('admin.createPlan')}
                 </Button>
               </div>
             </form>
           </section>
 
           <section className="device-keys-section">
-            <h4>Plans {loadingPlans ? '...' : `(${plans.length})`}</h4>
-            {!loadingPlans && plans.length === 0 && <p>No hi ha plans disponibles.</p>}
+            <h4>{t('admin.tabPlans')} {loadingPlans ? '...' : `(${plans.length})`}</h4>
+            {!loadingPlans && plans.length === 0 && <p>{t('admin.noPlans')}</p>}
             {plans.length > 0 && (
               <ul className="admin-compact-list">
                 {plans.map((plan) => {
@@ -1109,19 +1111,19 @@ export function AdminUsersPanel({
                         </div>
 
                         <div className="admin-server-row-actions">
-                          {isSystem && <span className="admin-badge-active">Sistema</span>}
+                          {isSystem && <span className="admin-badge-active">{t('admin.system')}</span>}
                           {isEditing ? (
                             <>
                               <Button type="button" variant="primary" size="sm" disabled={isSaving} onClick={() => { void handleUpdatePlan(plan.id) }}>
-                                {isSaving ? 'Desant...' : 'Desar'}
+                                {isSaving ? t('common.saving') : t('common.saveAction')}
                               </Button>
                               <Button type="button" variant="ghost" size="sm" onClick={() => setEditingPlanId(null)}>
-                                Cancel·lar
+                                {t('common.cancel')}
                               </Button>
                             </>
                           ) : (
                             <Button type="button" variant="ghost" size="sm" disabled={isSystem} onClick={() => startEditPlan(plan)}>
-                              Modificar
+                              {t('common.modify')}
                             </Button>
                           )}
                           <Button
@@ -1131,7 +1133,7 @@ export function AdminUsersPanel({
                             disabled={isDeleting || isSystem}
                             onClick={() => setPendingDeletePlanId(plan.id)}
                           >
-                            {isDeleting ? 'Esborrant...' : 'Esborrar'}
+                            {isDeleting ? t('common.erasing') : t('common.erase')}
                           </Button>
                         </div>
                       </div>
@@ -1139,7 +1141,7 @@ export function AdminUsersPanel({
                       {isEditing ? (
                         <div className="admin-plan-limits-grid">
                           <div className="form-group">
-                            <label htmlFor={`admin-plan-edit-name-${plan.id}`}>Nom intern</label>
+                            <label htmlFor={`admin-plan-edit-name-${plan.id}`}>{t('admin.internalName')}</label>
                             <input
                               id={`admin-plan-edit-name-${plan.id}`}
                               type="text"
@@ -1148,7 +1150,7 @@ export function AdminUsersPanel({
                             />
                           </div>
                           <div className="form-group">
-                            <label htmlFor={`admin-plan-edit-display-${plan.id}`}>Nom visible</label>
+                            <label htmlFor={`admin-plan-edit-display-${plan.id}`}>{t('admin.displayName')}</label>
                             <input
                               id={`admin-plan-edit-display-${plan.id}`}
                               type="text"
@@ -1157,7 +1159,7 @@ export function AdminUsersPanel({
                             />
                           </div>
                           <div className="form-group">
-                            <label htmlFor={`admin-plan-edit-description-${plan.id}`}>Descripció</label>
+                            <label htmlFor={`admin-plan-edit-description-${plan.id}`}>{t('admin.description')}</label>
                             <input
                               id={`admin-plan-edit-description-${plan.id}`}
                               type="text"
@@ -1166,7 +1168,7 @@ export function AdminUsersPanel({
                             />
                           </div>
                           <div className="form-group">
-                            <label htmlFor={`admin-plan-edit-max-servers-${plan.id}`}>Max servidors</label>
+                            <label htmlFor={`admin-plan-edit-max-servers-${plan.id}`}>{t('admin.maxServers')}</label>
                             <input
                               id={`admin-plan-edit-max-servers-${plan.id}`}
                               type="number"
@@ -1176,7 +1178,7 @@ export function AdminUsersPanel({
                             />
                           </div>
                           <div className="form-group">
-                            <label htmlFor={`admin-plan-edit-max-text-${plan.id}`}>Max canals text</label>
+                            <label htmlFor={`admin-plan-edit-max-text-${plan.id}`}>{t('admin.maxTextChannels')}</label>
                             <input
                               id={`admin-plan-edit-max-text-${plan.id}`}
                               type="number"
@@ -1186,7 +1188,7 @@ export function AdminUsersPanel({
                             />
                           </div>
                           <div className="form-group">
-                            <label htmlFor={`admin-plan-edit-max-voice-${plan.id}`}>Max canals veu</label>
+                            <label htmlFor={`admin-plan-edit-max-voice-${plan.id}`}>{t('admin.maxVoiceChannels')}</label>
                             <input
                               id={`admin-plan-edit-max-voice-${plan.id}`}
                               type="number"
@@ -1196,7 +1198,7 @@ export function AdminUsersPanel({
                             />
                           </div>
                           <div className="form-group">
-                            <label htmlFor={`admin-plan-edit-max-members-${plan.id}`}>Max membres</label>
+                            <label htmlFor={`admin-plan-edit-max-members-${plan.id}`}>{t('admin.maxMembers')}</label>
                             <input
                               id={`admin-plan-edit-max-members-${plan.id}`}
                               type="number"
@@ -1206,7 +1208,7 @@ export function AdminUsersPanel({
                             />
                           </div>
                           <div className="form-group">
-                            <label htmlFor={`admin-plan-edit-max-api-${plan.id}`}>API calls/min</label>
+                            <label htmlFor={`admin-plan-edit-max-api-${plan.id}`}>{t('admin.apiPerMin')}</label>
                             <input
                               id={`admin-plan-edit-max-api-${plan.id}`}
                               type="number"
@@ -1216,7 +1218,7 @@ export function AdminUsersPanel({
                             />
                           </div>
                           <div className="form-group">
-                            <label htmlFor={`admin-plan-edit-max-messages-${plan.id}`}>Msgs/dia</label>
+                            <label htmlFor={`admin-plan-edit-max-messages-${plan.id}`}>{t('admin.msgsPerDay')}</label>
                             <input
                               id={`admin-plan-edit-max-messages-${plan.id}`}
                               type="number"
@@ -1228,18 +1230,18 @@ export function AdminUsersPanel({
                         </div>
                       ) : (
                         <div className="admin-tier-grid">
-                          <span>Servidors: <strong>{plan.maxServers === -1 ? '∞' : plan.maxServers}</strong></span>
-                          <span>Text: <strong>{plan.maxChannelsTextPerServer === -1 ? '∞' : plan.maxChannelsTextPerServer}</strong></span>
-                          <span>Veu: <strong>{plan.maxChannelsVoicePerServer === -1 ? '∞' : plan.maxChannelsVoicePerServer}</strong></span>
-                          <span>Membres: <strong>{plan.maxMembersPerServer === -1 ? '∞' : plan.maxMembersPerServer}</strong></span>
-                          <span>API/min: <strong>{plan.apiCallsPerMinute === -1 ? '∞' : plan.apiCallsPerMinute}</strong></span>
-                          <span>Msgs/dia: <strong>{plan.messagesPerDay === -1 ? '∞' : plan.messagesPerDay}</strong></span>
+                          <span>{t('planSettings.servers')} <strong>{plan.maxServers === -1 ? '∞' : plan.maxServers}</strong></span>
+                          <span>{t('admin.tierText')} <strong>{plan.maxChannelsTextPerServer === -1 ? '∞' : plan.maxChannelsTextPerServer}</strong></span>
+                          <span>{t('admin.tierVoice')} <strong>{plan.maxChannelsVoicePerServer === -1 ? '∞' : plan.maxChannelsVoicePerServer}</strong></span>
+                          <span>{t('planSettings.members')} <strong>{plan.maxMembersPerServer === -1 ? '∞' : plan.maxMembersPerServer}</strong></span>
+                          <span>{t('admin.apiMin')} <strong>{plan.apiCallsPerMinute === -1 ? '∞' : plan.apiCallsPerMinute}</strong></span>
+                          <span>{t('admin.msgsDay')} <strong>{plan.messagesPerDay === -1 ? '∞' : plan.messagesPerDay}</strong></span>
                         </div>
                       )}
 
                       {pendingDeletePlanId === plan.id && (
                         <div className="admin-server-delete-confirm">
-                          <span>Segur que vols eliminar aquest pla?</span>
+                          <span>{t('admin.confirmDeletePlan')}</span>
                           <div className="admin-server-delete-actions">
                             <Button
                               type="button"
@@ -1248,10 +1250,10 @@ export function AdminUsersPanel({
                               disabled={isDeleting}
                               onClick={() => { void handleDeletePlan(plan.id) }}
                             >
-                              Confirmar
+                              {t('common.confirmAction')}
                             </Button>
                             <Button type="button" variant="ghost" size="sm" onClick={() => setPendingDeletePlanId(null)}>
-                              Cancel·lar
+                              {t('common.cancel')}
                             </Button>
                           </div>
                         </div>
@@ -1268,11 +1270,11 @@ export function AdminUsersPanel({
       {activeTab === 'planRequests' && (
         <div className="admin-users-grid">
           <section className="device-keys-section">
-            <h4>Sol·licituds de canvi de pla</h4>
+            <h4>{t('admin.requestsHeading')}</h4>
             {loadingPlanRequests ? (
-              <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Carregant...</p>
+              <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{t('common.loadingShort')}</p>
             ) : planRequests.length === 0 ? (
-              <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Cap sol·licitud pendent.</p>
+              <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{t('admin.noRequests')}</p>
             ) : (
               <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {planRequests.map((req) => (
@@ -1295,7 +1297,7 @@ export function AdminUsersPanel({
                           background: req.status === 'pending' ? '#f59e0b33' : req.status === 'approved' ? '#22c55e33' : '#ef444433',
                           color: req.status === 'pending' ? '#f59e0b' : req.status === 'approved' ? '#22c55e' : '#ef4444',
                         }}>
-                          {req.status === 'pending' ? 'Pendent' : req.status === 'approved' ? 'Aprovat' : 'Rebutjat'}
+                          {req.status === 'pending' ? t('admin.statusPending') : req.status === 'approved' ? t('admin.statusApproved') : t('admin.statusRejected')}
                         </span>
                       </div>
                       <span style={{ fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
@@ -1306,13 +1308,13 @@ export function AdminUsersPanel({
                       <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--text-secondary)' }}>{req.message}</p>
                     )}
                     {req.adminNote && (
-                      <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-secondary)', fontStyle: 'italic' }}>Nota: {req.adminNote}</p>
+                      <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-secondary)', fontStyle: 'italic' }}>{t('admin.noteLabel')} {req.adminNote}</p>
                     )}
                     {req.status === 'pending' && (
                       <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
                         <input
                           type="text"
-                          placeholder="Nota per a l'usuari (opcional)"
+                          placeholder={t('admin.notePlaceholder')}
                           value={requestAdminNote[req.id] ?? ''}
                           onChange={(e) => setRequestAdminNote((prev) => ({ ...prev, [req.id]: e.target.value }))}
                           style={{ fontSize: 12, padding: '4px 8px' }}
@@ -1329,11 +1331,11 @@ export function AdminUsersPanel({
                               const result = await adminPlanChangeRequestApprove(req.id, requestAdminNote[req.id] || undefined)
                               setResolvingRequestId(null)
                               if (!result.success) { setError(result.error.message); return }
-                              onFeedback(`Pla de ${req.username} canviat a ${req.requestedPlanName}`)
+                              onFeedback(t('admin.planChangedTo', { username: req.username, plan: req.requestedPlanName }))
                               void loadPlanRequests()
                             }}
                           >
-                            Aprovar
+                            {t('admin.approve')}
                           </Button>
                           <Button
                             type="button"
@@ -1345,11 +1347,11 @@ export function AdminUsersPanel({
                               const result = await adminPlanChangeRequestReject(req.id, requestAdminNote[req.id] || undefined)
                               setResolvingRequestId(null)
                               if (!result.success) { setError(result.error.message); return }
-                              onFeedback(`Sol·licitud de ${req.username} rebutjada`)
+                              onFeedback(t('admin.requestRejected', { username: req.username }))
                               void loadPlanRequests()
                             }}
                           >
-                            Rebutjar
+                            {t('admin.reject')}
                           </Button>
                         </div>
                       </div>
