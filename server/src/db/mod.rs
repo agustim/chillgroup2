@@ -1033,6 +1033,28 @@ async fn migrate_sqlite_messages_add_sender_username(pool: &sqlx::SqlitePool) ->
         .map_err(|e| format!("Error omplint sender_username a messages SQLite: {}", e))?;
     }
 
+    // Add position column to channels if not exists
+    let has_position_col = sqlx::query("PRAGMA table_info(channels)")
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("Error comprovant columnes channels: {}", e))?
+        .iter()
+        .any(|r| r.get::<String, _>(1) == "position");
+
+    if !has_position_col {
+        sqlx::query("ALTER TABLE channels ADD COLUMN position INTEGER DEFAULT 0")
+            .execute(pool)
+            .await
+            .map_err(|e| format!("Error afegint position a channels SQLite: {}", e))?;
+
+        sqlx::query(
+            "UPDATE channels SET position = (SELECT COUNT(*) FROM channels c2 WHERE c2.server_id = channels.server_id AND c2.created_at <= channels.created_at) - 1",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| format!("Error omplint position a channels SQLite: {}", e))?;
+    }
+
     Ok(())
 }
 
