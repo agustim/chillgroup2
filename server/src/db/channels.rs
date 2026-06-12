@@ -19,7 +19,7 @@ impl DatabasePool {
                                          LEFT JOIN channel_read_state rs ON rs.channel_id = c.id AND rs.user_id = $2 \
                                          WHERE c.server_id = $1 \
                                              AND (c.is_private = false OR cm.user_id IS NOT NULL) \
-                                         ORDER BY c.channel_type ASC, c.name ASC";
+                                         ORDER BY c.position ASC, c.channel_type ASC";
         let mut channels = Vec::new();
         match self {
             DatabasePool::Postgres(pool) => {
@@ -980,6 +980,26 @@ impl DatabasePool {
                     .await?;
 
                 tx.commit().await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn update_channel_position(&self, channel_id: Uuid, position: i32) -> Result<(), sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query("UPDATE channels SET position = $1 WHERE id = $2")
+                    .bind(position)
+                    .bind(channel_id)
+                    .execute(pool)
+                    .await?;
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query("UPDATE channels SET position = ? WHERE id = ?")
+                    .bind(position)
+                    .bind(channel_id)
+                    .execute(pool)
+                    .await?;
             }
         }
         Ok(())

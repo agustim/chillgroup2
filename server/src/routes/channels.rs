@@ -1008,9 +1008,46 @@ pub async fn delete_channel(
     Ok(StatusCode::OK)
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ReorderChannelRequest {
+    pub channels: Vec<ReorderChannelItem>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReorderChannelItem {
+    pub channel_id: Uuid,
+    pub position: i32,
+}
+
+pub async fn reorder_channels(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path(server_id): Path<Uuid>,
+    Json(req): Json<ReorderChannelRequest>,
+) -> Result<StatusCode, AppError> {
+    info!("Endpoint reorder_channels cridat: server_id={}, user_id={}", server_id, claims.user_id);
+
+    if !claims.is_admin {
+        let role = state.db.is_server_member(server_id, claims.user_id).await
+            .map_err(|e| AppError::DatabaseError(e))?;
+        let role = role.ok_or(AppError::Forbidden)?;
+        if role != "owner" && role != "admin" {
+            return Err(AppError::Forbidden);
+        }
+    }
+
+    for item in &req.channels {
+        state.db.update_channel_position(item.channel_id, item.position).await
+            .map_err(AppError::DatabaseError)?;
+    }
+
+    Ok(StatusCode::OK)
+}
+
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/servers/{server_id}/channels", get(list_channels).post(create_channel))
+        .route("/api/servers/{server_id}/channels/reorder", put(reorder_channels))
         .route("/api/channels/{channel_id}/read", post(mark_channel_read))
         .route("/api/channels/{channel_id}/keys", get(get_channel_keys).post(upload_channel_keys))
         .route("/api/channels/{channel_id}/keys/rotate", post(rotate_channel_key))

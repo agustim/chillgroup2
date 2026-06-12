@@ -148,7 +148,7 @@ pub async fn create_server(
 
     let server_info = state
         .db
-        .get_server_full_info(server_id, claims.user_id)
+        .get_server_full_info(server_id, claims.user_id, claims.is_admin)
         .await
         .map_err(AppError::DatabaseError)?
         .ok_or(AppError::ServerNotFound)?;
@@ -168,7 +168,7 @@ pub async fn get_server(
 
     let server_info = state
         .db
-        .get_server_full_info(server_id, claims.user_id)
+        .get_server_full_info(server_id, claims.user_id, claims.is_admin)
         .await
         .map_err(AppError::DatabaseError)?
         .ok_or(AppError::ServerNotFound)?;
@@ -220,7 +220,7 @@ pub async fn update_server(
 
     let server_info = state
         .db
-        .get_server_full_info(server_id, claims.user_id)
+        .get_server_full_info(server_id, claims.user_id, claims.is_admin)
         .await
         .map_err(AppError::DatabaseError)?
         .ok_or(AppError::ServerNotFound)?;
@@ -274,7 +274,7 @@ pub async fn list_server_members(
 
     let server_info = state
         .db
-        .get_server_full_info(server_id, claims.user_id)
+        .get_server_full_info(server_id, claims.user_id, claims.is_admin)
         .await
         .map_err(AppError::DatabaseError)?
         .ok_or(AppError::ServerNotFound)?;
@@ -320,7 +320,7 @@ pub async fn invite_server_member(
 
     let server_name = state
         .db
-        .get_server_full_info(server_id, claims.user_id)
+        .get_server_full_info(server_id, claims.user_id, claims.is_admin)
         .await
         .ok()
         .flatten()
@@ -375,7 +375,7 @@ pub async fn update_member_role(
 
     let server_info = state
         .db
-        .get_server_full_info(server_id, claims.user_id)
+        .get_server_full_info(server_id, claims.user_id, claims.is_admin)
         .await
         .map_err(AppError::DatabaseError)?
         .ok_or(AppError::ServerNotFound)?;
@@ -866,7 +866,7 @@ mod tests {
 
         let deleted_server = state
             .db
-            .get_server_full_info(server_id, owner_id)
+            .get_server_full_info(server_id, owner_id, false)
             .await
             .expect("db query should work");
         assert!(deleted_server.is_none(), "server should be removed");
@@ -1337,7 +1337,7 @@ mod tests {
 
         let deleted_server = state
             .db
-            .get_server_full_info(server_id, owner_id)
+            .get_server_full_info(server_id, owner_id, false)
             .await
             .expect("db query should work");
         assert!(deleted_server.is_none(), "server should be removed");

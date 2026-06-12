@@ -645,7 +645,7 @@ pub async fn update_server(
 
     let exists = state
         .db
-        .get_server_full_info(server_id, claims.user_id)
+        .get_server_full_info(server_id, claims.user_id, claims.is_admin)
         .await
         .map_err(|_| AppError::DatabaseUnavailable)?
         .is_some();

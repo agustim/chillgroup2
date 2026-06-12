@@ -765,6 +765,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             let db_for_member_presence_snapshot = db.clone();
             let user_presence_for_member_snapshot = user_presence.clone();
             let user_id_for_member_snapshot = claims.user_id;
+            let is_admin_for_member_snapshot = claims.is_admin;
             socket.on("get-server-member-presence", move |socket: SocketRef, Data(data): Data<serde_json::Value>| {
                 let db = db_for_member_presence_snapshot.clone();
                 let user_presence = user_presence_for_member_snapshot.clone();
@@ -783,7 +784,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         return;
                     }
 
-                    let Ok(Some(server_info)) = db.get_server_full_info(server_id, user_id_for_member_snapshot).await else {
+                    let Ok(Some(server_info)) = db.get_server_full_info(server_id, user_id_for_member_snapshot, is_admin_for_member_snapshot).await else {
                         return;
                     };
 

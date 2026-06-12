@@ -87,7 +87,7 @@ pub async fn create_server_invitation(
     let invitee_room = format!("user:{}", invitee_id);
     let server_name = state
         .db
-        .get_server_full_info(server_id, claims.user_id)
+        .get_server_full_info(server_id, claims.user_id, claims.is_admin)
         .await
         .ok()
         .flatten()

@@ -376,7 +376,7 @@ impl DatabasePool {
         }
     }
 
-    pub async fn get_server_full_info(&self, server_id: Uuid, user_id: Uuid) -> Result<Option<ServerFullInfo>, sqlx::Error> {
+    pub async fn get_server_full_info(&self, server_id: Uuid, user_id: Uuid, is_admin: bool) -> Result<Option<ServerFullInfo>, sqlx::Error> {
         match self {
             DatabasePool::Postgres(pool) => {
                 let server_row = sqlx::query("SELECT id, name, icon_url, owner_id, livekit_host, livekit_api_key, created_at::text FROM servers WHERE id = $1")
@@ -396,9 +396,10 @@ impl DatabasePool {
                     .fetch_optional(pool)
                     .await?;
 
-                let my_role = my_role_row
-                    .map(|row| parse_server_role(&row.get::<String, _>(0)))
-                    .unwrap_or(ServerRole::Member);
+                let my_role = match my_role_row {
+                    Some(row) => parse_server_role(&row.get::<String, _>(0)),
+                    None => if is_admin { ServerRole::Admin } else { ServerRole::Member },
+                };
 
                 let members = {
                     let rows = sqlx::query("SELECT u.id, u.username, sm.role, sm.joined_at::text FROM server_members sm JOIN users u ON u.id = sm.user_id WHERE sm.server_id = $1 ORDER BY sm.joined_at ASC")
@@ -452,9 +453,10 @@ impl DatabasePool {
                     .fetch_optional(pool)
                     .await?;
 
-                let my_role = my_role_row
-                    .map(|row| parse_server_role(&row.get::<String, _>(0)))
-                    .unwrap_or(ServerRole::Member);
+                let my_role = match my_role_row {
+                    Some(row) => parse_server_role(&row.get::<String, _>(0)),
+                    None => if is_admin { ServerRole::Admin } else { ServerRole::Member },
+                };
 
                 let members = {
                     let rows = sqlx::query("SELECT u.id, u.username, sm.role, sm.joined_at FROM server_members sm JOIN users u ON u.id = sm.user_id WHERE sm.server_id = ? ORDER BY sm.joined_at ASC")
