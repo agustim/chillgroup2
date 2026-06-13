@@ -900,14 +900,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     };
 
     let cors_layer = {
-        // Tauri desktop origins (always allowed — local/app-protocol, not internet)
-        #[cfg(not(debug_assertions))]
-        const TAURI_ORIGINS: &[&str] = &[
-            "tauri://localhost",         // Linux + macOS (Tauri v2)
-            "https://tauri.localhost",   // Windows (Tauri v2)
-        ];
-        // Dev: also allow Vite dev server used by Tauri dev mode
-        #[cfg(debug_assertions)]
+        // Tauri desktop origins (always allowed)
+        // localhost:5173 = Vite dev server (safe: localhost cannot be spoofed remotely)
+        // tauri://localhost + https://tauri.localhost = production Tauri app protocol
         const TAURI_ORIGINS: &[&str] = &[
             "tauri://localhost",
             "https://tauri.localhost",
