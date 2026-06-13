@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSCameraUsageDescription</key>
+  <string>ChillGroup necessita la càmera per a videocrides</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>ChillGroup necessita el micròfon per a les trucades d'àudio</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>ChillGroup es connecta al servidor de l'equip a la xarxa local</string>
+</dict>
+</plist>

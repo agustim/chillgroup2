@@ -5,7 +5,21 @@
 import type { Channel, FriendPresence, PresenceStatus, Server, ServerFullInfo, ServerMember, ServerRole, UserSearchResult } from '../types'
 import { getStoredDeviceId } from './device-identity'
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? ''
+// In Tauri, the server URL is stored in the OS config store and injected at startup
+// via initTauriApiBase(). In the browser it stays empty and Vite proxies requests.
+let API_BASE: string = import.meta.env.VITE_API_BASE ?? ''
+
+export function getApiBase(): string { return API_BASE }
+
+export async function initTauriApiBase(): Promise<void> {
+  if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    API_BASE = await invoke<string>('get_server_url')
+  } catch {
+    // Not configured yet — setup window will handle it
+  }
+}
 
 /**
  * Interfície per a errors de l'API.

@@ -4,6 +4,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVER_TOML="$ROOT/server/Cargo.toml"
+DESKTOP_TOML="$ROOT/src-tauri/Cargo.toml"
+DESKTOP_CONF="$ROOT/src-tauri/tauri.conf.json"
 
 usage() {
 	cat <<'EOF'
@@ -16,7 +18,7 @@ Arguments:
   vX.Y.Z     Versió explícita, ex: v0.2.0
 
 El script:
-  1. Actualitza server/Cargo.toml
+  1. Actualitza server/Cargo.toml + src-tauri/Cargo.toml + src-tauri/tauri.conf.json
   2. Actualitza Cargo.lock (cargo check)
   3. Commit + tag git
   4. Push a origin (commit + tag)
@@ -87,6 +89,19 @@ fi
 sed -i "s/^version\s*=\s*\"${CURRENT}\"/version = \"${NEW_VERSION}\"/" "$SERVER_TOML"
 echo "✅ server/Cargo.toml actualitzat"
 
+# Actualitza src-tauri/Cargo.toml (si existeix)
+if [[ -f "$DESKTOP_TOML" ]]; then
+	DESKTOP_CURRENT="$(grep -E '^version\s*=' "$DESKTOP_TOML" | head -1 | sed 's/.*"\(.*\)".*/\1/')"
+	sed -i "s/^version\s*=\s*\"${DESKTOP_CURRENT}\"/version = \"${NEW_VERSION}\"/" "$DESKTOP_TOML"
+	echo "✅ src-tauri/Cargo.toml actualitzat"
+fi
+
+# Actualitza src-tauri/tauri.conf.json (si existeix)
+if [[ -f "$DESKTOP_CONF" ]]; then
+	sed -i "s/\"version\"\s*:\s*\"[^\"]*\"/\"version\": \"${NEW_VERSION}\"/" "$DESKTOP_CONF"
+	echo "✅ src-tauri/tauri.conf.json actualitzat"
+fi
+
 # Actualitza Cargo.lock
 cd "$ROOT"
 cargo check -q -p chillgroup-server 2>/dev/null || cargo generate-lockfile
@@ -94,6 +109,8 @@ echo "✅ Cargo.lock actualitzat"
 
 # Commit
 git -C "$ROOT" add server/Cargo.toml Cargo.lock
+[[ -f "$DESKTOP_TOML" ]] && git -C "$ROOT" add src-tauri/Cargo.toml
+[[ -f "$DESKTOP_CONF" ]] && git -C "$ROOT" add src-tauri/tauri.conf.json
 git -C "$ROOT" commit -m "chore: bump version to ${TAG}"
 echo "✅ Commit creat"
 

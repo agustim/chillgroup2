@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Configurar ChillGroup</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      padding: 24px;
+    }
+    .card {
+      width: 100%;
+      max-width: 380px;
+    }
+    h1 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    p {
+      font-size: 13px;
+      color: #9a9ab0;
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      margin-bottom: 6px;
+      color: #b0b0c8;
+    }
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid #3a3a5c;
+      background: #0f0f23;
+      color: #e0e0e0;
+      font-size: 14px;
+      outline: none;
+      margin-bottom: 16px;
+    }
+    input:focus { border-color: #6c63ff; }
+    button {
+      width: 100%;
+      padding: 11px;
+      border-radius: 8px;
+      border: none;
+      background: #6c63ff;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover { background: #5a52e0; }
+    button:disabled { background: #3a3a5c; cursor: not-allowed; }
+    .error {
+      font-size: 12px;
+      color: #ff6b6b;
+      margin-top: -10px;
+      margin-bottom: 12px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Configura ChillGroup</h1>
+    <p>Introdueix l'adreça del servidor al qual vols connectar-te.</p>
+    <label for="url">URL del servidor</label>
+    <input
+      type="url"
+      id="url"
+      placeholder="https://chillgroup.example.com"
+      autocomplete="off"
+      spellcheck="false"
+    />
+    <div class="error" id="error"></div>
+    <button id="btn" type="button">Connectar</button>
+  </div>
+
+  <script type="module">
+    const { invoke } = window.__TAURI__.core;
+    const { emit } = window.__TAURI__.event;
+
+    const input = document.getElementById('url');
+    const btn = document.getElementById('btn');
+    const errorEl = document.getElementById('error');
+
+    // Pre-fill if already configured
+    invoke('get_server_url').then(url => { input.value = url; }).catch(() => {});
+
+    btn.addEventListener('click', async () => {
+      const raw = input.value.trim();
+      if (!raw) return showError('Introdueix una URL vàlida.');
+      let url;
+      try {
+        url = new URL(raw);
+        if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
+      } catch {
+        return showError('URL invàlida. Exemple: https://chillgroup.example.com');
+      }
+      btn.disabled = true;
+      try {
+        await invoke('set_server_url', { url: url.origin });
+        await emit('setup-complete', {});
+      } catch (e) {
+        showError(String(e));
+        btn.disabled = false;
+      }
+    });
+
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') btn.click(); });
+
+    function showError(msg) {
+      errorEl.textContent = msg;
+      errorEl.style.display = 'block';
+    }
+  </script>
+</body>
+</html>

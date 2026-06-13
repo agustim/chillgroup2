@@ -1,4 +1,5 @@
 import { io, Socket } from 'socket.io-client'
+import { getApiBase } from './api'
 
 let socket: Socket | null = null
 
@@ -13,7 +14,7 @@ function getToken(): string | null {
 export function getSocket(): Socket {
   if (!socket) {
     const token = getToken()
-    socket = io('/', {
+    socket = io(getApiBase() || '/', {
       auth: { token },
       transports: ['websocket', 'polling'],
       autoConnect: true,
