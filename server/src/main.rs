@@ -900,11 +900,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     };
 
     let cors_layer = {
-        let origins: Vec<HeaderValue> = state.config.allowed_origins.iter()
+        // Tauri desktop origins (always allowed — local/app-protocol, not internet)
+        #[cfg(not(debug_assertions))]
+        const TAURI_ORIGINS: &[&str] = &[
+            "tauri://localhost",         // Linux + macOS (Tauri v2)
+            "https://tauri.localhost",   // Windows (Tauri v2)
+        ];
+        // Dev: also allow Vite dev server used by Tauri dev mode
+        #[cfg(debug_assertions)]
+        const TAURI_ORIGINS: &[&str] = &[
+            "tauri://localhost",
+            "https://tauri.localhost",
+            "http://localhost:5173",
+        ];
+        let mut origins: Vec<HeaderValue> = state.config.allowed_origins.iter()
             .filter_map(|o| o.parse::<HeaderValue>().ok())
             .collect();
-        if origins.is_empty() {
-            warn!("⚠️ ALLOWED_ORIGINS no configurat — CORS bloquejarà totes les peticions cross-origin");
+        for tauri_origin in TAURI_ORIGINS {
+            if let Ok(v) = tauri_origin.parse::<HeaderValue>() {
+                origins.push(v);
+            }
+        }
+        if origins.len() == TAURI_ORIGINS.len() {
+            warn!("⚠️ ALLOWED_ORIGINS no configurat — CORS només permetrà orígens Tauri desktop");
         }
         CorsLayer::new()
             .allow_origin(AllowOrigin::list(origins))

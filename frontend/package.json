@@ -16,8 +16,8 @@
     "test:e2e:headed": "playwright test --headed",
     "lint": "eslint src --ext .ts,.tsx",
     "tauri": "tauri",
-    "desktop:dev": "tauri dev",
-    "desktop:build": "tauri build"
+    "desktop:dev": "cd .. && frontend/node_modules/.bin/tauri dev",
+    "desktop:build": "cd .. && frontend/node_modules/.bin/tauri build"
   },
   "dependencies": {
     "@noble/post-quantum": "^0.6.1",

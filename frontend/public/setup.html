@@ -88,8 +88,13 @@
   </div>
 
   <script type="module">
-    const { invoke } = window.__TAURI__.core;
-    const { emit } = window.__TAURI__.event;
+    if (!window.__TAURI__) {
+      document.getElementById('error').textContent = 'Error: Tauri API no disponible. Reinicia l\'app.';
+      document.getElementById('error').style.display = 'block';
+      document.getElementById('btn').disabled = true;
+    }
+    const { invoke } = window.__TAURI__?.core ?? {};
+    const { emit } = window.__TAURI__?.event ?? {};
 
     const input = document.getElementById('url');
     const btn = document.getElementById('btn');

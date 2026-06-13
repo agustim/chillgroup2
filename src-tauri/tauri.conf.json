@@ -26,6 +26,7 @@
       "iconAsTemplate": true,
       "menuOnLeftClick": false
     },
+    "withGlobalTauri": true,
     "security": {
       "csp": null
     }
