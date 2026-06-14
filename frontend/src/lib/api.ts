@@ -5,21 +5,30 @@
 import type { Channel, FriendPresence, PresenceStatus, Server, ServerFullInfo, ServerMember, ServerRole, UserSearchResult } from '../types'
 import { getStoredDeviceId } from './device-identity'
 
-// In Tauri, the server URL is stored in the OS config store and injected at startup
-// via initTauriApiBase(). In the browser it stays empty and Vite proxies requests.
+// In desktop builds, the server URL is stored in the OS config and injected at startup.
+// In the browser it stays empty and Vite proxies requests.
 let API_BASE: string = import.meta.env.VITE_API_BASE ?? ''
 
 export function getApiBase(): string { return API_BASE }
 
-export async function initTauriApiBase(): Promise<void> {
-  if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
+export async function initDesktopApiBase(): Promise<void> {
+  if (typeof window === 'undefined') return
   try {
-    const { invoke } = await import('@tauri-apps/api/core')
-    API_BASE = await invoke<string>('get_server_url')
+    if ('__TAURI_INTERNALS__' in window) {
+      const { invoke } = await import('@tauri-apps/api/core')
+      API_BASE = await invoke<string>('get_server_url')
+      return
+    }
+    if ('electronAPI' in window) {
+      API_BASE = (await (window as any).electronAPI.getServerUrl()) ?? ''
+    }
   } catch {
     // Not configured yet — setup window will handle it
   }
 }
+
+/** @deprecated use initDesktopApiBase */
+export const initTauriApiBase = initDesktopApiBase
 
 /**
  * Interfície per a errors de l'API.

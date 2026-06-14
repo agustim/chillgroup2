@@ -1060,6 +1060,7 @@ dependencies = [
 name = "chillgroup-desktop"
 version = "0.1.32"
 dependencies = [
+ "libc",
  "serde",
  "serde_json",
  "tauri",
@@ -1070,6 +1071,7 @@ dependencies = [
  "tauri-plugin-store",
  "tauri-plugin-updater",
  "tokio",
+ "webkit2gtk",
 ]
 
 [[package]]

@@ -88,20 +88,37 @@
   </div>
 
   <script type="module">
-    if (!window.__TAURI__) {
-      document.getElementById('error').textContent = 'Error: Tauri API no disponible. Reinicia l\'app.';
+    const isTauri = Boolean(window.__TAURI__);
+    const isElectron = Boolean(window.electronAPI);
+
+    if (!isTauri && !isElectron) {
+      document.getElementById('error').textContent = 'Error: API de desktop no disponible. Reinicia l\'app.';
       document.getElementById('error').style.display = 'block';
       document.getElementById('btn').disabled = true;
     }
-    const { invoke } = window.__TAURI__?.core ?? {};
-    const { emit } = window.__TAURI__?.event ?? {};
 
     const input = document.getElementById('url');
     const btn = document.getElementById('btn');
     const errorEl = document.getElementById('error');
 
+    async function getServerUrl() {
+      if (isTauri) return window.__TAURI__.core.invoke('get_server_url').catch(() => '');
+      if (isElectron) return window.electronAPI.getServerUrl();
+      return '';
+    }
+
+    async function saveAndComplete(url) {
+      if (isTauri) {
+        await window.__TAURI__.core.invoke('set_server_url', { url });
+        await window.__TAURI__.event.emit('setup-complete', {});
+      } else if (isElectron) {
+        await window.electronAPI.setServerUrl(url);
+        window.electronAPI.emitSetupComplete();
+      }
+    }
+
     // Pre-fill if already configured
-    invoke('get_server_url').then(url => { input.value = url; }).catch(() => {});
+    getServerUrl().then(url => { if (url) input.value = url; }).catch(() => {});
 
     btn.addEventListener('click', async () => {
       const raw = input.value.trim();
@@ -115,8 +132,7 @@
       }
       btn.disabled = true;
       try {
-        await invoke('set_server_url', { url: url.origin });
-        await emit('setup-complete', {});
+        await saveAndComplete(url.origin);
       } catch (e) {
         showError(String(e));
         btn.disabled = false;

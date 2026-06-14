@@ -1,0 +1,32 @@
+appId: com.quantumteam.chillgroup
+productName: ChillGroup
+copyright: "© 2025 QuantumTeam"
+
+directories:
+  output: dist-electron
+  buildResources: build-resources
+
+files:
+  - "electron/dist/**"
+  - "frontend/dist/**"
+  - "package.json"
+
+extraResources:
+  - from: src-tauri/icons/icon.png
+    to: icon.png
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  icon: src-tauri/icons/128x128.png
+  category: Network
+  description: "Client d'escriptori ChillGroup per a Linux"
+
+publish:
+  provider: github
+  owner: agustim
+  repo: chillgroup2
+  releaseType: release

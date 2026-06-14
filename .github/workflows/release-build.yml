@@ -210,8 +210,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: ubuntu-22.04
-            args: ''
           - platform: macos-latest
             args: '--target universal-apple-darwin'
           - platform: windows-latest
@@ -230,16 +228,6 @@ jobs:
         uses: pnpm/action-setup@v4
         with:
           version: 11
-
-      - name: Install Linux system dependencies
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf
 
       - name: Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -276,6 +264,42 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+  electron-linux:
+    name: Desktop Linux (Electron)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Install root dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Bundle Electron main process
+        run: pnpm electron:build-main
+
+      - name: Build and publish Electron Linux app
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm electron:publish
 
   publish-release:
     name: Publish Release Assets

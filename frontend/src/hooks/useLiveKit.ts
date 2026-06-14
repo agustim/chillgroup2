@@ -22,6 +22,7 @@ import {
 } from 'livekit-client'
 import E2EEWorker from 'livekit-client/e2ee-worker?worker'
 import { logger } from '../lib/logger'
+import { getApiBase } from '../lib/api'
 import type { EncryptionType, VoiceParticipant } from '../types'
 
 const LIVEKIT_ROOM_PREFIX = 'chillgroup-'
@@ -184,7 +185,7 @@ export function useLiveKit(): UseLiveKitResult {
     const token = getJwtToken()
     if (!token) throw new Error('No estàs autenticat')
 
-    const response = await fetch(`/api/livekit/token`, {
+    const response = await fetch(`${getApiBase()}/api/livekit/token`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -491,7 +492,18 @@ export function useLiveKit(): UseLiveKitResult {
       // Aplicar preferència actual de so abans de subscriure nous tracks
       isDeafenedRef.current = isDeafened
 
-      const shouldEnableE2EE = options?.encryptionType && options.encryptionType !== 'none'
+      const wantsE2EE = options?.encryptionType && options.encryptionType !== 'none'
+      if (wantsE2EE && !isE2EESupported()) {
+        const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+        if (inTauri) {
+          throw new Error(
+            'E2EE de veu no és compatible amb l\'app d\'escriptori Linux (WebKitGTK no implementa RTCRtpScriptTransform). ' +
+            'Usa el navegador web per a canals de veu xifrats.'
+          )
+        }
+        throw new Error('El navegador no suporta E2EE de LiveKit')
+      }
+      const shouldEnableE2EE = !!wantsE2EE
 
       // Crear i connectar a la sala
       const roomOptions: any = {
@@ -502,9 +514,6 @@ export function useLiveKit(): UseLiveKitResult {
       if (shouldEnableE2EE) {
         if (!options?.channelKey) {
           throw new Error('Falta la clau E2EE del canal de veu')
-        }
-        if (!isE2EESupported()) {
-          throw new Error('El navegador no suporta E2EE de LiveKit')
         }
 
         const keyProvider = new ExternalE2EEKeyProvider()

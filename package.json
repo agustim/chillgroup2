@@ -1,0 +1,21 @@
+{
+  "name": "chillgroup",
+  "version": "0.1.32",
+  "private": true,
+  "main": "electron/dist/main.js",
+  "scripts": {
+    "desktop:dev": "frontend/node_modules/.bin/tauri dev",
+    "desktop:build": "frontend/node_modules/.bin/tauri build",
+    "electron:build-main": "esbuild electron/main.ts --bundle --platform=node --target=node20 --external:electron --outfile=electron/dist/main.js && esbuild electron/preload.ts --bundle --platform=node --target=node20 --external:electron --outfile=electron/dist/preload.js",
+    "electron:dev": "pnpm electron:build-main && env -u ELECTRON_RUN_AS_NODE electron electron/dist/main.js",
+    "electron:build": "pnpm -C frontend build && pnpm electron:build-main && electron-builder --linux",
+    "electron:publish": "electron-builder --linux --publish always"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "esbuild": "^0.24.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
+    "electron-updater": "^6.3.9"
+  }
+}

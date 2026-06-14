@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../frontend/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "pnpm -C ../frontend dev",
-    "beforeBuildCommand": "pnpm -C ../frontend build"
+    "beforeDevCommand": "pnpm -C frontend dev",
+    "beforeBuildCommand": "pnpm -C frontend build"
   },
   "app": {
     "windows": [
@@ -28,7 +28,11 @@
     },
     "withGlobalTauri": true,
     "security": {
-      "csp": null
+      "csp": null,
+      "headers": {
+        "Cross-Origin-Opener-Policy": "same-origin",
+        "Cross-Origin-Embedder-Policy": "require-corp"
+      }
     }
   },
   "bundle": {
