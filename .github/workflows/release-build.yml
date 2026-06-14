@@ -294,7 +294,7 @@ jobs:
         run: pnpm electron:build-main
 
       - name: Build Electron Linux app
-        run: pnpm -C frontend build && pnpm electron:build-main && electron-builder --linux --publish never
+        run: pnpm -C frontend build && pnpm electron:build-main && pnpm exec electron-builder --linux --publish never
 
       - name: Upload to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
