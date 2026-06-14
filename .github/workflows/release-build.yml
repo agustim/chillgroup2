@@ -265,6 +265,7 @@ jobs:
 
   electron-linux:
     name: Desktop Linux (Electron)
+    needs: [tauri-desktop]
     runs-on: ubuntu-22.04
 
     steps:
