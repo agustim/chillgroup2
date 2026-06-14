@@ -1058,7 +1058,7 @@ dependencies = [
 
 [[package]]
 name = "chillgroup-desktop"
-version = "0.1.40"
+version = "0.1.41"
 dependencies = [
  "libc",
  "serde",
@@ -1076,7 +1076,7 @@ dependencies = [
 
 [[package]]
 name = "chillgroup-server"
-version = "0.1.40"
+version = "0.1.41"
 dependencies = [
  "aes-gcm",
  "argon2",
