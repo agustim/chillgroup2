@@ -21,6 +21,10 @@ linux:
       arch: [x64]
     - target: deb
       arch: [x64]
+    - target: rpm
+      arch: [x64]
+    - target: pacman
+      arch: [x64]
   icon: src-tauri/icons/128x128@2x.png
   category: Network
   description: "Client d'escriptori ChillGroup per a Linux"

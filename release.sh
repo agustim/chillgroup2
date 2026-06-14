@@ -6,6 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVER_TOML="$ROOT/server/Cargo.toml"
 DESKTOP_TOML="$ROOT/src-tauri/Cargo.toml"
 DESKTOP_CONF="$ROOT/src-tauri/tauri.conf.json"
+ELECTRON_PKG="$ROOT/package.json"
 
 usage() {
 	cat <<'EOF'
@@ -18,7 +19,7 @@ Arguments:
   vX.Y.Z     Versió explícita, ex: v0.2.0
 
 El script:
-  1. Actualitza server/Cargo.toml + src-tauri/Cargo.toml + src-tauri/tauri.conf.json
+  1. Actualitza server/Cargo.toml + src-tauri/Cargo.toml + src-tauri/tauri.conf.json + package.json
   2. Actualitza Cargo.lock (cargo check)
   3. Commit + tag git
   4. Push a origin (commit + tag)
@@ -102,6 +103,12 @@ if [[ -f "$DESKTOP_CONF" ]]; then
 	echo "✅ src-tauri/tauri.conf.json actualitzat"
 fi
 
+# Actualitza package.json (Electron)
+if [[ -f "$ELECTRON_PKG" ]]; then
+	jq --arg v "$NEW_VERSION" '.version = $v' "$ELECTRON_PKG" > "$ELECTRON_PKG.tmp" && mv "$ELECTRON_PKG.tmp" "$ELECTRON_PKG"
+	echo "✅ package.json actualitzat"
+fi
+
 # Actualitza Cargo.lock
 cd "$ROOT"
 cargo check -q -p chillgroup-server 2>/dev/null || cargo generate-lockfile
@@ -111,6 +118,7 @@ echo "✅ Cargo.lock actualitzat"
 git -C "$ROOT" add server/Cargo.toml Cargo.lock
 [[ -f "$DESKTOP_TOML" ]] && git -C "$ROOT" add src-tauri/Cargo.toml
 [[ -f "$DESKTOP_CONF" ]] && git -C "$ROOT" add src-tauri/tauri.conf.json
+[[ -f "$ELECTRON_PKG" ]] && git -C "$ROOT" add package.json
 git -C "$ROOT" commit -m "chore: bump version to ${TAG}"
 echo "✅ Commit creat"
 
