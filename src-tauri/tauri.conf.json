@@ -46,7 +46,7 @@
       "icons/icon.ico"
     ],
     "copyright": "© 2025 QuantumTeam",
-    "category": "Communication",
+    "category": "SocialNetworking",
     "shortDescription": "ChillGroup desktop client",
     "macOS": {
       "entitlements": "entitlements.plist"
