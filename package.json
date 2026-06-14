@@ -2,7 +2,10 @@
   "name": "chillgroup",
   "version": "0.1.32",
   "description": "ChillGroup desktop client",
-  "author": "QuantumTeam",
+  "author": {
+    "name": "QuantumTeam",
+    "email": "agusti@gmail.com"
+  },
   "private": true,
   "main": "electron/dist/main.js",
   "scripts": {
