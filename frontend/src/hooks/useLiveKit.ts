@@ -151,6 +151,19 @@ export function useLiveKit(): UseLiveKitResult {
     }
   }, [])
 
+  // Firefox rejects getDisplayMedia with frameRate constraints → retry unconstrained.
+  // width/height 0 causes livekit to skip the resolution block entirely.
+  const captureScreenTracks = async () => {
+    try {
+      return await createLocalScreenTracks({ audio: false })
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name === 'NotSupportedError') {
+        return createLocalScreenTracks({ audio: false, resolution: { width: 0, height: 0, frameRate: 0 } as any })
+      }
+      throw e
+    }
+  }
+
   // Adjuntar un track d'àudio remot al DOM perquè es pugui sentir
   const attachRemoteAudio = useCallback((track: any, participantSid: string) => {
     // Evitar duplicats
@@ -318,7 +331,7 @@ export function useLiveKit(): UseLiveKitResult {
         isScreenSharingRef.current = false
         setIsScreenSharing(false)
       } else {
-        const tracks = await createLocalScreenTracks({ audio: false })
+        const tracks = await captureScreenTracks()
         const videoTrack = tracks.find((t: any) => t.kind === 'video')
         if (!videoTrack) {
           throw new Error('No s\'ha pogut obtenir el track de pantalla')
@@ -422,7 +435,15 @@ export function useLiveKit(): UseLiveKitResult {
       await el.play()
 
       const stream = (el as any).captureStream() as MediaStream
-      const videoMediaTrack = stream.getVideoTracks()[0]
+      // In Electron the video track may appear asynchronously after play().
+      const videoMediaTrack: MediaStreamTrack | undefined =
+        stream.getVideoTracks()[0] ??
+        await new Promise<MediaStreamTrack | undefined>(resolve => {
+          const timer = setTimeout(() => resolve(undefined), 2000)
+          stream.addEventListener('addtrack', (e: any) => {
+            if (e.track.kind === 'video') { clearTimeout(timer); resolve(e.track) }
+          })
+        })
       const audioMediaTrack = stream.getAudioTracks()[0]
 
       if (videoMediaTrack) {
@@ -694,7 +715,7 @@ export function useLiveKit(): UseLiveKitResult {
 
       // Aplicar estat per defecte/persistit de screen share
       if (shouldRestoreScreenShare) {
-        const tracks = await createLocalScreenTracks({ audio: false })
+        const tracks = await captureScreenTracks()
         const screenTrack = tracks.find((t: any) => t.kind === 'video')
         if (screenTrack) {
           localScreenTrackRef.current = screenTrack

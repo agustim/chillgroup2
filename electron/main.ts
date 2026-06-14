@@ -6,6 +6,8 @@ import {
   nativeImage,
   ipcMain,
   protocol,
+  session,
+  desktopCapturer,
 } from 'electron'
 import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync } from 'fs'
 import { join, extname } from 'path'
@@ -158,6 +160,14 @@ ipcMain.on('setup-complete', () => {
 
 app.whenReady().then(() => {
   protocol.handle('app', (req) => serveFile(new URL(req.url).pathname))
+
+  // Required for getDisplayMedia() to work in Electron on Linux.
+  // useSystemPicker uses XDG Desktop Portal (PipeWire) when available.
+  session.defaultSession.setDisplayMediaRequestHandler((_req, callback) => {
+    desktopCapturer.getSources({ types: ['screen', 'window'] })
+      .then(sources => callback({ video: sources[0] }))
+      .catch(() => callback({}))
+  }, { useSystemPicker: true })
 
   buildTray()
 
