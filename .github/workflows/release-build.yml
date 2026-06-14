@@ -294,6 +294,9 @@ jobs:
       - name: Bundle Electron main process
         run: pnpm electron:build-main
 
+      - name: Install pacman build deps
+        run: sudo apt-get install -y libarchive-tools
+
       - name: Build Electron Linux app
         run: pnpm exec electron-builder --linux --publish never
 
