@@ -1439,3 +1439,78 @@ Si `OPEN_REGISTER=false`:
    - Si 410: "Invitació exhausted"
    - Si 201: Redirigir a chat dashboard
 
+---
+
+## Client d'Escriptori
+
+ChillGroup inclou un client d'escriptori natiu per a **Linux** (Electron) i per a **macOS i Windows** (Tauri v2).
+
+### Linux — Formats disponibles
+
+A cada release es generen quatre executables per a Linux x64:
+
+| Format | Fitxer | Distribucions | Instal·lació |
+|--------|--------|---------------|--------------|
+| AppImage | `ChillGroup-*.AppImage` | Totes (cap instal·lació) | `chmod +x *.AppImage && ./*.AppImage` |
+| Debian/Ubuntu | `chillgroup_*.deb` | Debian, Ubuntu, Mint | `sudo dpkg -i *.deb` o `sudo apt install ./*.deb` |
+| RPM | `chillgroup-*.rpm` | Fedora, RHEL, openSUSE | `sudo rpm -i *.rpm` o `sudo dnf install ./*.rpm` |
+| Pacman | `chillgroup-*.pacman` | Arch Linux, Manjaro | `sudo pacman -U *.pacman` |
+
+Els executables es publiquen automàticament a GitHub Releases en cada push de tag `v*`.
+
+### macOS i Windows — Tauri
+
+El client per a macOS (universal: Intel + Apple Silicon) i Windows es compila amb Tauri v2. Es publica al mateix GitHub Release que els paquets de Linux.
+
+### Estructura de fitxers del client
+
+```
+chillgroup/
+├── electron/               # Codi font del client Electron (Linux)
+│   ├── main.ts             # Procés principal (tray, finestra, screen share)
+│   └── preload.ts          # Preload script
+├── electron-builder.yml    # Configuració de paquets Linux (AppImage, deb, rpm, pacman)
+├── package.json            # Dependències i scripts Electron
+└── src-tauri/              # Codi font del client Tauri (macOS/Windows)
+    ├── Cargo.toml
+    ├── tauri.conf.json
+    ├── icons/
+    └── src/
+        ├── main.rs
+        └── lib.rs
+```
+
+### Desenvolupament del client Electron (Linux)
+
+Requisits: Node.js 20+, pnpm.
+
+```bash
+# Instal·lar dependències
+pnpm install
+
+# Mode dev (arrenca Vite + Electron simultàniament)
+pnpm electron:dev
+
+# Compilar executable per a producció (genera AppImage, deb, rpm, pacman)
+pnpm electron:build
+```
+
+El client dev es connecta al servidor Vite a `http://localhost:5173`. La versió de producció incrusta el frontend compilat dins del paquet.
+
+### Release i versionat
+
+El script `release.sh` sincronitza la versió a tots els fitxers del projecte:
+
+- `server/Cargo.toml`
+- `src-tauri/Cargo.toml`
+- `src-tauri/tauri.conf.json`
+- `package.json` (Electron)
+
+```bash
+./release.sh patch    # ex: 0.1.36 → 0.1.37
+./release.sh minor    # ex: 0.1.37 → 0.2.0
+./release.sh v1.0.0   # versió explícita
+```
+
+El push del tag `v*` activa el workflow de GitHub Actions (`release-build.yml`) que genera tots els executables i els puja al GitHub Release.
+

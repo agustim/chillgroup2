@@ -123,6 +123,67 @@ Key variables for the backend (`.env` file):
 | `LIVEKIT_API_KEY` | LiveKit API key | from LiveKit dashboard |
 | `LIVEKIT_API_SECRET` | LiveKit API secret | from LiveKit dashboard |
 
+## Desktop Client
+
+ChillGroup ships a native desktop client for **Linux** (Electron) and for **macOS and Windows** (Tauri v2).
+
+### Linux — Available formats
+
+Each release produces four executables for Linux x64:
+
+| Format | File | Distributions | Install |
+|--------|------|---------------|---------|
+| AppImage | `ChillGroup-*.AppImage` | All (no install needed) | `chmod +x *.AppImage && ./*.AppImage` |
+| Debian/Ubuntu | `chillgroup_*.deb` | Debian, Ubuntu, Mint | `sudo dpkg -i *.deb` or `sudo apt install ./*.deb` |
+| RPM | `chillgroup-*.rpm` | Fedora, RHEL, openSUSE | `sudo rpm -i *.rpm` or `sudo dnf install ./*.rpm` |
+| Pacman | `chillgroup-*.pacman` | Arch Linux, Manjaro | `sudo pacman -U *.pacman` |
+
+Executables are published automatically to GitHub Releases on every `v*` tag push.
+
+### macOS and Windows — Tauri
+
+The client for macOS (universal: Intel + Apple Silicon) and Windows is built with Tauri v2 and published to the same GitHub Release.
+
+### Client source layout
+
+```
+chillgroup/
+├── electron/               # Electron client source (Linux)
+│   ├── main.ts             # Main process (tray, window, screen share)
+│   └── preload.ts
+├── electron-builder.yml    # Linux package config (AppImage, deb, rpm, pacman)
+├── package.json            # Electron dependencies and scripts
+└── src-tauri/              # Tauri client source (macOS/Windows)
+    ├── Cargo.toml
+    ├── tauri.conf.json
+    ├── icons/
+    └── src/
+        ├── main.rs
+        └── lib.rs
+```
+
+### Electron dev setup (Linux)
+
+Requirements: Node.js 20+, pnpm.
+
+```bash
+pnpm install
+pnpm electron:dev    # starts Vite + Electron together
+pnpm electron:build  # production build (AppImage, deb, rpm, pacman)
+```
+
+The dev client connects to Vite at `http://localhost:5173`. Production bundles the compiled frontend inside the package.
+
+### Versioning and release
+
+`release.sh` bumps the version in all four places (`server/Cargo.toml`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, `package.json`), creates a git tag, and pushes. CI builds all desktop formats from that tag.
+
+```bash
+./release.sh patch    # e.g. 0.1.36 → 0.1.37
+./release.sh minor    # e.g. 0.1.37 → 0.2.0
+./release.sh v1.0.0   # explicit version
+```
+
 ## Contributing
 
 See the [Contributing guide](/en/contributing) for PR workflow and conventions.

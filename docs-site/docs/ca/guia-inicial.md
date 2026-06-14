@@ -21,6 +21,32 @@ Aquest portal serveix per publicar la documentacio de ChillGroup com a web estat
 2. Executa el build del portal de docs.
 3. GitHub Pages publica la versio estatica generada.
 
+## App d'escriptori (Linux, macOS, Windows)
+
+A cada release de GitHub s'inclouen clients d'escriptori natius:
+
+- **Linux**: AppImage (totes les distros), `.deb` (Debian/Ubuntu/Mint), `.rpm` (Fedora/RHEL/openSUSE), `.pacman` (Arch/Manjaro)
+- **macOS**: `.dmg` universal (Intel + Apple Silicon)
+- **Windows**: instal·lador `.msi`
+
+Descarrega des de [GitHub Releases](https://github.com/agustim/chillgroup2/releases).
+
+Exemples d'instal·lació ràpida per a Linux:
+
+```bash
+# AppImage — funciona a qualsevol distro, sense instal·lació
+chmod +x ChillGroup-*.AppImage && ./ChillGroup-*.AppImage
+
+# Debian / Ubuntu / Mint
+sudo apt install ./chillgroup_*.deb
+
+# Fedora / RHEL / openSUSE
+sudo dnf install ./chillgroup-*.rpm
+
+# Arch Linux / Manjaro
+sudo pacman -U chillgroup-*.pacman
+```
+
 ## Deploy del projecte
 
 El projecte publica una imatge Docker precompilada a cada release. Per desplegar, executa el wizard interactiu que genera el `docker-compose.yml` i el `.env.compose` adaptats a la teva infraestructura:

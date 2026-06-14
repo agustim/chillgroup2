@@ -21,6 +21,32 @@ This documentation site is intended to expose ChillGroup's project docs as a sta
 2. Build the docs site.
 3. Publish the generated static output to GitHub Pages.
 
+## Desktop app (Linux, macOS, Windows)
+
+Each release on GitHub includes native desktop clients:
+
+- **Linux**: AppImage (all distros), `.deb` (Debian/Ubuntu/Mint), `.rpm` (Fedora/RHEL/openSUSE), `.pacman` (Arch/Manjaro)
+- **macOS**: universal `.dmg` (Intel + Apple Silicon)
+- **Windows**: `.msi` installer
+
+Download from [GitHub Releases](https://github.com/agustim/chillgroup2/releases).
+
+Quick install examples for Linux:
+
+```bash
+# AppImage — works on any distro, no installation required
+chmod +x ChillGroup-*.AppImage && ./ChillGroup-*.AppImage
+
+# Debian / Ubuntu / Mint
+sudo apt install ./chillgroup_*.deb
+
+# Fedora / RHEL / openSUSE
+sudo dnf install ./chillgroup-*.rpm
+
+# Arch Linux / Manjaro
+sudo pacman -U chillgroup-*.pacman
+```
+
 ## Project deployment
 
 The project publishes a pre-built Docker image on every release. To deploy, run the interactive wizard that generates a `docker-compose.yml` and `.env.compose` tailored to your infrastructure:
