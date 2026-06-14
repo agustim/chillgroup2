@@ -12,7 +12,8 @@ impl DatabasePool {
                                              WHEN sm.role IN ('owner', 'admin') THEN 3 \
                                              ELSE 2 \
                                          END AS permission_level, \
-                                         rs.last_read_message_id \
+                                         rs.last_read_message_id, \
+                                         COALESCE(c.position, 0) AS position \
                                          FROM channels c \
                                          LEFT JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = $2 \
                                          LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = $2 \
@@ -63,6 +64,7 @@ impl DatabasePool {
                         key_version,
                         last_read_message_id: row.get(9),
                         created_at,
+                        position: row.get(10),
                     });
                 }
             }
@@ -74,14 +76,15 @@ impl DatabasePool {
                                                              WHEN sm.role IN ('owner', 'admin') THEN 3 \
                                                              ELSE 2 \
                                                          END AS permission_level, \
-                                                         rs.last_read_message_id \
+                                                         rs.last_read_message_id, \
+                                                         COALESCE(c.position, 0) AS position \
                                                          FROM channels c \
                                                          LEFT JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = ? \
                                                          LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = ? \
                                                          LEFT JOIN channel_read_state rs ON rs.channel_id = c.id AND rs.user_id = ? \
                                                          WHERE c.server_id = ? \
                                                              AND (c.is_private = 0 OR cm.user_id IS NOT NULL) \
-                                                         ORDER BY c.type ASC, c.name ASC";
+                                                         ORDER BY c.position ASC, c.type ASC, c.name ASC";
                 let rows = sqlx::query(&query)
                     .bind(user_id)
                     .bind(user_id)
@@ -124,6 +127,7 @@ impl DatabasePool {
                         key_version,
                         last_read_message_id: row.get(9),
                         created_at,
+                        position: row.get(10),
                     });
                 }
             }
@@ -754,10 +758,10 @@ impl DatabasePool {
     }
 
     pub async fn get_channel(&self, channel_id: Uuid) -> Result<Option<Channel>, sqlx::Error> {
-        let query = "SELECT id, server_id, name, type, encryption_type, message_ttl, is_private, created_at FROM channels WHERE id = $1";
+        let query = "SELECT id, server_id, name, type, encryption_type, message_ttl, is_private, created_at, COALESCE(position, 0) FROM channels WHERE id = $1";
         match self {
             DatabasePool::Postgres(pool) => {
-                let row = sqlx::query("SELECT id, server_id, name, channel_type AS type, encryption_type, message_ttl, is_private, created_at::text FROM channels WHERE id = $1")
+                let row = sqlx::query("SELECT id, server_id, name, channel_type AS type, encryption_type, message_ttl, is_private, created_at::text, COALESCE(position, 0) FROM channels WHERE id = $1")
                     .bind(channel_id)
                     .fetch_optional(pool)
                     .await?;
@@ -776,6 +780,7 @@ impl DatabasePool {
                     let is_private: bool = row.get(6);
                     let created_at_str: String = row.get(7);
                     let created_at = parse_datetime_required(&created_at_str);
+                    let position: i32 = row.get(8);
                     let (key_version_id, key_version) = self
                         .get_channel_key_version_metadata(channel_id)
                         .await?
@@ -795,6 +800,7 @@ impl DatabasePool {
                         key_version,
                         last_read_message_id: None,
                         created_at,
+                        position,
                     }))
                 } else {
                     Ok(None)
@@ -821,6 +827,7 @@ impl DatabasePool {
                     let is_private: i64 = row.get(6);
                     let created_at_str: String = row.get(7);
                     let created_at = parse_datetime_required(&created_at_str);
+                    let position: i32 = row.get(8);
                     let (key_version_id, key_version) = self
                         .get_channel_key_version_metadata(channel_id)
                         .await?
@@ -840,6 +847,7 @@ impl DatabasePool {
                         key_version,
                         last_read_message_id: None,
                         created_at,
+                        position,
                     }))
                 } else {
                     Ok(None)

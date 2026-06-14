@@ -45,4 +45,7 @@ pub struct Channel {
     #[sqlx(default)]
     pub last_read_message_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
+    #[serde(default)]
+    #[sqlx(default)]
+    pub position: i32,
 }

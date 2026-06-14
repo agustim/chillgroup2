@@ -400,6 +400,7 @@ pub async fn create_channel(
             key_version: initial_key_version,
             last_read_message_id: None,
             created_at: now,
+            position: 0,
         }),
     ))
 }
@@ -991,6 +992,16 @@ pub async fn update_channel(
     let updated = state.db.get_channel(channel_id).await
         .map_err(|e| AppError::DatabaseError(e))?
         .ok_or(AppError::ChannelNotFound)?;
+
+    let server_room = format!("server:{}", channel.server_id);
+    let event = serde_json::json!({
+        "serverId": channel.server_id,
+        "reason": "channel-updated",
+        "channelId": channel_id,
+    });
+    if let Err(e) = state.io.to(server_room).emit("server-channels-updated", &event).await {
+        tracing::warn!("Error enviant server-channels-updated: {:?}", e);
+    }
 
     Ok(Json(updated))
 }
