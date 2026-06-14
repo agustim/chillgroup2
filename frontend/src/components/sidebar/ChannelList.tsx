@@ -43,6 +43,9 @@ interface ChannelListProps {
   serverMembers?: ServerMember[]
   serverMemberPresenceById?: Record<string, boolean>
   serverVersion?: string | null
+  notificationsEnabled?: boolean
+  notificationPermission?: string
+  onToggleNotifications?: () => void
 }
 
 export function ChannelList({
@@ -84,6 +87,9 @@ export function ChannelList({
   serverMembers = [],
   serverMemberPresenceById = {},
   serverVersion,
+  notificationsEnabled = true,
+  notificationPermission,
+  onToggleNotifications,
 }: ChannelListProps) {
   const { t } = useTranslation()
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
@@ -511,6 +517,20 @@ export function ChannelList({
           disabled={!canSpeak}
         >
           🎬
+        </button>
+        <button
+          className={`voice-user-btn ${notificationsEnabled ? 'active-on' : 'active-off'}`}
+          onClick={onToggleNotifications}
+          title={
+            notificationPermission === 'denied'
+              ? t('channels.notificationsBlocked')
+              : notificationsEnabled
+                ? t('channels.notificationsDisable')
+                : t('channels.notificationsEnable')
+          }
+          disabled={notificationPermission === 'denied'}
+        >
+          🔔
         </button>
         </div>
       </div>

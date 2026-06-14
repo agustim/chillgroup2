@@ -32,6 +32,9 @@ export function AppLayout({ username }: AppLayoutProps) {
   const {
     user,
     currentDeviceId,
+    notificationsEnabled,
+    notificationPermission,
+    toggleNotifications,
     serverVersion,
     servers,
     selectedServer,
@@ -229,6 +232,9 @@ export function AppLayout({ username }: AppLayoutProps) {
           serverMembers={serverDetails?.members ?? []}
           serverMemberPresenceById={serverMemberPresenceById}
           serverVersion={serverVersion}
+          notificationsEnabled={notificationsEnabled}
+          notificationPermission={notificationPermission}
+          onToggleNotifications={() => { void toggleNotifications() }}
         />
       )}
 

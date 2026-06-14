@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { usePresence } from './usePresence'
 import { useChannelConfig } from './useChannelConfig'
 import { useLiveKit } from './useLiveKit'
+import { useNotifications } from './useNotifications'
 import { Channel, FriendPresence, PanelType, Server, ServerFullInfo, VoiceParticipant } from '../types'
 import { disconnectSocket, getSocket } from '../lib/socket'
 import { hasLocalDeviceKeypair } from '../lib/device-keys'
@@ -57,6 +58,17 @@ function formatRepairFeedback(result: {
 
 export function useAppState() {
   const { user, logout, currentDeviceId } = useAuth()
+
+  const {
+    notificationsEnabled,
+    notificationPermission,
+    toggleNotifications,
+    fireNotification,
+    clearNotification,
+  } = useNotifications()
+
+  // Track which channels already have a pending notification to avoid spam
+  const notifiedChannelsRef = useRef(new Set<string>())
 
   const [serverVersion, setServerVersion] = useState<string | null>(null)
 
@@ -398,6 +410,20 @@ export function useAppState() {
   }, [voiceChannelId])
 
   const handleUnreadUpdated = (channelId: string, unreadCount: number) => {
+    if (unreadCount > 0 && notificationsEnabled) {
+      const isActive = channelId === resolvedSelectedChannel?.channelId
+      if (!isActive && !notifiedChannelsRef.current.has(channelId)) {
+        const channel = channels.find((c) => c.channelId === channelId)
+        if (channel) {
+          notifiedChannelsRef.current.add(channelId)
+          fireNotification(`#${channel.name}`, 'Nou missatge')
+        }
+      }
+    }
+    if (unreadCount === 0) {
+      notifiedChannelsRef.current.delete(channelId)
+    }
+
     setChannels((prev) => {
       const known = prev.some((c) => c.channelId === channelId)
       if (!known) {
@@ -438,6 +464,10 @@ export function useAppState() {
       setOpenTextChannelIds((current) =>
         current.includes(channel.channelId) ? current : [...current, channel.channelId]
       )
+    }
+    notifiedChannelsRef.current.delete(channel.channelId)
+    if (notifiedChannelsRef.current.size === 0) {
+      clearNotification()
     }
   }
 
@@ -1023,6 +1053,10 @@ export function useAppState() {
     // Auth
     user,
     currentDeviceId,
+    // Notifications
+    notificationsEnabled,
+    notificationPermission,
+    toggleNotifications,
     // Server info
     serverVersion,
     // Servers

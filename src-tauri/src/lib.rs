@@ -4,11 +4,13 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Listener, Manager, WebviewUrl, WebviewWindowBuilder,
 };
+use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_store::StoreExt;
 
 const STORE_KEY_SERVER_URL: &str = "server_url";
 const SETUP_WINDOW_LABEL: &str = "setup";
 const MAIN_WINDOW_LABEL: &str = "main";
+const TRAY_ID: &str = "main-tray";
 
 #[tauri::command]
 fn get_server_url(app: AppHandle) -> Result<String, String> {
@@ -32,6 +34,59 @@ fn set_server_url(app: AppHandle, url: String) -> Result<(), String> {
     store.set(STORE_KEY_SERVER_URL, serde_json::Value::String(url));
     store.save().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+fn notify(app: AppHandle, title: String, body: String) -> Result<(), String> {
+    app.notification()
+        .builder()
+        .title(&title)
+        .body(&body)
+        .show()
+        .map_err(|e| e.to_string())?;
+
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        let _ = tray.set_tooltip(Some("ChillGroup (notificació pendent)"));
+        let notif_icon_path = get_tray_icon_path(&app, "icon-notification");
+        if notif_icon_path.exists() {
+            if let Ok(image) = tauri::image::Image::from_path(&notif_icon_path) {
+                let _ = tray.set_icon(Some(image));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn set_tray_notification(app: AppHandle, has_notification: bool) -> Result<(), String> {
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        let tooltip = if has_notification {
+            "ChillGroup (notificació pendent)"
+        } else {
+            "ChillGroup"
+        };
+        let _ = tray.set_tooltip(Some(tooltip));
+
+        let icon_name = if has_notification { "icon-notification" } else { "icon" };
+        let icon_path = get_tray_icon_path(&app, icon_name);
+        if icon_path.exists() {
+            if let Ok(image) = tauri::image::Image::from_path(&icon_path) {
+                let _ = tray.set_icon(Some(image));
+            }
+        } else if !has_notification {
+            let _ = tray.set_icon(Some(tauri::include_image!("icons/icon.png")));
+        }
+    }
+    Ok(())
+}
+
+fn get_tray_icon_path(app: &AppHandle, name: &str) -> PathBuf {
+    let base = if cfg!(debug_assertions) {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("icons")
+    } else {
+        app.path().resource_dir().unwrap_or_default().join("icons")
+    };
+    base.join(format!("{}.png", name))
 }
 
 #[tauri::command]
@@ -78,6 +133,8 @@ pub fn run() {
             get_server_url,
             set_server_url,
             open_setup_window,
+            notify,
+            set_tray_notification,
         ])
         .setup(|app| {
             let open_i = MenuItem::with_id(app, "open", "Obrir ChillGroup", true, None::<&str>)?;
@@ -86,7 +143,9 @@ pub fn run() {
             let quit_i = MenuItem::with_id(app, "quit", "Sortir", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open_i, &server_i, &sep, &quit_i])?;
 
-            TrayIconBuilder::new()
+            TrayIconBuilder::with_id(TRAY_ID)
+                .icon(tauri::include_image!("icons/icon.png"))
+                .tooltip("ChillGroup")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {

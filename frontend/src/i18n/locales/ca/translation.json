@@ -662,7 +662,10 @@
     "screenStop": "Aturar compartir pantalla",
     "screenShare": "Compartir pantalla",
     "mediaStop": "Aturar fitxer de media",
-    "mediaShare": "Compartir fitxer de media"
+    "mediaShare": "Compartir fitxer de media",
+    "notificationsEnable": "Activar notificacions",
+    "notificationsDisable": "Desactivar notificacions",
+    "notificationsBlocked": "Notificacions bloquejades pel navegador"
   },
   "apiErrors": {
     "1002": "Credencials incorrectes",

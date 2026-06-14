@@ -3,6 +3,7 @@ import {
   BrowserWindow,
   Tray,
   Menu,
+  Notification,
   nativeImage,
   ipcMain,
   protocol,
@@ -47,6 +48,11 @@ function getIconPath(): string {
   return join(process.resourcesPath, 'icon.png')
 }
 
+function getNotifIconPath(): string {
+  if (IS_DEV) return join(__dirname, '../../src-tauri/icons/icon-notification.png')
+  return join(process.resourcesPath, 'icon-notification.png')
+}
+
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'application/javascript',
@@ -85,6 +91,9 @@ function serveFile(urlPath: string): Response {
 let mainWindow: BrowserWindow | null = null
 let setupWindow: BrowserWindow | null = null
 let tray: Tray | null = null
+let normalTrayIcon: Electron.NativeImage | null = null
+let notifTrayIcon: Electron.NativeImage | null = null
+let notificationCount = 0
 
 function windowOpts(extra: Electron.BrowserWindowConstructorOptions = {}): Electron.BrowserWindowConstructorOptions {
   return {
@@ -131,11 +140,16 @@ function openSetup(): void {
 
 function buildTray(): void {
   const iconPath = getIconPath()
-  const icon = existsSync(iconPath)
+  normalTrayIcon = existsSync(iconPath)
     ? nativeImage.createFromPath(iconPath)
     : nativeImage.createEmpty()
 
-  tray = new Tray(icon)
+  const notifIconPath = getNotifIconPath()
+  notifTrayIcon = existsSync(notifIconPath)
+    ? nativeImage.createFromPath(notifIconPath)
+    : normalTrayIcon
+
+  tray = new Tray(normalTrayIcon)
   tray.setToolTip('ChillGroup')
   tray.setContextMenu(
     Menu.buildFromTemplate([
@@ -152,6 +166,29 @@ function buildTray(): void {
 ipcMain.handle('get-server-url', () => readConfig()['server_url'] ?? '')
 ipcMain.handle('set-server-url', (_e, url: string) => saveConfig({ server_url: url }))
 ipcMain.handle('open-setup-window', () => openSetup())
+
+ipcMain.handle('notify', (_e, { title, body }: { title: string; body: string }) => {
+  if (Notification.isSupported()) {
+    new Notification({ title, body, silent: false }).show()
+  }
+  notificationCount++
+  if (tray && notifTrayIcon) tray.setImage(notifTrayIcon)
+  const unread = `${notificationCount} no llegit${notificationCount !== 1 ? 's' : ''}`
+  tray?.setToolTip(`ChillGroup (${unread})`)
+  if (typeof (app as any).setBadgeCount === 'function') {
+    ;(app as any).setBadgeCount(notificationCount)
+  }
+})
+
+ipcMain.handle('clear-notification', () => {
+  notificationCount = 0
+  if (tray && normalTrayIcon) tray.setImage(normalTrayIcon)
+  tray?.setToolTip('ChillGroup')
+  if (typeof (app as any).setBadgeCount === 'function') {
+    ;(app as any).setBadgeCount(0)
+  }
+})
+
 ipcMain.on('setup-complete', () => {
   if (setupWindow && !setupWindow.isDestroyed()) setupWindow.close()
   openMain()

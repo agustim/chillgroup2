@@ -1290,3 +1290,33 @@ Codis literals que **no** es tradueixen (intencional): rols `User`/`Admin`, badg
 ### Errors del backend
 
 El backend envia `{ code, message }` en català. `translateApiError(error)` mapeja `code` → `apiErrors.<code>` i fa fallback al `message` si no hi ha clau. Per valors dinàmics (4001 `max`, 4004 `max_mb`) el backend els envia a `details` per interpolar-los. Veure `definitions/ERRORS.md`.
+
+---
+
+## Notificacions (Desktop)
+
+`hooks/useNotifications.ts` centralitza les notificacions natives. Detecta la plataforma en temps d'execució:
+
+- **Electron**: crida `window.electronAPI.notify(title, body)` / `clearNotification()` via IPC.
+- **Tauri**: crida `invoke('notify', { title, body })` / `invoke('set_tray_notification', { hasNotification })`.
+- **Web**: usa la [Web Notifications API](https://developer.mozilla.org/en-US/docs/Web/API/Notifications_API) (`new Notification(title, { body })`).
+
+### Preferència d'usuari
+
+`notificationsEnabled` es desa a `localStorage` (clau `notifications_enabled`). El toggle demana permís de navegador la primera vegada que s'activa.
+
+### Disparador de notificació
+
+`useAppState.handleUnreadUpdated` invoca `fireNotification` quan:
+1. `unreadCount > 0` per a un canal que **no** és l'actiu.
+2. El canal no té ja una notificació pendent (deduplicat per `notifiedChannelsRef`).
+
+La notificació es neteja (`clearNotification`) quan l'usuari obre el canal corresponent o quan la finestra rep el focus.
+
+### Icona de tray de notificació
+
+- **Electron**: `src-tauri/icons/icon-notification.png`. Si no existeix, usa la icona normal.
+- **Tauri**: `src-tauri/icons/icon-notification.png`. Si no existeix, manté la icona normal però actualitza el tooltip.
+- A més, a macOS Electron usa `app.setBadgeCount(n)` per al badge del dock.
+
+> **Nota**: `icon-notification.png` inclòs és un placeholder (còpia de `icon.png`). Substituir per una versió amb indicador visual (punt vermell, etc.) per millor UX.

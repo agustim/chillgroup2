@@ -5,4 +5,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setServerUrl: (url: string): Promise<void> => ipcRenderer.invoke('set-server-url', url),
   openSetupWindow: (): Promise<void> => ipcRenderer.invoke('open-setup-window'),
   emitSetupComplete: (): void => { ipcRenderer.send('setup-complete') },
+  notify: (title: string, body: string): Promise<void> => ipcRenderer.invoke('notify', { title, body }),
+  clearNotification: (): Promise<void> => ipcRenderer.invoke('clear-notification'),
 })

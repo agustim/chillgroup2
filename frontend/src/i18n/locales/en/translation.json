@@ -662,7 +662,10 @@
     "screenStop": "Stop screen share",
     "screenShare": "Share screen",
     "mediaStop": "Stop media file",
-    "mediaShare": "Share media file"
+    "mediaShare": "Share media file",
+    "notificationsEnable": "Enable notifications",
+    "notificationsDisable": "Disable notifications",
+    "notificationsBlocked": "Notifications blocked by browser"
   },
   "apiErrors": {
     "1002": "Incorrect credentials",
