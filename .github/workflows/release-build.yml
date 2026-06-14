@@ -247,8 +247,6 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
           # macOS signing (skip until Apple Developer account available):
           # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -295,11 +293,18 @@ jobs:
       - name: Bundle Electron main process
         run: pnpm electron:build-main
 
-      - name: Build and publish Electron Linux app
+      - name: Build Electron Linux app
+        run: pnpm electron:build
+
+      - name: Upload to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: pnpm electron:publish
+        run: |
+          gh release upload ${{ github.ref_name }} \
+            dist-electron/*.AppImage \
+            dist-electron/*.deb \
+            --clobber
 
   publish-release:
     name: Publish Release Assets
