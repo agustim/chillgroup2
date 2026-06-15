@@ -1281,7 +1281,7 @@ const { t } = useTranslation()
 
 ### Cobertura d'extracció
 
-Strings extrets a `t()` a tota la UI: pantalles auth (`LoginScreen`, `DeviceUnlockScreen`), `sidebar/ChannelList`, **tots els modals** (`components/modals/*`), els panells `components/main/*` (`ChannelHeader`, `MessageInput`, `MessageList`, `MainContent`, `VoiceArea`, `MediaFilePlayer`, `ServerConfigPanel`, `ChannelConfigPanel`, `AdminUsersPanel`) i els layouts (`AppLayout`, `MobileLayout`). Namespaces per pantalla/modal/panell (`login`, `unlock`, `channels`, `createServer`, `channelForm`, `inviteMember`, `leaveServer`, `friends`, `serverInvitations`, `changePassword`, `logoutBackup`, `configureChannel`, `planSettings`, `permissions`, `channelKeys`, `deviceKeys`, `channelHeader`, `messageInput`, `serverConfig`, `mediaPlayer`, `channelConfigPanel`, `mainContent`, `voiceArea`, `messageList`, `appLayout`, `admin`) + `common` per a text compartit.
+Strings extrets a `t()` a tota la UI: pantalles auth (`LoginScreen`, `DeviceUnlockScreen`), `sidebar/ChannelList`, **tots els modals** (`components/modals/*`), els panells `components/main/*` (`ChannelHeader`, `MessageInput`, `MessageList`, `MainContent`, `VoiceArea`, `MediaFilePlayer`, `ServerConfigPanel`, `ChannelConfigPanel`, `AdminUsersPanel`, `UserConfigPanel`) i els layouts (`AppLayout`, `MobileLayout`). Namespaces per pantalla/modal/panell (`login`, `unlock`, `channels`, `createServer`, `channelForm`, `inviteMember`, `leaveServer`, `friends`, `serverInvitations`, `logoutBackup`, `configureChannel`, `permissions`, `channelKeys`, `deviceKeys`, `channelHeader`, `messageInput`, `serverConfig`, `mediaPlayer`, `channelConfigPanel`, `mainContent`, `voiceArea`, `messageList`, `appLayout`, `admin`, `userConfig`) + `common` per a text compartit.
 
 Codis literals que **no** es tradueixen (intencional): rols `User`/`Admin`, badges curts (`MOS`, `FCS`, `CAM`, `SCREEN`…), marca `ChillGroup`, placeholders d'exemple (`general`, `team_plus`).
 
@@ -1295,6 +1295,36 @@ El backend envia `{ code, message }` en català. `translateApiError(error)` mape
 
 ---
 
+## UserConfigPanel (`components/main/UserConfigPanel.tsx`)
+
+Panell unificat de configuració d'usuari. S'obre via "👤 Configurar compte" al menú d'usuari (⚙️ a `ChannelList`). Substitueix els antics panells `ChangePasswordPanel` i `PlanSettingsPanel` i el modal `ServerInvitationsModal` com a entrades separades de menú.
+
+**PanelType**: `'userConfig'`
+
+**4 pestanyes internes** (`Tab = 'password' | 'plan' | 'invitations' | 'notifications'`):
+
+| Pestanya | Contingut |
+|---|---|
+| `password` | `<ChangePasswordContent>` — formulari canvi de contrasenya |
+| `plan` | `<PlanSettingsPanel>` — gestió del pla de subscripció |
+| `invitations` | `<ServerInvitationsContent>` — llista invitacions de servidor pendents |
+| `notifications` | Toggle 🔔/🔕 de notificacions natives + descripció |
+
+**Props**:
+- `onClose: () => void`
+- `notificationsEnabled: boolean`
+- `notificationPermission?: string`
+- `onToggleNotifications: () => void`
+- `onInvitationAccepted: (serverId: string) => void`
+
+**Components extrets**:
+- `ChangePasswordContent` (de `modals/ChangePasswordModal.tsx`) — contingut sense wrapper de modal
+- `ServerInvitationsContent` (de `modals/ServerInvitationsModal.tsx`) — contingut sense wrapper de modal
+
+**CSS**: `.user-config-panel`, `.user-config-tabs`, `.user-config-tab`, `.user-config-tab.active`, `.user-config-content`, `.user-config-notifications`
+
+---
+
 ## Notificacions (Desktop)
 
 `hooks/useNotifications.ts` centralitza les notificacions natives. Detecta la plataforma en temps d'execució:
@@ -1305,7 +1335,7 @@ El backend envia `{ code, message }` en català. `translateApiError(error)` mape
 
 ### Preferència d'usuari
 
-`notificationsEnabled` es desa a `localStorage` (clau `notifications_enabled`). El toggle es troba al menú d'usuari (`user-actions-menu`, ⚙️), no als controls inferiors de la barra lateral. Demana permís de navegador la primera vegada que s'activa.
+`notificationsEnabled` es desa a `localStorage` (clau `notifications_enabled`). El toggle es troba a la pestanya **Notificacions** dins del panell `UserConfigPanel` (accessible via "👤 Configurar compte" al menú d'usuari ⚙️), no als controls inferiors de la barra lateral. Demana permís de navegador la primera vegada que s'activa.
 
 ### Disparador de notificació
 

@@ -10,7 +10,6 @@ import { InviteMemberModal } from './modals/InviteMemberModal'
 import { DeviceKeysPanel } from './modals/DeviceKeysModal'
 import { ChannelKeysPanel } from './modals/ChannelKeysModal'
 import { PermissionsPanel } from './modals/PermissionsModal'
-import { ChangePasswordPanel } from './modals/ChangePasswordModal'
 import { FriendsPanel } from './modals/FriendsModal'
 import { AdminUsersPanel } from './main/AdminUsersPanel'
 import { LogoutBackupModal } from './modals/LogoutBackupModal'
@@ -19,7 +18,7 @@ import { PanelTab } from './shared/PanelTab'
 import { ServerConfigPanel } from './main/ServerConfigPanel'
 import { ChannelConfigPanel } from './main/ChannelConfigPanel'
 import { LeaveServerModal } from './modals/LeaveServerModal'
-import { PlanSettingsPanel } from './modals/PlanSettingsModal'
+import { UserConfigPanel } from './main/UserConfigPanel'
 import { useAppState } from '../hooks/useAppState'
 export type { PanelType } from '../types'
 
@@ -216,10 +215,8 @@ export function AppLayout({ username }: AppLayoutProps) {
           onManageDevices={handleManageDevices}
           onManageChannelKeys={handleManageChannelKeys}
           onManageFriends={handleManageFriends}
-          onShowInvitations={() => setShowServerInvitations(true)}
           pendingInvitationCount={pendingInvitationCount}
-          onChangePassword={handleChangePassword}
-          onManagePlan={() => setPanel('planSettings')}
+          onOpenUserConfig={() => setPanel('userConfig')}
           onManagePermissions={handleManagePermissions}
           onManageAdminUsers={handleManageAdminUsers}
           onCollapseList={() => setIsChannelListCollapsed(true)}
@@ -232,9 +229,6 @@ export function AppLayout({ username }: AppLayoutProps) {
           serverMembers={serverDetails?.members ?? []}
           serverMemberPresenceById={serverMemberPresenceById}
           serverVersion={serverVersion}
-          notificationsEnabled={notificationsEnabled}
-          notificationPermission={notificationPermission}
-          onToggleNotifications={() => { void toggleNotifications() }}
         />
       )}
 
@@ -288,9 +282,8 @@ export function AppLayout({ username }: AppLayoutProps) {
             <PanelTab icon="➕" label={t('appLayout.tabNewServer')} isActive={panel === 'createServer'} onClick={() => setPanel('createServer')} onClose={() => setPanel('none')} />
             <PanelTab icon="👥" label={t('appLayout.tabFriends')} isActive={panel === 'friends'} onClick={() => setPanel('friends')} onClose={() => setPanel('none')} />
             <PanelTab icon="📱" label={t('appLayout.tabDevices')} isActive={panel === 'devices'} onClick={() => setPanel('devices')} onClose={() => setPanel('none')} />
-            <PanelTab icon="🔒" label={t('appLayout.tabPassword')} isActive={panel === 'changePassword'} onClick={() => setPanel('changePassword')} onClose={() => setPanel('none')} />
+            <PanelTab icon="👤" label={t('appLayout.panelUserConfig')} isActive={panel === 'userConfig'} onClick={() => setPanel('userConfig')} onClose={() => setPanel('none')} />
             <PanelTab icon="🔑" label={t('appLayout.tabKeys')} isActive={panel === 'channelKeys'} onClick={() => setPanel('channelKeys')} onClose={() => setPanel('none')} />
-            <PanelTab icon="📋" label={t('appLayout.tabPlan')} isActive={panel === 'planSettings'} onClick={() => setPanel('planSettings')} onClose={() => setPanel('none')} />
             <PanelTab icon="#" label={t('appLayout.tabNewText')} isActive={panel === 'createTextChannel'} onClick={() => setPanel('createTextChannel')} onClose={() => setPanel('none')} />
             <PanelTab icon="🔊" label={t('appLayout.tabNewVoice')} isActive={panel === 'createVoiceChannel'} onClick={() => setPanel('createVoiceChannel')} onClose={() => setPanel('none')} />
           </div>
@@ -308,7 +301,7 @@ export function AppLayout({ username }: AppLayoutProps) {
           <div className="feedback-banner" style={{ backgroundColor: '#ef4444', color: '#fff', display: 'flex', alignItems: 'center', gap: 12 }}>
             <span>{t('appLayout.quotaExceeded')}</span>
             <button
-              onClick={() => setPanel('planSettings')}
+              onClick={() => setPanel('userConfig')}
               style={{ background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.4)', color: '#fff', borderRadius: 4, padding: '2px 10px', cursor: 'pointer', whiteSpace: 'nowrap' }}
             >
               {t('appLayout.requestUpgrade')}
@@ -342,12 +335,21 @@ export function AppLayout({ username }: AppLayoutProps) {
             </div>
             <DeviceKeysPanel currentDeviceId={currentDeviceId} channels={channels} devices={user?.devices ?? []} />
           </div>
-        ) : panel === 'changePassword' ? (
+        ) : panel === 'userConfig' ? (
           <div className="panel admin-users-panel">
             <div className="admin-users-panel-header">
-              <h3>{t('appLayout.panelChangePassword')}</h3>
+              <h3>{t('appLayout.panelUserConfig')}</h3>
             </div>
-            <ChangePasswordPanel onClose={() => setPanel('none')} />
+            <UserConfigPanel
+              onClose={() => setPanel('none')}
+              notificationsEnabled={notificationsEnabled}
+              notificationPermission={notificationPermission}
+              onToggleNotifications={() => { void toggleNotifications() }}
+              onInvitationAccepted={() => {
+                setPendingInvitationCount(0)
+                void refreshServers()
+              }}
+            />
           </div>
         ) : panel === 'channelKeys' ? (
           <div className="panel admin-users-panel">
@@ -412,13 +414,6 @@ export function AppLayout({ username }: AppLayoutProps) {
             onRemoveServerMember={handleRemoveServerMember}
             onOpenPermissions={() => setPanel('permissions')}
           />
-        ) : panel === 'planSettings' ? (
-          <div className="panel admin-users-panel">
-            <div className="admin-users-panel-header">
-              <h3>{t('appLayout.panelPlan')}</h3>
-            </div>
-            <PlanSettingsPanel onClose={() => setPanel('none')} />
-          </div>
         ) : panel === 'channelConfig' && resolvedSelectedChannel ? (
           <ChannelConfigPanel
             channel={resolvedSelectedChannel}
@@ -498,17 +493,6 @@ export function AppLayout({ username }: AppLayoutProps) {
             onSearchUsers={handleSearchUsers}
             inviteType="server"
             targetName={selectedServerInfo?.name ?? selectedServer}
-          />
-        )}
-
-        {showServerInvitations && (
-          <ServerInvitationsModal
-            onClose={() => { setShowServerInvitations(false); setPendingInvitationCount(0) }}
-            onAccepted={() => {
-              setShowServerInvitations(false)
-              setPendingInvitationCount(0)
-              void refreshServers()
-            }}
           />
         )}
 

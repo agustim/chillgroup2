@@ -11,14 +11,13 @@ import { InviteMemberModal } from './modals/InviteMemberModal'
 import { DeviceKeysPanel } from './modals/DeviceKeysModal'
 import { ChannelKeysPanel } from './modals/ChannelKeysModal'
 import { PermissionsPanel } from './modals/PermissionsModal'
-import { ChangePasswordPanel } from './modals/ChangePasswordModal'
 import { FriendsPanel } from './modals/FriendsModal'
 import { AdminUsersPanel } from './main/AdminUsersPanel'
 import { LogoutBackupModal } from './modals/LogoutBackupModal'
-import { ServerInvitationsModal } from './modals/ServerInvitationsModal'
 import { ServerConfigPanel } from './main/ServerConfigPanel'
 import { ChannelConfigPanel } from './main/ChannelConfigPanel'
 import { LeaveServerModal } from './modals/LeaveServerModal'
+import { UserConfigPanel } from './main/UserConfigPanel'
 import { useAppState } from '../hooks/useAppState'
 import { serversList } from '../lib/api'
 
@@ -77,8 +76,6 @@ export function MobileLayout({ username }: MobileLayoutProps) {
     leaveServerConfirm,
     setLeaveServerConfirm,
     leaveServerBusy,
-    showServerInvitations,
-    setShowServerInvitations,
     pendingInvitationCount,
     setPendingInvitationCount,
     showLogoutModal,
@@ -142,6 +139,9 @@ export function MobileLayout({ username }: MobileLayoutProps) {
     handleUnreadUpdated,
     toggleVoiceAsTextMode,
     refreshServers,
+    notificationsEnabled,
+    notificationPermission,
+    toggleNotifications,
   } = useAppState()
 
   const closeDrawer = () => setDrawerOpen(false)
@@ -226,10 +226,8 @@ export function MobileLayout({ username }: MobileLayoutProps) {
             onManageDevices={handleManageDevices}
             onManageChannelKeys={handleManageChannelKeys}
             onManageFriends={handleManageFriends}
-            onShowInvitations={() => { setShowServerInvitations(true); closeDrawer() }}
             pendingInvitationCount={pendingInvitationCount}
-            onChangePassword={handleChangePassword}
-            onManagePlan={() => setPanel('planSettings')}
+            onOpenUserConfig={() => { setPanel('userConfig'); closeDrawer() }}
             onManagePermissions={handleManagePermissions}
             onManageAdminUsers={handleManageAdminUsers}
             onCollapseList={closeDrawer}
@@ -308,9 +306,15 @@ export function MobileLayout({ username }: MobileLayoutProps) {
           <div className="mobile-panel-content">
             <DeviceKeysPanel currentDeviceId={currentDeviceId} channels={channels} devices={user?.devices ?? []} />
           </div>
-        ) : panel === 'changePassword' ? (
+        ) : panel === 'userConfig' ? (
           <div className="mobile-panel-content">
-            <ChangePasswordPanel onClose={() => setPanel('none')} />
+            <UserConfigPanel
+              onClose={() => setPanel('none')}
+              notificationsEnabled={notificationsEnabled}
+              notificationPermission={notificationPermission}
+              onToggleNotifications={() => { void toggleNotifications() }}
+              onInvitationAccepted={() => { setPendingInvitationCount(0); void refreshServers() }}
+            />
           </div>
         ) : panel === 'channelKeys' ? (
           <div className="mobile-panel-content">
@@ -452,17 +456,6 @@ export function MobileLayout({ username }: MobileLayoutProps) {
         />
       )}
 
-      {showServerInvitations && (
-        <ServerInvitationsModal
-          onClose={() => { setShowServerInvitations(false); setPendingInvitationCount(0) }}
-          onAccepted={() => {
-            setShowServerInvitations(false)
-            setPendingInvitationCount(0)
-            void refreshServers()
-          }}
-        />
-      )}
-
       {showLogoutModal && (
         <LogoutBackupModal
           username={username}
@@ -490,7 +483,7 @@ function panelTitle(panel: string): string {
     permissions: i18n.t('appLayout.tabPermissions'),
     friends: i18n.t('appLayout.tabFriends'),
     createServer: i18n.t('appLayout.tabNewServer'),
-    changePassword: i18n.t('appLayout.mobileTitlePassword'),
+    userConfig: i18n.t('appLayout.mobileTitleUserConfig'),
     channelKeys: i18n.t('appLayout.tabKeys'),
     createTextChannel: i18n.t('appLayout.mobileTitleNewText'),
     createVoiceChannel: i18n.t('appLayout.mobileTitleNewVoice'),

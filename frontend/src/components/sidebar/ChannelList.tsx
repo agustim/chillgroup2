@@ -26,10 +26,8 @@ interface ChannelListProps {
   onManageDevices?: () => void
   onManageChannelKeys?: () => void
   onManageFriends?: () => void
-  onShowInvitations?: () => void
   pendingInvitationCount?: number
-  onChangePassword?: () => void
-  onManagePlan?: () => void
+  onOpenUserConfig?: () => void
   onManagePermissions?: () => void
   onManageAdminUsers?: () => void
   onCollapseList?: () => void
@@ -43,9 +41,6 @@ interface ChannelListProps {
   serverMembers?: ServerMember[]
   serverMemberPresenceById?: Record<string, boolean>
   serverVersion?: string | null
-  notificationsEnabled?: boolean
-  notificationPermission?: string
-  onToggleNotifications?: () => void
 }
 
 export function ChannelList({
@@ -70,10 +65,8 @@ export function ChannelList({
   onManageDevices,
   onManageChannelKeys,
   onManageFriends,
-  onShowInvitations,
   pendingInvitationCount = 0,
-  onChangePassword,
-  onManagePlan,
+  onOpenUserConfig,
   onManagePermissions,
   onManageAdminUsers,
   onCollapseList,
@@ -87,9 +80,6 @@ export function ChannelList({
   serverMembers = [],
   serverMemberPresenceById = {},
   serverVersion,
-  notificationsEnabled = true,
-  notificationPermission,
-  onToggleNotifications,
 }: ChannelListProps) {
   const { t } = useTranslation()
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
@@ -179,25 +169,11 @@ export function ChannelList({
               <button onClick={() => { setIsUserMenuOpen(false); onManageDevices?.() }}>{t('channels.menuDevices')}</button>
               <button onClick={() => { setIsUserMenuOpen(false); onManageChannelKeys?.() }}>{t('channels.menuChannelKeys')}</button>
               <button onClick={() => { setIsUserMenuOpen(false); onManageFriends?.() }}>{t('channels.menuFriends')}</button>
-              <button onClick={() => { setIsUserMenuOpen(false); onShowInvitations?.() }} style={{ position: 'relative' }}>
-                {t('channels.menuInvitations')}
+              <button onClick={() => { setIsUserMenuOpen(false); onOpenUserConfig?.() }} style={{ position: 'relative' }}>
+                {t('channels.menuUserConfig')}
                 {pendingInvitationCount > 0 && (
                   <span className="channel-unread-badge" style={{ marginLeft: 6 }}>{pendingInvitationCount}</span>
                 )}
-              </button>
-              <button onClick={() => { setIsUserMenuOpen(false); onChangePassword?.() }}>{t('channels.menuChangePassword')}</button>
-              <button onClick={() => { setIsUserMenuOpen(false); onManagePlan?.() }}>{t('channels.menuPlan')}</button>
-              <button
-                onClick={() => { setIsUserMenuOpen(false); onToggleNotifications?.() }}
-                disabled={notificationPermission === 'denied'}
-                title={notificationPermission === 'denied' ? t('channels.notificationsBlocked') : undefined}
-              >
-                {notificationsEnabled ? '🔔' : '🔕'}{' '}
-                {notificationPermission === 'denied'
-                  ? t('channels.notificationsBlocked')
-                  : notificationsEnabled
-                    ? t('channels.notificationsDisable')
-                    : t('channels.notificationsEnable')}
               </button>
               <button onClick={() => { setIsUserMenuOpen(false); onManagePermissions?.() }}>{t('channels.menuPermissions')}</button>
               {canManageAdminUsers && (

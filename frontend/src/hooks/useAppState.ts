@@ -863,7 +863,7 @@ export function useAppState() {
   const handleManageDevices = () => { setPanel('devices') }
   const handleManageChannelKeys = () => { setPanel('channelKeys') }
   const handleManageFriends = () => { setPanel('friends') }
-  const handleChangePassword = () => { setPanel('changePassword') }
+  const handleChangePassword = () => { setPanel('userConfig') }
 
   const handleManagePermissions = () => {
     setSelectedChannel(null)

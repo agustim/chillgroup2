@@ -10,7 +10,7 @@ interface ChangePasswordPanelProps {
   onClose: () => void
 }
 
-function ChangePasswordContent({ onClose }: ChangePasswordPanelProps) {
+export function ChangePasswordContent({ onClose }: ChangePasswordPanelProps) {
   const { t } = useTranslation()
   const [oldPassword, setOldPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')

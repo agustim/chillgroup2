@@ -8,7 +8,7 @@ interface ServerInvitationsModalProps {
   onAccepted: (serverId: string) => void
 }
 
-export function ServerInvitationsModal({ onClose, onAccepted }: ServerInvitationsModalProps) {
+export function ServerInvitationsContent({ onAccepted }: { onAccepted: (serverId: string) => void }) {
   const { t } = useTranslation()
   const [invitations, setInvitations] = useState<PendingServerInvitation[]>([])
   const [loading, setLoading] = useState(true)
@@ -54,6 +54,64 @@ export function ServerInvitationsModal({ onClose, onAccepted }: ServerInvitation
   }
 
   return (
+    <div>
+      {error && <div className="modal-error" style={{ marginBottom: 12 }}>{error}</div>}
+      {loading ? (
+        <p style={{ color: 'var(--text-secondary)', textAlign: 'center' }}>{t('common.loadingShort')}</p>
+      ) : invitations.length === 0 ? (
+        <p style={{ color: 'var(--text-secondary)', textAlign: 'center' }}>
+          {t('serverInvitations.empty')}
+        </p>
+      ) : (
+        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {invitations.map((inv) => (
+            <li
+              key={inv.invitationId}
+              style={{
+                background: 'var(--bg-active)',
+                borderRadius: 8,
+                padding: '12px 16px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{inv.serverName}</div>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                  {t('serverInvitations.invitedBy')} <strong>{inv.inviterUsername}</strong>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={busyId === inv.invitationId}
+                  onClick={() => void handleDecline(inv)}
+                >
+                  {t('serverInvitations.decline')}
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={busyId === inv.invitationId}
+                  onClick={() => void handleAccept(inv)}
+                >
+                  {t('serverInvitations.accept')}
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+export function ServerInvitationsModal({ onClose, onAccepted }: ServerInvitationsModalProps) {
+  const { t } = useTranslation()
+  return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
         <div className="modal-header">
@@ -61,56 +119,7 @@ export function ServerInvitationsModal({ onClose, onAccepted }: ServerInvitation
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
         <div className="modal-body">
-          {error && <div className="modal-error" style={{ marginBottom: 12 }}>{error}</div>}
-          {loading ? (
-            <p style={{ color: 'var(--text-secondary)', textAlign: 'center' }}>{t('common.loadingShort')}</p>
-          ) : invitations.length === 0 ? (
-            <p style={{ color: 'var(--text-secondary)', textAlign: 'center' }}>
-              {t('serverInvitations.empty')}
-            </p>
-          ) : (
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {invitations.map((inv) => (
-                <li
-                  key={inv.invitationId}
-                  style={{
-                    background: 'var(--bg-active)',
-                    borderRadius: 8,
-                    padding: '12px 16px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 12,
-                  }}
-                >
-                  <div>
-                    <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{inv.serverName}</div>
-                    <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                      {t('serverInvitations.invitedBy')} <strong>{inv.inviterUsername}</strong>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={busyId === inv.invitationId}
-                      onClick={() => void handleDecline(inv)}
-                    >
-                      {t('serverInvitations.decline')}
-                    </Button>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      disabled={busyId === inv.invitationId}
-                      onClick={() => void handleAccept(inv)}
-                    >
-                      {t('serverInvitations.accept')}
-                    </Button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+          <ServerInvitationsContent onAccepted={(serverId) => { onAccepted(serverId); onClose() }} />
         </div>
       </div>
     </div>
