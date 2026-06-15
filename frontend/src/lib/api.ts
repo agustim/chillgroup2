@@ -918,6 +918,14 @@ export async function messagesDelete(messageId: string) {
   return apiRequest<{ deletedAt: string }>('DELETE', `/api/messages/${messageId}`)
 }
 
+export async function messagesUpdateExpiry(messageId: string, expiresAt: string | null) {
+  return apiRequest<{ messageId: string; channelId: string; expiresAt: string | null }>(
+    'PUT',
+    `/api/messages/${messageId}/expiry`,
+    { expires_at: expiresAt },
+  )
+}
+
 export async function messagesGet(messageId: string) {
   const result = await apiRequest<any>('GET', `/api/messages/${messageId}`)
   if (!result.success || !result.data) return result

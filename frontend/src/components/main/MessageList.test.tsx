@@ -18,6 +18,7 @@ vi.mock('../../lib/api', () => ({
   messagesList: vi.fn(),
   attachmentGetDownload: vi.fn(),
   channelsMarkRead: vi.fn(),
+  messagesUpdateExpiry: vi.fn(),
 }))
 
 vi.mock('../../lib/channel-crypto', () => ({

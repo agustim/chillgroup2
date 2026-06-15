@@ -883,6 +883,60 @@ pub async fn rotate_dm_channel_key(
     }))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateMessageExpiryRequest {
+    pub expires_at: Option<String>,
+}
+
+pub async fn update_message_expiry(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<AuthClaims>,
+    Path(message_id): Path<Uuid>,
+    Json(req): Json<UpdateMessageExpiryRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    info!("Endpoint update_message_expiry cridat: message_id={}, user_id={}", message_id, claims.user_id);
+
+    let message = state.db.get_message(message_id).await
+        .map_err(|_| AppError::InternalError)?
+        .ok_or(AppError::MessageNotFound)?;
+
+    let is_sender = message.sender_user_id == claims.user_id;
+    let permission_level = state.db
+        .get_channel_permission_level(message.channel_id, claims.user_id)
+        .await
+        .map_err(|_| AppError::InternalError)?
+        .unwrap_or(0);
+
+    if !is_sender && permission_level < CHANNEL_PERMISSION_MANAGE {
+        return Err(AppError::Forbidden);
+    }
+
+    let expires_at = req.expires_at
+        .as_deref()
+        .map(|s| chrono::DateTime::parse_from_rfc3339(s).map_err(|_| AppError::BadRequest))
+        .transpose()?
+        .map(|d| d.with_timezone(&chrono::Utc));
+
+    let updated = state.db.update_message_expiry(message_id, expires_at)
+        .await
+        .map_err(|e| {
+            tracing::error!("Error updating message expiry: {}", e);
+            AppError::InternalError
+        })?;
+
+    let room = format!("channel:{}", updated.channel_id);
+    let socket_event = serde_json::json!({
+        "messageId": updated.id,
+        "channelId": updated.channel_id,
+        "expiresAt": updated.expires_at,
+    });
+    if let Err(e) = state.io.to(room).emit("message-expiry-updated", &socket_event).await {
+        tracing::warn!("Error broadcast message-expiry-updated: {:?}", e);
+    }
+
+    Ok(Json(socket_event))
+}
+
 pub async fn add_reaction(
     State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<AuthClaims>,
@@ -940,6 +994,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/channels/{channel_id}/messages", get(list_messages).post(send_message))
         .route("/api/messages/{message_id}", get(get_message).put(edit_message).delete(delete_message))
+        .route("/api/messages/{message_id}/expiry", put(update_message_expiry))
         .route("/api/messages/{message_id}/reactions", post(add_reaction))
         .route("/api/messages/{message_id}/reactions/{emoji}", axum::routing::delete(remove_reaction))
         .route("/api/channels/{channel_id}/messages/check-new", get(check_new_messages))

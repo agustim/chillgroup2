@@ -970,6 +970,8 @@ Props principals:
 
 **Modes de visualització:** `mosaic` (graella automàtica) | `focus` (un participant gran + strip lateral)
 
+**Mode TAB/FIX:** botó `TAB`/`FIX` a la barra de controls de la VoiceArea. El botó mostra el mode al qual es pot canviar fent clic (patró toggle). Per defecte el canal de veu comença amb botó `TAB` visible (mode FIX actiu). Clicar activa `voiceAsTextMode=true` (mode TAB), que amaga el panell de veu quan es visualitza un canal de text.
+
 **Mute local per stream:** cada tile té botó 🔊/🔇. L'estat es gestiona amb `localMutedStreamIds: Set<string>` intern a `VoiceArea`.
 
 ### `MediaFilePlayer` — Reproductor Flotant
@@ -1303,7 +1305,7 @@ El backend envia `{ code, message }` en català. `translateApiError(error)` mape
 
 ### Preferència d'usuari
 
-`notificationsEnabled` es desa a `localStorage` (clau `notifications_enabled`). El toggle demana permís de navegador la primera vegada que s'activa.
+`notificationsEnabled` es desa a `localStorage` (clau `notifications_enabled`). El toggle es troba al menú d'usuari (`user-actions-menu`, ⚙️), no als controls inferiors de la barra lateral. Demana permís de navegador la primera vegada que s'activa.
 
 ### Disparador de notificació
 

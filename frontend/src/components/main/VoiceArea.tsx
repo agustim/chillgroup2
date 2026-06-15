@@ -352,9 +352,9 @@ export function VoiceArea({
           <button
             className={`voice-control-btn voice-mode-btn ${voiceAsTextMode ? 'active-on' : 'active-off'}`}
             onClick={onToggleVoiceAsTextMode}
-            title={voiceAsTextMode ? t('voiceArea.modeTabOn') : t('voiceArea.modeFixOn')}
+            title={voiceAsTextMode ? t('voiceArea.modeFixOn') : t('voiceArea.modeTabOn')}
           >
-            {voiceAsTextMode ? 'TAB' : 'FIX'}
+            {voiceAsTextMode ? 'FIX' : 'TAB'}
           </button>
           <button
             className="voice-control-btn"

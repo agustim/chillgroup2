@@ -1846,6 +1846,37 @@ Editar un missatge (només el remitent original). No té límit de temps.
 
 ---
 
+### PUT `/api/messages/:messageId/expiry`
+
+Actualitzar la data d'expiració d'un missatge. Accessible pel remitent original o per un usuari amb permís `MANAGE` al canal.
+
+**Headers:** `Authorization: Bearer <JWT>`
+**Path Params:** `{ "messageId": "string" }`
+**Request Body:**
+```json
+{
+  "expires_at": "2026-05-14T10:30:00Z"
+}
+```
+`expires_at` pot ser `null` per eliminar el TTL del missatge.
+
+**Response 200 OK:**
+```json
+{
+  "messageId": "550e8400-e29b-41d4-a716-446655440040",
+  "channelId": "550e8400-e29b-41d4-a716-446655440020",
+  "expiresAt": "2026-05-14T10:30:00Z"
+}
+```
+
+**Efectes secundaris:** Emet l'event Socket.IO `message-expiry-updated` a la room `channel:{channelId}`.
+
+**Response 400 Bad Request:** `expires_at` no és un RFC3339 vàlid.
+**Response 403 Forbidden:** Ni remitent ni admin del canal.
+**Response 404 Not Found:** Missatge no trobat.
+
+---
+
 ### DELETE `/api/messages/:messageId`
 
 Eliminar un missatge (soft delete). El remitent original sempre pot esborrar el seu missatge. Un usuari amb permís `MANAGE` al canal també pot esborrar qualsevol missatge.
@@ -2427,6 +2458,7 @@ El JWT LiveKit retornat inclou `canPublish: true` o `canPublish: false` segons e
 | GET | `/api/channels/:id/messages` | Sí | Llistar missatges |
 | POST | `/api/channels/:id/messages` | Sí | Enviar missatge |
 | PUT | `/api/messages/:id` | Sí | Editar missatge |
+| PUT | `/api/messages/:id/expiry` | Sí | Actualitzar TTL missatge |
 | GET | `/api/messages/:id` | Sí | Recuperar missatge concret |
 | DELETE | `/api/messages/:id` | Sí | Eliminar missatge |
 | GET | `/api/channels/:id/messages/check-new` | Sí | Check missatges nous |

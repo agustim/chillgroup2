@@ -187,6 +187,18 @@ export function ChannelList({
               </button>
               <button onClick={() => { setIsUserMenuOpen(false); onChangePassword?.() }}>{t('channels.menuChangePassword')}</button>
               <button onClick={() => { setIsUserMenuOpen(false); onManagePlan?.() }}>{t('channels.menuPlan')}</button>
+              <button
+                onClick={() => { setIsUserMenuOpen(false); onToggleNotifications?.() }}
+                disabled={notificationPermission === 'denied'}
+                title={notificationPermission === 'denied' ? t('channels.notificationsBlocked') : undefined}
+              >
+                {notificationsEnabled ? '🔔' : '🔕'}{' '}
+                {notificationPermission === 'denied'
+                  ? t('channels.notificationsBlocked')
+                  : notificationsEnabled
+                    ? t('channels.notificationsDisable')
+                    : t('channels.notificationsEnable')}
+              </button>
               <button onClick={() => { setIsUserMenuOpen(false); onManagePermissions?.() }}>{t('channels.menuPermissions')}</button>
               {canManageAdminUsers && (
                 <button onClick={() => { setIsUserMenuOpen(false); onManageAdminUsers?.() }}>{t('channels.menuAdminUsers')}</button>
@@ -517,20 +529,6 @@ export function ChannelList({
           disabled={!canSpeak}
         >
           🎬
-        </button>
-        <button
-          className={`voice-user-btn ${notificationsEnabled ? 'active-on' : 'active-off'}`}
-          onClick={onToggleNotifications}
-          title={
-            notificationPermission === 'denied'
-              ? t('channels.notificationsBlocked')
-              : notificationsEnabled
-                ? t('channels.notificationsDisable')
-                : t('channels.notificationsEnable')
-          }
-          disabled={notificationPermission === 'denied'}
-        >
-          🔔
         </button>
         </div>
       </div>

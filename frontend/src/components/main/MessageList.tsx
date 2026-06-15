@@ -12,6 +12,7 @@ import {
   messagesDelete,
   messagesReact,
   messagesUnreact,
+  messagesUpdateExpiry,
 } from '../../lib/api'
 import { decryptAttachmentToBlob, downloadAndDecryptAttachment } from '../../lib/attachments'
 import { decryptMessagesForChannel, encryptChannelMessage } from '../../lib/channel-crypto'
@@ -113,6 +114,7 @@ export function MessageList({
   // Info popover state
   const [infoMessageId, setInfoMessageId] = useState<string | null>(null)
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null)
+  const [ttlBusyMessageId, setTtlBusyMessageId] = useState<string | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesTopRef = useRef<HTMLDivElement>(null)
@@ -563,6 +565,17 @@ export function MessageList({
     }
   }
 
+  const handleUpdateExpiry = async (msg: Message, newExpiresAt: string | null) => {
+    setTtlBusyMessageId(msg.messageId)
+    const result = await messagesUpdateExpiry(msg.messageId, newExpiresAt)
+    setTtlBusyMessageId(null)
+    if (result.success) {
+      setMessages((prev) => prev.map((m) =>
+        m.messageId === msg.messageId ? { ...m, expiresAt: newExpiresAt } : m
+      ))
+    }
+  }
+
   const handleScrollToMessage = (messageId: string) => {
     const el = document.querySelector(`[data-message-id="${messageId}"]`)
     if (el) {
@@ -704,6 +717,34 @@ export function MessageList({
                           <span className="message-info-value message-info-expiry">
                             <MessageCountdown expiresAt={msg.expiresAt} />
                           </span>
+                        </div>
+                      )}
+                      {msg.expiresAt && (isOwnMessage || canManage) && (
+                        <div className="message-info-row message-info-ttl-controls">
+                          {[
+                            { label: t('messageList.ttlAdd1h'), seconds: 3600 },
+                            { label: t('messageList.ttlAdd24h'), seconds: 86400 },
+                            { label: t('messageList.ttlAdd7d'), seconds: 604800 },
+                          ].map(({ label, seconds }) => (
+                            <button
+                              key={label}
+                              className="message-ttl-btn"
+                              disabled={ttlBusyMessageId === msg.messageId}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                const newExpiry = new Date(new Date(msg.expiresAt!).getTime() + seconds * 1000).toISOString()
+                                void handleUpdateExpiry(msg, newExpiry)
+                              }}
+                            >{label}</button>
+                          ))}
+                          <button
+                            className="message-ttl-btn message-ttl-btn-remove"
+                            disabled={ttlBusyMessageId === msg.messageId}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              void handleUpdateExpiry(msg, null)
+                            }}
+                          >{t('messageList.ttlRemove')}</button>
                         </div>
                       )}
                       {msg.keyVersion != null && (

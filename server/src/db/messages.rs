@@ -429,6 +429,75 @@ impl DatabasePool {
         }
     }
 
+    pub async fn update_message_expiry(
+        &self,
+        message_id: Uuid,
+        expires_at: Option<DateTime<Utc>>,
+    ) -> Result<Message, sqlx::Error> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let query = "UPDATE messages SET expires_at = $1::timestamptz WHERE id = $2 \
+                             RETURNING id, channel_id, sender_user_id, sender_username, sender_device_id, \
+                                       encrypted_payload, iv, key_version, timestamp::text, expires_at::text, edited_at::text, deleted_at::text, \
+                                       reply_to_message_id";
+                let row = sqlx::query(query)
+                    .bind(expires_at.map(|d| d.to_rfc3339()))
+                    .bind(message_id)
+                    .fetch_one(pool)
+                    .await?;
+                let attachment_ids = self.get_message_attachment_ids(message_id).await?;
+                let reactions = self.get_reactions_for_message(message_id).await?;
+                Ok(Message {
+                    id: row.get(0),
+                    channel_id: row.get(1),
+                    sender_user_id: row.get(2),
+                    sender_username: row.get(3),
+                    sender_device_id: row.get(4),
+                    encrypted_payload: row.get(5),
+                    iv: row.get(6),
+                    attachment_ids,
+                    key_version: row.get(7),
+                    timestamp: parse_datetime_required(&row.get::<String, _>(8)),
+                    expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
+                    edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
+                    deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(11)),
+                    reply_to_message_id: row.get(12),
+                    reactions,
+                })
+            }
+            DatabasePool::Sqlite(pool) => {
+                let query = "UPDATE messages SET expires_at = ? WHERE id = ? \
+                             RETURNING id, channel_id, sender_user_id, sender_username, sender_device_id, \
+                                       encrypted_payload, iv, key_version, timestamp, expires_at, edited_at, deleted_at, \
+                                       reply_to_message_id";
+                let row = sqlx::query(query)
+                    .bind(expires_at.map(|d| d.to_rfc3339()))
+                    .bind(message_id)
+                    .fetch_one(pool)
+                    .await?;
+                let attachment_ids = self.get_message_attachment_ids(message_id).await?;
+                let reactions = self.get_reactions_for_message(message_id).await?;
+                Ok(Message {
+                    id: row.get(0),
+                    channel_id: row.get(1),
+                    sender_user_id: row.get(2),
+                    sender_username: row.get(3),
+                    sender_device_id: row.get(4),
+                    encrypted_payload: row.get(5),
+                    iv: row.get(6),
+                    attachment_ids,
+                    key_version: row.get(7),
+                    timestamp: parse_datetime_required(&row.get::<String, _>(8)),
+                    expires_at: parse_datetime_utc(&row.get::<Option<String>, _>(9)),
+                    edited_at: parse_datetime_utc(&row.get::<Option<String>, _>(10)),
+                    deleted_at: parse_datetime_utc(&row.get::<Option<String>, _>(11)),
+                    reply_to_message_id: row.get(12),
+                    reactions,
+                })
+            }
+        }
+    }
+
     pub async fn get_reactions_for_message(&self, message_id: Uuid) -> Result<Vec<MessageReaction>, sqlx::Error> {
         self.get_reactions_for_messages(&[message_id])
             .await
