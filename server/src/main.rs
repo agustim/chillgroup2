@@ -928,15 +928,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .allow_headers(tower_http::cors::Any)
     };
 
-    let auth_rate_limiter = middleware::RateLimiter::new(5, std::time::Duration::from_secs(15 * 60));
+    // Login: 1000 peticions per 15 min (empreses amb IP compartida)
+    let login_rate_limiter = middleware::RateLimiter::new(1000, std::time::Duration::from_secs(15 * 60));
+    // Register: 5 peticions per 15 min (prevenir abús)
+    let register_rate_limiter = middleware::RateLimiter::new(5, std::time::Duration::from_secs(15 * 60));
 
     // Crear router amb tots els routers dels fitxers de routes
     // Rutes sense auth (health + auth)
     let public_app = Router::new()
         .merge(routes::health::router(state.clone()))
         .merge(
-            routes::auth::router(state.clone())
-                .layer(from_fn_with_state(auth_rate_limiter, middleware::rate_limit_middleware))
+            routes::auth::login_router(state.clone())
+                .layer(from_fn_with_state(login_rate_limiter, middleware::rate_limit_middleware))
+        )
+        .merge(
+            routes::auth::register_router(state.clone())
+                .layer(from_fn_with_state(register_rate_limiter, middleware::rate_limit_middleware))
         )
         .layer(cors_layer.clone());
 
