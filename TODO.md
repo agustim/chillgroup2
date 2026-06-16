@@ -43,3 +43,7 @@ Consideració de xifrat
 Els missatges estan xifrats E2E. El PinnedMessagesPanel necessita la clau del canal per desxifrar-los → ja disponible via decryptMessagesForChannel (el mateix flow que MessageList).
 
 Complexitat estimada: mitjana-alta (nova taula BD, 3 endpoints, socket events, nou component UI, xifrat). Recomanació: atacar-ho en una sessió dedicada.
+
+
+5. Les imatges de video s'haurien de centrar.
+6. Errades de firefox
