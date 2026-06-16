@@ -153,6 +153,9 @@ pub enum AppError {
     #[error("Ja estàs en un canal de veu: {current_channel}")]
     #[allow(dead_code)]
     AlreadyInVoiceChannel { current_channel: String },
+    // Usuari (continuació)
+    #[error("No es pot eliminar l'usuari mentre sigui propietari de servidors")]
+    UserOwnsServers,
     // Sistema (9000-9099)
     #[error("Petició incorrecta")]
     BadRequest,
@@ -220,6 +223,11 @@ impl IntoResponse for AppError {
             ),
             AppError::UserNotFound => (
                 StatusCode::NOT_FOUND, 9501, "Usuari no trobat a la base de dades".to_string(), None,
+            ),
+            AppError::UserOwnsServers => (
+                StatusCode::CONFLICT, 9503,
+                "No es pot eliminar l'usuari mentre sigui propietari de servidors. Transferiu l'ownership o elimineu els servidors primer.".to_string(),
+                None,
             ),
             AppError::ServerNotOwnerOrAdmin => (
                 StatusCode::FORBIDDEN, 2002, "No ets owner/admin d'aquest servidor".to_string(), None,

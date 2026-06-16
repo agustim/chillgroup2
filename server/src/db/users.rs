@@ -1454,4 +1454,189 @@ impl DatabasePool {
         }
     }
 
+    pub async fn user_owns_servers(&self, user_id: Uuid) -> Result<bool, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM servers WHERE owner_id = $1")
+                    .bind(user_id)
+                    .fetch_one(pool)
+                    .await
+                    .map_err(|e| format!("Error PostgreSQL: {}", e))?;
+                Ok(count > 0)
+            }
+            DatabasePool::Sqlite(pool) => {
+                let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM servers WHERE owner_id = ?")
+                    .bind(user_id)
+                    .fetch_one(pool)
+                    .await
+                    .map_err(|e| format!("Error SQLite: {}", e))?;
+                Ok(count > 0)
+            }
+        }
+    }
+
+    pub async fn cascade_delete_user_by_id(&self, user_id: Uuid) -> Result<bool, String> {
+        match self {
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "DELETE FROM channel_key_device_bundles \
+                     WHERE device_id IN (SELECT id FROM devices WHERE user_id = $1) \
+                     OR signed_by_device_id IN (SELECT id FROM devices WHERE user_id = $1)",
+                )
+                .bind(user_id)
+                .execute(pool)
+                .await
+                .map_err(|e| format!("Error PostgreSQL: {}", e))?;
+
+                sqlx::query(
+                    "DELETE FROM message_attachments \
+                     WHERE message_id IN (SELECT id FROM messages WHERE sender_user_id = $1)",
+                )
+                .bind(user_id)
+                .execute(pool)
+                .await
+                .map_err(|e| format!("Error PostgreSQL: {}", e))?;
+
+                sqlx::query(
+                    "DELETE FROM message_attachments \
+                     WHERE attachment_id IN (SELECT id FROM attachments WHERE uploader_user_id = $1)",
+                )
+                .bind(user_id)
+                .execute(pool)
+                .await
+                .map_err(|e| format!("Error PostgreSQL: {}", e))?;
+
+                sqlx::query("DELETE FROM messages WHERE sender_user_id = $1")
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error PostgreSQL: {}", e))?;
+
+                sqlx::query("DELETE FROM attachments WHERE uploader_user_id = $1")
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error PostgreSQL: {}", e))?;
+
+                sqlx::query("DELETE FROM channel_read_state WHERE user_id = $1")
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error PostgreSQL: {}", e))?;
+
+                sqlx::query("DELETE FROM channel_members WHERE user_id = $1")
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error PostgreSQL: {}", e))?;
+
+                sqlx::query("DELETE FROM server_members WHERE user_id = $1")
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error PostgreSQL: {}", e))?;
+
+                sqlx::query("DELETE FROM devices WHERE user_id = $1")
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error PostgreSQL: {}", e))?;
+
+                sqlx::query("UPDATE channel_key_versions SET created_by = NULL WHERE created_by = $1")
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error PostgreSQL: {}", e))?;
+
+                let result = sqlx::query("DELETE FROM users WHERE id = $1")
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error PostgreSQL: {}", e))?;
+
+                Ok(result.rows_affected() > 0)
+            }
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "DELETE FROM channel_key_device_bundles \
+                     WHERE device_id IN (SELECT id FROM devices WHERE user_id = ?) \
+                     OR signed_by_device_id IN (SELECT id FROM devices WHERE user_id = ?)",
+                )
+                .bind(user_id)
+                .bind(user_id)
+                .execute(pool)
+                .await
+                .map_err(|e| format!("Error SQLite: {}", e))?;
+
+                sqlx::query(
+                    "DELETE FROM message_attachments \
+                     WHERE message_id IN (SELECT id FROM messages WHERE sender_user_id = ?)",
+                )
+                .bind(user_id)
+                .execute(pool)
+                .await
+                .map_err(|e| format!("Error SQLite: {}", e))?;
+
+                sqlx::query(
+                    "DELETE FROM message_attachments \
+                     WHERE attachment_id IN (SELECT id FROM attachments WHERE uploader_user_id = ?)",
+                )
+                .bind(user_id)
+                .execute(pool)
+                .await
+                .map_err(|e| format!("Error SQLite: {}", e))?;
+
+                sqlx::query("DELETE FROM messages WHERE sender_user_id = ?")
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error SQLite: {}", e))?;
+
+                sqlx::query("DELETE FROM attachments WHERE uploader_user_id = ?")
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error SQLite: {}", e))?;
+
+                sqlx::query("DELETE FROM channel_read_state WHERE user_id = ?")
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error SQLite: {}", e))?;
+
+                sqlx::query("DELETE FROM channel_members WHERE user_id = ?")
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error SQLite: {}", e))?;
+
+                sqlx::query("DELETE FROM server_members WHERE user_id = ?")
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error SQLite: {}", e))?;
+
+                sqlx::query("DELETE FROM devices WHERE user_id = ?")
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error SQLite: {}", e))?;
+
+                sqlx::query("UPDATE channel_key_versions SET created_by = NULL WHERE created_by = ?")
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error SQLite: {}", e))?;
+
+                let result = sqlx::query("DELETE FROM users WHERE id = ?")
+                    .bind(user_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| format!("Error SQLite: {}", e))?;
+
+                Ok(result.rows_affected() > 0)
+            }
+        }
+    }
+
 }

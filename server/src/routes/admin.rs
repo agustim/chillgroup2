@@ -933,11 +933,21 @@ pub async fn delete_user(
         return Err(AppError::BadRequest);
     }
 
+    let owns_servers = state
+        .db
+        .user_owns_servers(user_id)
+        .await
+        .map_err(|_| AppError::InternalError)?;
+
+    if owns_servers {
+        return Err(AppError::UserOwnsServers);
+    }
+
     let deleted = state
         .db
-        .delete_user_by_id(user_id)
+        .cascade_delete_user_by_id(user_id)
         .await
-        .map_err(|_| AppError::DatabaseUnavailable)?;
+        .map_err(|_| AppError::InternalError)?;
 
     if !deleted {
         return Err(AppError::UserNotFound);

@@ -600,17 +600,6 @@ pub async fn refresh(
     Ok(Json(RefreshResponse { token }))
 }
 
-// ── Router ───────────────────────────────────────────────────────
-
-pub fn router(state: AppState) -> Router {
-    Router::new()
-        .route("/api/auth/register", routing::post(register))
-        .route("/api/auth/register-with-invitation", routing::post(register_with_invitation))
-        .route("/api/auth/login", routing::post(login))
-        .route("/api/auth/refresh", routing::post(refresh))
-        .with_state(state)
-}
-
 pub fn login_router(state: AppState) -> Router {
     Router::new()
         .route("/api/auth/login", routing::post(login))

@@ -46,4 +46,6 @@ Complexitat estimada: mitjana-alta (nova taula BD, 3 endpoints, socket events, n
 
 
 5. Les imatges de video s'haurien de centrar.
-6. Errades de firefox
+
+
+6. No es poden esborrar usuaris.
