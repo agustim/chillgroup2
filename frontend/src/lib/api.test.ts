@@ -49,6 +49,16 @@ const mockSessionStorageImpl = {
 }
 vi.stubGlobal('sessionStorage', mockSessionStorageImpl)
 
+// Mock de localStorage (usat quan "Recorda'm" està activat)
+const mockLocalStorage: Record<string, string> = {}
+const mockLocalStorageImpl = {
+  getItem: vi.fn((key: string) => mockLocalStorage[key] || null),
+  setItem: vi.fn((key: string, value: string) => { mockLocalStorage[key] = value }),
+  removeItem: vi.fn((key: string) => { delete mockLocalStorage[key] }),
+  clear: vi.fn(() => { Object.keys(mockLocalStorage).forEach(k => delete mockLocalStorage[k]) }),
+}
+vi.stubGlobal('localStorage', mockLocalStorageImpl)
+
 // Mock de fetch
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
@@ -70,6 +80,7 @@ function setupMocks(responseBody: any, status = 200, token?: string) {
 describe('API Client', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    Object.keys(mockLocalStorage).forEach(k => delete mockLocalStorage[k])
     mockSessionStorage['chillgroup-token'] = TEST_TOKEN
   })
 
@@ -831,6 +842,18 @@ describe('API Client', () => {
 
       const headers = mockFetch.mock.calls?.[0]?.[1]?.headers as Record<string, string>
       expect(headers?.['Authorization']).toBeUndefined()
+    })
+
+    it('inclou Authorization amb token a localStorage (Recorda\'m)', async () => {
+      // "Recorda'm" desa el token a localStorage i l'esborra de sessionStorage.
+      mockSessionStorage['chillgroup-token'] = ''
+      mockLocalStorage['chillgroup-token'] = 'persistent-jwt-token'
+      setupMocks({ success: true, data: {} })
+
+      await authMe()
+
+      const headers = mockFetch.mock.calls?.[0]?.[1]?.headers as Record<string, string>
+      expect(headers?.['Authorization']).toBe('Bearer persistent-jwt-token')
     })
   })
 })

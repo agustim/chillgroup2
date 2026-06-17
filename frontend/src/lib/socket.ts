@@ -5,7 +5,7 @@ let socket: Socket | null = null
 
 function getToken(): string | null {
   try {
-    return sessionStorage.getItem('chillgroup-token')
+    return localStorage.getItem('chillgroup-token') ?? sessionStorage.getItem('chillgroup-token')
   } catch {
     return null
   }

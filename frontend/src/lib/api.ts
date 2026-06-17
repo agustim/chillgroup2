@@ -53,11 +53,13 @@ export interface ApiResponse<T = unknown> {
 export type ApiResult<T> = ApiResponse<T> | ApiError
 
 /**
- * Obtenir el token JWT des de sessionStorage.
+ * Obtenir el token JWT. Amb "Recorda'm" es desa a localStorage; si no, a
+ * sessionStorage. Cal mirar els dos (localStorage primer) igual que fa
+ * AuthContext.loadToken.
  */
 function getToken(): string | null {
   try {
-    return sessionStorage.getItem('chillgroup-token')
+    return localStorage.getItem('chillgroup-token') ?? sessionStorage.getItem('chillgroup-token')
   } catch {
     return null
   }

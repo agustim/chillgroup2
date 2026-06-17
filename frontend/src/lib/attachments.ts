@@ -117,7 +117,7 @@ function getEtagFromResponse(response: Response): string | null {
 
 function getAuthToken(): string | null {
   try {
-    return sessionStorage.getItem('chillgroup-token')
+    return localStorage.getItem('chillgroup-token') ?? sessionStorage.getItem('chillgroup-token')
   } catch {
     return null
   }
