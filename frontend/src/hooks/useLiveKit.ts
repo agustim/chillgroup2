@@ -82,10 +82,10 @@ interface UseLiveKitResult {
   error: string | null
 }
 
-/** Obtenir token JWT des de sessionStorage */
+/** Obtenir token JWT. Amb "Recorda'm" es desa a localStorage; si no, a sessionStorage. */
 function getJwtToken(): string | null {
   try {
-    return sessionStorage.getItem('chillgroup-token')
+    return localStorage.getItem('chillgroup-token') ?? sessionStorage.getItem('chillgroup-token')
   } catch {
     return null
   }
