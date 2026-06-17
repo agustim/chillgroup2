@@ -573,7 +573,7 @@ export const EncryptionIcon: React.FC<EncryptionIconProps> = ({ type, size = 'md
 - `chillgroup-username` és **només per UI** — mai per autenticació
 - `chillgroup-deviceId` és un UUID generat localment (un per navegador)
 - `chillgroup-theme` es canvia amb el selector de tema
-- **JWT NO es guarda a localStorage** — es guarda a `Cookie: HttpOnly` o `sessionStorage`
+- **JWT**: per defecte a `sessionStorage` (mor en tancar app). Si l'usuari marca "Recorda'm" al login, es guarda a `localStorage` (persistent). En Tauri/Electron és segur perquè no hi ha risc XSS des d'URLs externes. La clau de vault **mai** es guarda persistent.
 - `chillgroup-local-vault-meta` guarda només metadata criptogràfica (salt/verifier), no claus de canal
 
 ### IndexedDB (Dades Sensibles — Claus Criptogràfiques)

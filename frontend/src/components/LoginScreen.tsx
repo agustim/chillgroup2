@@ -17,6 +17,7 @@ export function LoginScreen() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [isOpenRegister, setIsOpenRegister] = useState(initialOpenRegister)
   const [invitationCode, setInvitationCode] = useState(urlInvite)
+  const [rememberMe, setRememberMe] = useState(false)
   const [validationError, setValidationError] = useState('')
   const [backupStatus, setBackupStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [isImportingBackup, setIsImportingBackup] = useState(false)
@@ -62,7 +63,7 @@ export function LoginScreen() {
 
     try {
       if (isLogin) {
-        await login(username, password)
+        await login(username, password, rememberMe)
       } else {
         if (!isOpenRegister || invitation) {
           await registerWithInvitation(invitation, username, password)
@@ -218,6 +219,20 @@ export function LoginScreen() {
                   {t('login.registrationClosedHint')}
                 </span>
               )}
+            </div>
+          )}
+
+          {isLogin && (
+            <div className="form-group form-group--checkbox">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  disabled={isLoading}
+                />
+                {t('login.rememberMe')}
+              </label>
             </div>
           )}
 

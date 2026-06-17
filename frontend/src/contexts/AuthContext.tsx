@@ -35,7 +35,7 @@ interface AuthContextType {
   isAuthenticated: boolean
   isLoading: boolean
   error: string | null
-  login: (username: string, password: string) => Promise<void>
+  login: (username: string, password: string, rememberMe?: boolean) => Promise<void>
   register: (username: string, password: string) => Promise<void>
   registerWithInvitation: (code: string, username: string, password: string) => Promise<void>
   logout: () => void
@@ -52,23 +52,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const saveToken = useCallback((newToken: string) => {
+  const TOKEN_KEY = 'chillgroup-token'
+  const REMEMBER_ME_KEY = 'chillgroup-remember-me'
+
+  const saveToken = useCallback((newToken: string, rememberMe?: boolean) => {
     setToken(newToken)
     try {
-      sessionStorage.setItem('chillgroup-token', newToken)
+      if (rememberMe) {
+        localStorage.setItem(TOKEN_KEY, newToken)
+        localStorage.setItem(REMEMBER_ME_KEY, '1')
+        sessionStorage.removeItem(TOKEN_KEY)
+      } else {
+        sessionStorage.setItem(TOKEN_KEY, newToken)
+        localStorage.removeItem(TOKEN_KEY)
+        localStorage.removeItem(REMEMBER_ME_KEY)
+      }
     } catch {
-      // sessionStorage not available
+      // storage not available
     }
   }, [])
 
   const loadToken = useCallback(() => {
     try {
-      const stored = sessionStorage.getItem('chillgroup-token')
-      if (stored) {
-        setToken(stored)
+      const persistent = localStorage.getItem(TOKEN_KEY)
+      if (persistent) {
+        setToken(persistent)
+        return
+      }
+      const session = sessionStorage.getItem(TOKEN_KEY)
+      if (session) {
+        setToken(session)
       }
     } catch {
-      // sessionStorage not available
+      // storage not available
     }
   }, [])
 
@@ -89,7 +105,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     lockLocalVault()
     disconnectSocket()
     try {
-      sessionStorage.removeItem('chillgroup-token')
+      sessionStorage.removeItem(TOKEN_KEY)
+      localStorage.removeItem(TOKEN_KEY)
+      localStorage.removeItem(REMEMBER_ME_KEY)
     } catch {
       // ignore
     }
@@ -161,13 +179,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [ensureDeviceKeypairUploaded])
 
-  const login = useCallback(async (username: string, password: string) => {
+  const login = useCallback(async (username: string, password: string, rememberMe?: boolean) => {
     setIsLoading(true)
     setError(null)
     try {
       const result = await authLogin(username, password)
       if (result.success && result.data) {
-        saveToken(result.data.token)
+        saveToken(result.data.token, rememberMe)
         saveDeviceId(result.data.deviceId)
         await ensureDeviceKeypairUploaded(result.data.deviceId)
         await fetchUser(result.data.token)
@@ -258,7 +276,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return
     }
     
-    const stored = sessionStorage.getItem('chillgroup-token')
+    const stored = localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY)
     if (stored) {
       let cancelled = false
       setIsLoading(true)

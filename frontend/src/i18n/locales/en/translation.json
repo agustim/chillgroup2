@@ -37,6 +37,7 @@
     "invitationCode": "Invitation code",
     "invitationPlaceholder": "ABC123-DEF456-GHI789",
     "registrationClosedHint": "Registration is closed. You need an invitation to create an account.",
+    "rememberMe": "Remember me",
     "signIn": "Sign in",
     "signUp": "Sign up",
     "toggleToRegister": "No account? Sign up",

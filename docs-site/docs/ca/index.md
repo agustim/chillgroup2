@@ -9,6 +9,9 @@ hero:
     - theme: brand
       text: Guia d'inici
       link: /ca/guia-inicial
+    - theme: brand
+      text: Descarrega
+      link: https://github.com/agustim/chillgroup2/releases
     - theme: alt
       text: Referència tècnica
       link: /ca/reference/

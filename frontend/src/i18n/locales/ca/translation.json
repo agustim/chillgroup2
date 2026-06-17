@@ -37,6 +37,7 @@
     "invitationCode": "Codi d'invitació",
     "invitationPlaceholder": "ABC123-DEF456-GHI789",
     "registrationClosedHint": "El registre està tancat. Necessites una invitació per crear compte.",
+    "rememberMe": "Recorda'm",
     "signIn": "Entrar",
     "signUp": "Registrar-se",
     "toggleToRegister": "No tens compte? Registrar-se",

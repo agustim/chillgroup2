@@ -9,6 +9,9 @@ hero:
     - theme: brand
       text: Get started
       link: /en/getting-started
+    - theme: brand
+      text: Download
+      link: https://github.com/agustim/chillgroup2/releases
     - theme: alt
       text: Technical reference
       link: /en/reference/
