@@ -420,6 +420,18 @@ pub async fn edit_message(
         return Err(AppError::NotMessageSender);
     }
 
+    // Verify the user still has write permission on the channel. Sender
+    // identity alone is not enough: a user removed from the channel (or
+    // demoted below WRITE) must not be able to edit past messages.
+    let permission_level = state.db
+        .get_channel_permission_level(message.channel_id, claims.user_id)
+        .await
+        .map_err(|_| AppError::InternalError)?
+        .unwrap_or(0);
+    if permission_level < CHANNEL_PERMISSION_WRITE {
+        return Err(AppError::Forbidden);
+    }
+
     let edited_at = chrono::Utc::now();
 
     let updated = state.db.update_message(message_id, &req.encrypted_payload, &req.iv, edited_at)

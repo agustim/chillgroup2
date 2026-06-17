@@ -82,7 +82,7 @@ async fn ensure_channel_permission(
 fn encrypt_with_aes_gcm(key: &[u8; 32], plaintext: &[u8]) -> Result<(Vec<u8>, [u8; AES_GCM_NONCE_SIZE]), AppError> {
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| AppError::EncapsulationFailed)?;
     let mut nonce_bytes = [0u8; AES_GCM_NONCE_SIZE];
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
     let encrypted = cipher
         .encrypt(nonce, plaintext)
@@ -344,7 +344,7 @@ pub async fn create_channel(
 
     if req.encryption_type == EncryptionType::Symmetric {
         let mut channel_key = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut channel_key);
+        rand::rngs::OsRng.fill_bytes(&mut channel_key);
 
         let (encrypted_key_bytes, nonce) = encrypt_with_aes_gcm(&state.config.server_master_key, &channel_key)?;
         let encrypted_key_b64 = STANDARD.encode(encrypted_key_bytes);
@@ -661,7 +661,7 @@ pub async fn rotate_channel_key(
 
     let key_version_id = if channel.encryption_type == EncryptionType::Symmetric {
         let mut channel_key = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut channel_key);
+        rand::rngs::OsRng.fill_bytes(&mut channel_key);
 
         let (encrypted_key_bytes, nonce) = encrypt_with_aes_gcm(&state.config.server_master_key, &channel_key)?;
         let encrypted_key_b64 = STANDARD.encode(encrypted_key_bytes);
@@ -1297,6 +1297,7 @@ mod tests {
                 channel_type: None,
                 encryption_type: None,
                 is_private: None,
+                position: None,
             }),
         )
         .await;
@@ -1622,6 +1623,7 @@ mod tests {
                 channel_type: None,
                 encryption_type: None,
                 is_private: None,
+                position: None,
             }),
         )
         .await;

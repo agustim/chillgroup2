@@ -24,6 +24,7 @@ async fn make_state() -> AppState {
         jwt_secret: "test-secret".to_string(),
         jwt_expiration_days: 7,
         backend_debug: LogLevel::Info,
+        allowed_origins: Vec::new(),
         server_master_key: [5u8; 32],
         static_dir: None,
         max_file_size_bytes: 0,

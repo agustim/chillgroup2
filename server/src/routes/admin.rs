@@ -18,6 +18,23 @@ use shared::constants::MIN_PASSWORD_LENGTH;
 
 const SYSTEM_PLAN_NAMES: [&str; 3] = ["free", "pro", "enterprise"];
 
+/// Valida un icon_url proporcionat per un admin. Només s'accepten URLs
+/// `https://` o data-URIs d'imatge per evitar emmagatzemar esquemes
+/// perillosos (`javascript:`, `data:text/html`, ...) que els clients
+/// podrien renderitzar (XSS). Una cadena buida es tracta com "esborrar".
+fn validate_icon_url(icon_url: &str) -> Result<(), AppError> {
+    let url = icon_url.trim();
+    if url.is_empty() {
+        return Ok(());
+    }
+    let lower = url.to_ascii_lowercase();
+    if lower.starts_with("https://") || lower.starts_with("data:image/") {
+        Ok(())
+    } else {
+        Err(AppError::BadRequest)
+    }
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdminUserItem {
@@ -546,6 +563,10 @@ pub async fn create_server(
         return Err(AppError::BadRequest);
     }
 
+    if let Some(icon) = req.icon_url.as_deref() {
+        validate_icon_url(icon)?;
+    }
+
     if state
         .db
         .server_name_exists(name)
@@ -592,6 +613,12 @@ pub async fn update_server(
         if name.trim().is_empty() {
             return Err(AppError::BadRequest);
         }
+    }
+
+    // req.icon_url és Option<Option<String>>: outer Some = camp present,
+    // inner Some = nou valor (None/buit = esborrar). Validar quan hi ha valor.
+    if let Some(Some(icon)) = &req.icon_url {
+        validate_icon_url(icon)?;
     }
 
     state

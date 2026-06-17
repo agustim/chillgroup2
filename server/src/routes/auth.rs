@@ -620,6 +620,14 @@ pub fn protected_router(state: AppState) -> Router {
         .with_state(state)
 }
 
+/// Router combinat (login + register + protected) per a tests d'integració.
+#[cfg(test)]
+pub fn router(state: AppState) -> Router {
+    login_router(state.clone())
+        .merge(register_router(state.clone()))
+        .merge(protected_router(state))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

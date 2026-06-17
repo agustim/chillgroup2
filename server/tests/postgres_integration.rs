@@ -83,7 +83,7 @@ async fn postgres_server_and_channel_roundtrip() {
         .expect("create server");
 
     let server = db
-        .get_server_full_info(server_id, owner_id)
+        .get_server_full_info(server_id, owner_id, false)
         .await
         .expect("load server full info")
         .expect("server exists");

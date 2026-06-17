@@ -451,6 +451,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 return;
             };
 
+            // Verificar que el device segueixi actiu (no revocat). Igual que
+            // fa extract_claims i el refresh endpoint: un token amb device
+            // revocat no ha de poder mantenir la connexió WebSocket oberta.
+            match db.is_device_active(claims.device_id, claims.user_id).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    info!("Socket amb device revocat ({}), desconnectant", claims.device_id);
+                    let _ = socket.disconnect();
+                    return;
+                }
+                Err(e) => {
+                    warn!("Error verificant device actiu al socket: {:?}, desconnectant", e);
+                    let _ = socket.disconnect();
+                    return;
+                }
+            }
+
             info!("Socket autenticat correctament: {}", socket.id);
             socket.join(format!("user:{}", claims.user_id));
             if let Ok(server_ids) = db.list_server_ids_for_user(claims.user_id).await {

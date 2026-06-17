@@ -3,9 +3,18 @@
 //! Implementació real amb `argon2` per generar i verificar hashes segurs.
 
 use crate::error::CryptoError;
-use argon2::{password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString}, Argon2};
+use argon2::{password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString}, Algorithm, Argon2, Params, Version};
 use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
+
+/// Paràmetres Argon2id explícits més robustos que els per defecte:
+/// m=64 MiB, t=3 iteracions, p=4 fils. Endurit contra brute force en
+/// hardware modern (OWASP recomana m≥19 MiB, t≥2).
+fn argon2() -> Argon2<'static> {
+    let params = Params::new(65536, 3, 4, None)
+        .expect("paràmetres Argon2 vàlids");
+    Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
+}
 
 /// Generar un hash de password amb Argon2.
 pub fn hash_password(password: &str) -> Result<String, CryptoError> {
@@ -14,7 +23,7 @@ pub fn hash_password(password: &str) -> Result<String, CryptoError> {
     }
 
     let salt = SaltString::generate(&mut OsRng);
-    let argon2 = Argon2::default();
+    let argon2 = argon2();
     let password_hash = argon2
         .hash_password(password.as_bytes(), &salt)
         .map_err(|_| CryptoError::CryptoError)?;
