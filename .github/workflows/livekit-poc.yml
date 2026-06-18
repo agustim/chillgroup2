@@ -1,0 +1,42 @@
+name: LiveKit E2EE POC
+
+on:
+  workflow_dispatch:
+
+jobs:
+  poc:
+    name: POC ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            artifact: livekit-poc-linux
+            bin: livekit-poc
+          - os: macos-latest
+            artifact: livekit-poc-macos
+            bin: livekit-poc
+          - os: windows-latest
+            artifact: livekit-poc-windows
+            bin: livekit-poc.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: livekit-poc -> target
+
+      - name: Build
+        working-directory: livekit-poc
+        run: cargo build --release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: livekit-poc/target/release/${{ matrix.bin }}
+          if-no-files-found: error
