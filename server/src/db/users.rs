@@ -849,20 +849,26 @@ impl DatabasePool {
         }
     }
 
-    pub async fn channel_name_exists_in_server(&self, server_id: Uuid, name: &str) -> Result<bool, sqlx::Error> {
+    /// Comprova si ja existeix un canal amb el mateix nom *i del mateix tipus* al servidor.
+    /// Els noms són únics dins de cada tipus (text/veu) per separat: un canal de text i un
+    /// de veu poden compartir nom, però dos de text (o dos de veu) no. La comparació és
+    /// case-sensitive i accent-sensitive (BINARY), així "Canal" ≠ "canal".
+    pub async fn channel_name_exists_in_server(&self, server_id: Uuid, name: &str, channel_type: &str) -> Result<bool, sqlx::Error> {
         match self {
             DatabasePool::Postgres(pool) => {
-                let row = sqlx::query("SELECT EXISTS(SELECT 1 FROM channels WHERE server_id = $1 AND name = $2)")
+                let row = sqlx::query("SELECT EXISTS(SELECT 1 FROM channels WHERE server_id = $1 AND name = $2 AND channel_type = $3)")
                     .bind(server_id)
                     .bind(name)
+                    .bind(channel_type)
                     .fetch_one(pool)
                     .await?;
                 Ok(row.get::<bool, _>(0))
             }
             DatabasePool::Sqlite(pool) => {
-                let row = sqlx::query("SELECT EXISTS(SELECT 1 FROM channels WHERE server_id = ? AND name = ?)")
+                let row = sqlx::query("SELECT EXISTS(SELECT 1 FROM channels WHERE server_id = ? AND name = ? AND type = ?)")
                     .bind(server_id)
                     .bind(name)
+                    .bind(channel_type)
                     .fetch_one(pool)
                     .await?;
                 Ok(row.get::<bool, _>(0))

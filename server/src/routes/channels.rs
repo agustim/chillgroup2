@@ -38,11 +38,12 @@ fn is_duplicate_channel_name_error(err: &sqlx::Error) -> bool {
             let message = db_err.message();
 
             // PostgreSQL unique_violation = 23505. SQLite constraint unique = 2067.
+            // L'índex únic és per (server_id, tipus, name): noms únics dins de cada tipus.
             code.as_deref() == Some("23505")
                 || code.as_deref() == Some("2067")
-                || constraint == Some("idx_channels_server_name")
-                || message.contains("idx_channels_server_name")
-                || message.contains("UNIQUE constraint failed: channels.server_id, channels.name")
+                || constraint == Some("idx_channels_server_type_name")
+                || message.contains("idx_channels_server_type_name")
+                || message.contains("UNIQUE constraint failed: channels.server_id, channels.type, channels.name")
         }
         _ => false,
     }
@@ -288,9 +289,15 @@ pub async fn create_channel(
         }
     }
 
+    // El nom és únic per tipus: text i veu poden compartir nom, però no dos de text ni dos de veu.
+    let channel_type_str = match req.channel_type {
+        ChannelType::Text => "text",
+        ChannelType::Voice => "voice",
+    };
+
     let channel_name_exists = state
         .db
-        .channel_name_exists_in_server(server_id, &req.name)
+        .channel_name_exists_in_server(server_id, &req.name, channel_type_str)
         .await
         .map_err(AppError::DatabaseError)?;
     if channel_name_exists {
@@ -301,10 +308,6 @@ pub async fn create_channel(
     let now = chrono::Utc::now();
 
     // Guardar a la base de dades
-    let channel_type_str = match req.channel_type {
-        ChannelType::Text => "text",
-        ChannelType::Voice => "voice",
-    };
     let encryption_str = match req.encryption_type {
         EncryptionType::None => "none",
         EncryptionType::Symmetric => "symmetric",
@@ -973,6 +976,25 @@ pub async fn update_channel(
     };
     let is_private = req.is_private.unwrap_or(channel.is_private);
 
+    // Nom únic per tipus: si canvia el parell (nom, tipus), assegurar que no col·lisiona
+    // amb un altre canal del mateix tipus al servidor.
+    let current_type_str = match channel.channel_type {
+        ChannelType::Text => "text",
+        ChannelType::Voice => "voice",
+    };
+    if let Some(new_name) = name {
+        if new_name != channel.name || channel_type_str != current_type_str {
+            let exists = state
+                .db
+                .channel_name_exists_in_server(channel.server_id, new_name, channel_type_str)
+                .await
+                .map_err(AppError::DatabaseError)?;
+            if exists {
+                return Err(AppError::ChannelNameExists);
+            }
+        }
+    }
+
     state.db.update_channel(
         channel_id,
         channel.server_id,
@@ -981,7 +1003,13 @@ pub async fn update_channel(
         encryption_str,
         message_ttl,
         is_private,
-    ).await.map_err(|e| AppError::DatabaseError(e))?;
+    ).await.map_err(|e| {
+        if is_duplicate_channel_name_error(&e) {
+            AppError::ChannelNameExists
+        } else {
+            AppError::DatabaseError(e)
+        }
+    })?;
 
     if let Some(position) = req.position {
         state.db.update_channel_position(channel_id, position).await
@@ -1383,6 +1411,135 @@ mod tests {
         let err = result.expect_err("duplicate channel name should fail");
         let response = err.into_response();
         assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn create_channel_allows_same_name_for_different_type() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("chan_owner_xtype", "hash", "user")
+            .await
+            .expect("owner creation should work");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "test-server-xtype", None, owner_id)
+            .await
+            .expect("server should be created");
+
+        // Canal de text "general".
+        state
+            .db
+            .create_channel(Uuid::new_v4(), server_id, "general", "text", "none", None, false)
+            .await
+            .expect("text channel should be created");
+
+        // Canal de veu amb el mateix nom: permès.
+        let result = create_channel(
+            State(state),
+            axum::Extension(claims_for(owner_id, "chan_owner_xtype")),
+            Path(server_id),
+            Json(CreateChannelRequest {
+                name: "general".to_string(),
+                channel_type: ChannelType::Voice,
+                encryption_type: EncryptionType::None,
+                message_ttl: None,
+                is_private: false,
+            }),
+        )
+        .await;
+
+        assert!(result.is_ok(), "voice channel may share name with a text channel");
+        let (status, Json(channel)) = result.expect("should return channel");
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(channel.name, "general");
+        assert_eq!(channel.channel_type, ChannelType::Voice);
+    }
+
+    #[tokio::test]
+    async fn create_channel_returns_conflict_for_duplicate_voice_name() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("chan_owner_dupvoice", "hash", "user")
+            .await
+            .expect("owner creation should work");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "test-server-dupvoice", None, owner_id)
+            .await
+            .expect("server should be created");
+
+        state
+            .db
+            .create_channel(Uuid::new_v4(), server_id, "veu", "voice", "none", None, false)
+            .await
+            .expect("seed voice channel should be created");
+
+        let result = create_channel(
+            State(state),
+            axum::Extension(claims_for(owner_id, "chan_owner_dupvoice")),
+            Path(server_id),
+            Json(CreateChannelRequest {
+                name: "veu".to_string(),
+                channel_type: ChannelType::Voice,
+                encryption_type: EncryptionType::None,
+                message_ttl: None,
+                is_private: false,
+            }),
+        )
+        .await;
+
+        let err = result.expect_err("duplicate voice channel name should fail");
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn create_channel_name_is_case_and_accent_sensitive() {
+        let state = make_state().await;
+        let owner_id = state
+            .db
+            .create_user_with_role("chan_owner_case", "hash", "user")
+            .await
+            .expect("owner creation should work");
+
+        let server_id = Uuid::new_v4();
+        state
+            .db
+            .create_server_with_owner(server_id, "test-server-case", None, owner_id)
+            .await
+            .expect("server should be created");
+
+        state
+            .db
+            .create_channel(Uuid::new_v4(), server_id, "general", "text", "none", None, false)
+            .await
+            .expect("seed channel should be created");
+
+        // "General" (majúscula) i "generàl" (accent) són noms diferents: permesos.
+        for name in ["General", "generàl"] {
+            let result = create_channel(
+                State(state.clone()),
+                axum::Extension(claims_for(owner_id, "chan_owner_case")),
+                Path(server_id),
+                Json(CreateChannelRequest {
+                    name: name.to_string(),
+                    channel_type: ChannelType::Text,
+                    encryption_type: EncryptionType::None,
+                    message_ttl: None,
+                    is_private: false,
+                }),
+            )
+            .await;
+            assert!(result.is_ok(), "name '{}' should differ from 'general'", name);
+            let (status, _) = result.expect("should return channel");
+            assert_eq!(status, StatusCode::CREATED);
+        }
     }
 
     #[tokio::test]

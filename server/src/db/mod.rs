@@ -242,6 +242,9 @@ async fn create_tables_sqlite(pool: &sqlx::SqlitePool) -> Result<(), String> {
         )
         "#,
         r#"CREATE INDEX IF NOT EXISTS idx_channels_server_id ON channels(server_id)"#,
+        // Nom únic per tipus: text i veu poden compartir nom, però no dos de text ni dos de veu.
+        // (server_id NULL dels DM són distints entre si, així que no afecta canals directes.)
+        r#"CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_server_type_name ON channels(server_id, type, name)"#,
 
         // Asymmetric channel key bundles (versioned, per device)
         r#"

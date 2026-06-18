@@ -243,8 +243,12 @@ CREATE TABLE channels (
 
 CREATE INDEX idx_channels_server ON channels(server_id);
 
--- Verificar que el nom del canal sigui únic dins del mateix servidor
-CREATE UNIQUE INDEX idx_channels_server_name ON channels(server_id, name);
+-- El nom del canal és únic dins del mateix servidor PER TIPUS (text/veu) per separat.
+-- Un canal de text i un de veu poden compartir nom; dos de text (o dos de veu) no.
+-- La comparació és case-sensitive i accent-sensitive: "Canal" ≠ "canal", "Català" ≠ "Catala".
+-- (Veure migració 20260617000000_channel_name_unique_per_type.sql que reemplaça l'índex antic
+--  idx_channels_server_name(server_id, name).)
+CREATE UNIQUE INDEX idx_channels_server_type_name ON channels(server_id, channel_type, name);
 ```
 
 ### Migració 6 — Channel Keys

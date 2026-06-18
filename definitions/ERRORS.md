@@ -120,7 +120,7 @@
 | 3001 | 404 | Canal no trobat | — |
 | 3002 | 403 | No tens accés al canal | — |
 | 3003 | 400 | Nom de canal invàlid | `maxChars: 100` |
-| 3004 | 409 | Nom de canal ja existeix al servidor | — |
+| 3004 | 409 | Nom de canal ja existeix al servidor (per tipus: text i veu poden compartir nom) | — |
 | 3005 | 403 | Has arribat al límit de canals | `maxChannels: 50`, `current: 50` |
 | 3006 | 400 | Tipus de canal no vàlid | — |
 | 3007 | 403 | Clau de canal no trobada | `channelId: "uuid"` |
