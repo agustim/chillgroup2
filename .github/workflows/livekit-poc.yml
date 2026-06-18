@@ -2,6 +2,9 @@ name: LiveKit E2EE POC
 
 on:
   workflow_dispatch:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/livekit-poc.yml']
 
 jobs:
   poc:
