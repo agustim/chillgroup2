@@ -4,7 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches: [dev]
-    paths: ['.github/workflows/livekit-poc.yml']
+    paths:
+      - '.github/workflows/livekit-poc.yml'
+      - 'livekit-poc/**'
 
 jobs:
   poc:
