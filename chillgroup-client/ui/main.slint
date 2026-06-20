@@ -81,7 +81,7 @@ export component SettingsWindow inherits Window {
 }
 
 export struct ServerItem  { id: string, name: string, initial: string }
-export struct ChannelItem { id: string, name: string, channel-type: string, unread: bool, encrypted: bool }
+export struct ChannelItem { id: string, name: string, channel-type: string, unread: bool, encrypted: bool, encryption-type: string, permission-level: int }
 export struct MessageItem { id: string, author: string, author-initial: string, content: string, timestamp: string, encrypted: bool }
 
 export component AppWindow inherits Window {
@@ -130,6 +130,7 @@ export component AppWindow inherits Window {
     in-out property <string>          active-channel-name;
     in-out property <string>          active-channel-type;
     in-out property <bool>            active-channel-encrypted: false;
+    in-out property <string>          active-channel-encryption-type;
     in-out property <string>          current-username;
     in-out property <string>          current-username-initial;
     in-out property <string>          message-draft;
@@ -242,9 +243,29 @@ export component AppWindow inherits Window {
                         background: active-channel-id == ch.id ? Palette.selection-background : transparent;
                         border-radius: 6px;
                         HorizontalBox {
-                            padding-left: 12px; spacing: 6px;
-                            Text { text: ch.channel-type == "voice" ? "♪" : "#"; font-size: 14px; color: Palette.border; width: 16px; }
-                            Text { text: ch.name; font-size: 14px; color: ch.unread ? Palette.foreground : Palette.border; font-weight: ch.unread ? 700 : 400; }
+                            padding-left: 12px; padding-right: 4px; spacing: 4px;
+                            Text {
+                                text: ch.channel-type == "voice" ? "♪" : "#";
+                                font-size: 14px; color: Palette.border; width: 14px;
+                            }
+                            Text {
+                                text: ch.name;
+                                font-size: 14px;
+                                color: ch.unread ? Palette.foreground : Palette.border;
+                                font-weight: ch.unread ? 700 : 400;
+                                horizontal-stretch: 1;
+                            }
+                            if ch.encryption-type == "symmetric": Text {
+                                text: "🔑"; font-size: 11px; vertical-alignment: center;
+                            }
+                            if ch.encryption-type == "asymmetric": Text {
+                                text: "🔒"; font-size: 11px; vertical-alignment: center;
+                            }
+                            if ch.unread: Rectangle {
+                                width: 8px; height: 8px; border-radius: 4px;
+                                background: Palette.accent-background;
+                                vertical-alignment: center;
+                            }
                         }
                         TouchArea { clicked => { root.select-channel(ch.id, ch.channel-type); } }
                     }
@@ -279,6 +300,8 @@ export component AppWindow inherits Window {
                         padding-left: 16px; padding-right: 8px; spacing: 8px;
                         Text { text: active-channel-type == "voice" ? "♪" : "#"; font-size: 16px; color: Palette.border; }
                         Text { text: root.active-channel-name != "" ? root.active-channel-name : "Selecciona un canal"; font-size: 16px; font-weight: 600; color: Palette.foreground; }
+                        if root.active-channel-encryption-type == "symmetric": Text { text: "🔑"; font-size: 13px; vertical-alignment: center; }
+                        if root.active-channel-encryption-type == "asymmetric": Text { text: "🔒"; font-size: 13px; vertical-alignment: center; }
                         Rectangle { horizontal-stretch: 1; }
                         if root.active-channel-type == "voice": HorizontalBox {
                             spacing: 4px;

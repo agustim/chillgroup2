@@ -27,6 +27,7 @@ struct Session {
 struct ChannelMeta {
     name: String,
     encryption_type: api::channels::EncryptionType,
+    permission_level: i32,
 }
 
 #[derive(Debug)]
@@ -372,9 +373,15 @@ fn main() {
                                     Ok(channels) => {
                                         channel_meta.clear();
                                         let items: Vec<ChannelItem> = channels.iter().map(|c| {
+                                            let enc_type_str = match c.encryption_type {
+                                                api::channels::EncryptionType::Symmetric => "symmetric",
+                                                api::channels::EncryptionType::Asymmetric => "asymmetric",
+                                                api::channels::EncryptionType::None => "none",
+                                            };
                                             channel_meta.insert(c.id.clone(), ChannelMeta {
                                                 name: c.name.clone(),
                                                 encryption_type: c.encryption_type.clone(),
+                                                permission_level: c.permission_level.unwrap_or(2),
                                             });
                                             ChannelItem {
                                                 id: c.id.clone().into(),
@@ -382,6 +389,8 @@ fn main() {
                                                 channel_type: c.channel_type.as_str().into(),
                                                 unread: c.unread_count.map(|n| n > 0).unwrap_or(false),
                                                 encrypted: !matches!(c.encryption_type, api::channels::EncryptionType::None),
+                                                encryption_type: enc_type_str.into(),
+                                                permission_level: c.permission_level.unwrap_or(2),
                                             }
                                         }).collect();
                                         let ah = app_bg.clone();
@@ -422,6 +431,11 @@ fn main() {
                                 let ch_name = channel_meta.get(&channel_id)
                                     .map(|m| m.name.clone())
                                     .unwrap_or_default();
+                                let enc_type_str = match enc_type {
+                                    api::channels::EncryptionType::Symmetric => "symmetric",
+                                    api::channels::EncryptionType::Asymmetric => "asymmetric",
+                                    api::channels::EncryptionType::None => "none",
+                                }.to_string();
 
                                 if matches!(enc_type, api::channels::EncryptionType::Symmetric) {
                                     // Check vault cache first
@@ -479,6 +493,7 @@ fn main() {
                                     win.set_active_channel_type(ch_type.into());
                                     win.set_active_channel_name(ch_name.into());
                                     win.set_active_channel_encrypted(is_blocked);
+                                    win.set_active_channel_encryption_type(enc_type_str.into());
                                     win.set_messages(ModelRc::new(VecModel::default()));
                                 }).ok();
 

@@ -363,7 +363,7 @@ pub async fn update_device_public_key(
 ) -> Result<StatusCode, AppError> {
     info!("🔑 Actualitzant claus públiques del dispositiu {} per l'usuari {}", claims.device_id, claims.user_id);
 
-    if req.kem_public_key.trim().is_empty() || req.dsa_public_key.trim().is_empty() {
+    if req.kem_public_key.trim().is_empty() {
         return Err(AppError::BadRequest);
     }
 

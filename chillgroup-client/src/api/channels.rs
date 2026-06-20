@@ -10,6 +10,7 @@ pub struct Channel {
     pub encryption_type: EncryptionType,
     pub position: i32,
     pub unread_count: Option<usize>,
+    pub permission_level: Option<i32>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
