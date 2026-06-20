@@ -24,6 +24,7 @@ struct Session {
 enum Cmd {
     OpenVault { passphrase: String, is_new: bool },
     Login { server_url: String, username: String, password: String },
+    Logout,
     SelectServer { server_id: String },
     SelectChannel { channel_id: String, channel_type: String },
     SendMessage { content: String },
@@ -135,6 +136,11 @@ fn main() {
         move |content| {
             let _ = cmd_tx.try_send(Cmd::SendMessage { content: content.to_string() });
         }
+    });
+
+    app.on_logout({
+        let cmd_tx = cmd_tx.clone();
+        move || { let _ = cmd_tx.try_send(Cmd::Logout); }
     });
 
     app.on_join_voice(|| { /* Phase 2 */ });
@@ -426,6 +432,31 @@ fn main() {
                             }
                         }
 
+                        Cmd::Logout => {
+                            // Clear session from vault, disconnect socket, reset UI to login
+                            if let Ok(v) = vault_bg.lock() {
+                                if let Some(vault) = v.as_ref() {
+                                    let _ = vault.clear_session();
+                                }
+                            }
+                            if let Some(sock) = socket.take() {
+                                let _ = sock.disconnect().await;
+                            }
+                            api = None;
+                            session = Session::default();
+                            let ah = app_bg.clone();
+                            slint::invoke_from_event_loop(move || {
+                                let win = ah.unwrap();
+                                win.set_logged_in(false);
+                                win.set_username("".into());
+                                win.set_password("".into());
+                                win.set_error_message("".into());
+                                win.set_servers(ModelRc::new(VecModel::default()));
+                                win.set_channels(ModelRc::new(VecModel::default()));
+                                win.set_messages(ModelRc::new(VecModel::default()));
+                            }).ok();
+                        }
+
                         Cmd::SendMessage { content } => {
                             if let Some(client) = &api {
                                 if !session.active_channel_id.is_empty() {
@@ -444,8 +475,28 @@ fn main() {
                             channel_id, sender_username, encrypted_payload, iv,
                             message_id, timestamp, ..
                         } => {
-                            if channel_id == session.active_channel_id {
-                                let encrypted = !iv.is_empty();
+                            let encrypted = !iv.is_empty();
+                            let is_active = channel_id == session.active_channel_id;
+
+                            // Native notification for messages in non-active channels (or all)
+                            if !encrypted && sender_username != session.username {
+                                let notif_body = if is_active {
+                                    encrypted_payload.clone()
+                                } else {
+                                    encrypted_payload.chars().take(120).collect()
+                                };
+                                let notif_sender = sender_username.clone();
+                                tokio::spawn(async move {
+                                    notify_rust::Notification::new()
+                                        .summary(&format!("ChillGroup — {notif_sender}"))
+                                        .body(&notif_body)
+                                        .timeout(notify_rust::Timeout::Milliseconds(4000))
+                                        .show()
+                                        .ok();
+                                });
+                            }
+
+                            if is_active {
                                 let item = MessageItem {
                                     id: message_id.into(),
                                     author: sender_username.clone().into(),

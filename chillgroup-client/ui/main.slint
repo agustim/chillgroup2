@@ -78,6 +78,7 @@ export component AppWindow inherits Window {
     callback select-server(string);
     callback select-channel(string, string);
     callback send-message(string);
+    callback logout();
     callback join-voice();
     callback leave-voice();
     callback toggle-mute();
@@ -200,6 +201,7 @@ export component AppWindow inherits Window {
                         }
                         Text { text: root.current-username; color: #cdd6f4; font-size: 13px; horizontal-stretch: 1; }
                         Button { text: "⚙"; clicked => { root.open-settings(); } }
+                        Button { text: "↩"; clicked => { root.logout(); } }
                     }
                 }
             }
