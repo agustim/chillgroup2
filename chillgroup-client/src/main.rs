@@ -554,13 +554,25 @@ fn main() {
     app.run().unwrap();
 }
 
-fn open_settings(cfg: settings::Settings, app_weak: slint::Weak<AppWindow>) {
+fn open_settings(_cfg: settings::Settings, app_weak: slint::Weak<AppWindow>) {
+    // Reload from disk so we always show current values (URL saved on login, etc.)
+    let cfg = settings::load();
     let win = SettingsWindow::new().unwrap();
     win.set_server_url(cfg.server.url.clone().into());
     win.set_vault_path(cfg.vault.path.to_string_lossy().to_string().into());
     win.set_notifications_enabled(cfg.notifications.enabled);
     win.set_notifications_sound(cfg.notifications.sound);
     win.set_theme_index(theme_to_index(&cfg.ui.theme));
+
+    // Preview immediat del tema sense necessitat de desar
+    win.on_theme_preview({
+        let app_weak = app_weak.clone();
+        move |idx| {
+            if let Some(app) = app_weak.upgrade() {
+                app.set_app_theme_index(idx);
+            }
+        }
+    });
 
     let win_close = win.as_weak();
     win.on_close(move || { win_close.unwrap().hide().ok(); });

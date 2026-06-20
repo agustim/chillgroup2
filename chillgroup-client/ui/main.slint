@@ -40,6 +40,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool>   notifications-sound: true;
     // 0=Sistema, 1=Fosc, 2=Clar
     in-out property <int>    theme-index: 0;
+    callback theme-preview(int);  // preview immediat sense desar
     callback save();
     callback close();
     VerticalBox {
@@ -63,7 +64,7 @@ export component SettingsWindow inherits Window {
                     color: root.theme-index == i ? #1e1e2e : #a6adc8;
                     font-size: 13px; horizontal-alignment: center; vertical-alignment: center;
                 }
-                TouchArea { clicked => { root.theme-index = i; } }
+                TouchArea { clicked => { root.theme-index = i; root.theme-preview(i); } }
             }
         }
 
