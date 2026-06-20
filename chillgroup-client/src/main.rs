@@ -512,10 +512,11 @@ fn main() {
                                                 } else {
                                                     m.encrypted_payload.clone()
                                                 };
+                                                let author = m.sender_username.clone().unwrap_or_default();
                                                 MessageItem {
-                                                    id: m.message_id.into(),
-                                                    author: m.sender_username.clone().into(),
-                                                    author_initial: initial(&m.sender_username).into(),
+                                                    id: m.id.into(),
+                                                    author: author.clone().into(),
+                                                    author_initial: initial(&author).into(),
                                                     content: content.into(),
                                                     timestamp: format_timestamp(&m.timestamp).into(),
                                                     encrypted: false,

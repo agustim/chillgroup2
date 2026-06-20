@@ -1,15 +1,17 @@
 use serde::{Deserialize, Serialize};
 use super::{ApiClient, ApiError};
 
-// Matches shared::types::MessageInfo (snake_case)
+// Matches server models::message::Message
 #[derive(Debug, Clone, Deserialize)]
 pub struct MessageInfo {
-    pub message_id: String,
+    pub id: String,
     pub channel_id: String,
     pub sender_user_id: String,
-    pub sender_username: String,
-    pub encrypted_payload: String,  // plaintext for none channels; base64 ciphertext for encrypted
-    pub iv: String,                  // empty for none; base64 12-byte nonce for encrypted
+    #[serde(default)]
+    pub sender_username: Option<String>,
+    pub encrypted_payload: String,
+    #[serde(default)]
+    pub iv: String,
     pub key_version: Option<i32>,
     pub timestamp: String,
 }
