@@ -132,6 +132,7 @@ export component AppWindow inherits Window {
     in-out property <bool>            active-channel-encrypted: false;
     in-out property <string>          active-channel-encryption-type;
     in-out property <length>          msg-viewport-y: 0px;
+    in-out property <bool>            scroll-to-bottom: false;
     in-out property <string>          current-username;
     in-out property <string>          current-username-initial;
     in-out property <string>          message-draft;
@@ -326,6 +327,12 @@ export component AppWindow inherits Window {
                 if root.active-channel-type == "text" && !root.active-channel-encrypted: ScrollView {
                     vertical-stretch: 1;
                     viewport-y <=> root.msg-viewport-y;
+                    changed viewport-height => {
+                        if (root.scroll-to-bottom) {
+                            root.msg-viewport-y = -(self.viewport-height - self.visible-height);
+                            root.scroll-to-bottom = false;
+                        }
+                    }
                     VerticalLayout {
                         padding: 4px; spacing: 0px; alignment: start;
                         for msg in root.messages: HorizontalLayout {

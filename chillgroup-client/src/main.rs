@@ -526,7 +526,7 @@ fn main() {
                                             slint::invoke_from_event_loop(move || {
                                                 let win = ah.unwrap();
                                                 win.set_messages(ModelRc::new(VecModel::from(items)));
-                                                win.set_msg_viewport_y(-999999.0);
+                                                win.set_scroll_to_bottom(true);
                                             }).ok();
                                         }
                                         Err(e) => tracing::warn!("Error loading messages: {e}"),
@@ -563,6 +563,25 @@ fn main() {
                         Cmd::SendMessage { content } => {
                             if let Some(client) = &api {
                                 if !session.active_channel_id.is_empty() {
+                                    // Optimistic: show immediately before API call
+                                    let optimistic = MessageItem {
+                                        id: "pending".into(),
+                                        author: session.username.clone().into(),
+                                        author_initial: initial(&session.username).into(),
+                                        content: content.clone().into(),
+                                        timestamp: "Ara".into(),
+                                        encrypted: false,
+                                    };
+                                    let ah = app_bg.clone();
+                                    slint::invoke_from_event_loop(move || {
+                                        let win = ah.unwrap();
+                                        let model = win.get_messages();
+                                        if let Some(vm) = model.as_any().downcast_ref::<VecModel<MessageItem>>() {
+                                            vm.push(optimistic);
+                                        }
+                                        win.set_scroll_to_bottom(true);
+                                    }).ok();
+
                                     let (payload, iv) = if let Some(key) = &session.active_channel_key {
                                         crypto::encrypt_message(key, &content)
                                     } else {
@@ -571,6 +590,22 @@ fn main() {
                                     if let Err(e) = api::messages::send(client, &session.active_channel_id, &payload, &iv, None).await {
                                         tracing::warn!("Error sending message: {e}");
                                     }
+                                    // Real message arrives via Socket.IO; remove optimistic item
+                                    let ah = app_bg.clone();
+                                    slint::invoke_from_event_loop(move || {
+                                        let win = ah.unwrap();
+                                        let model = win.get_messages();
+                                        if let Some(vm) = model.as_any().downcast_ref::<VecModel<MessageItem>>() {
+                                            for i in (0..vm.row_count()).rev() {
+                                                if let Some(item) = vm.row_data(i) {
+                                                    if item.id.as_str() == "pending" {
+                                                        vm.remove(i);
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }).ok();
                                 }
                             }
                         }
@@ -627,7 +662,7 @@ fn main() {
                                     if let Some(vm) = model.as_any().downcast_ref::<VecModel<MessageItem>>() {
                                         vm.push(item);
                                     }
-                                    win.set_msg_viewport_y(-999999.0);
+                                    win.set_scroll_to_bottom(true);
                                 }).ok();
                             }
                         }
