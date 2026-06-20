@@ -90,7 +90,12 @@ export component AppWindow inherits Window {
     min-width: 400px; min-height: 480px;
     background: Palette.background;
 
-    in-out property <int> app-theme-index: 0;
+    in-out property <int> app-theme-index: 1;
+    init => {
+        if (root.app-theme-index == 1) { Palette.color-scheme = ColorScheme.dark; }
+        else if (root.app-theme-index == 2) { Palette.color-scheme = ColorScheme.light; }
+        else { Palette.color-scheme = ColorScheme.unknown; }
+    }
     changed app-theme-index => {
         if (root.app-theme-index == 1) { Palette.color-scheme = ColorScheme.dark; }
         else if (root.app-theme-index == 2) { Palette.color-scheme = ColorScheme.light; }
@@ -202,9 +207,9 @@ export component AppWindow inherits Window {
     if root.vault-open && root.logged-in: HorizontalBox {
         spacing: 0px; padding: 0px;
 
-        // Server sidebar
+        // Server sidebar — darkest
         Rectangle {
-            width: 72px; background: Palette.alternate-background;
+            width: 72px; background: Palette.background;
             VerticalBox {
                 padding: 8px; spacing: 6px; alignment: start;
                 for server in root.servers: Rectangle {
@@ -222,13 +227,13 @@ export component AppWindow inherits Window {
             }
         }
 
-        // Channel sidebar
+        // Channel sidebar — dark
         Rectangle {
             width: 220px; background: Palette.alternate-background;
             VerticalBox {
                 spacing: 0px; padding: 0px;
                 Rectangle {
-                    height: 48px; background: Palette.background;
+                    height: 48px; background: Palette.alternate-background;
                     Text { x: 16px; text: "Canals"; font-size: 14px; font-weight: 700; color: Palette.foreground; vertical-alignment: center; }
                 }
                 ListView {
@@ -246,8 +251,7 @@ export component AppWindow inherits Window {
                 }
                 Rectangle { vertical-stretch: 1; }
                 Rectangle {
-                    height: 52px; background: Palette.alternate-background;
-                    border-color: Palette.border; border-width: 0px;
+                    height: 52px; background: Palette.background;
                     HorizontalBox {
                         padding: 8px; spacing: 8px;
                         Rectangle {
@@ -262,14 +266,15 @@ export component AppWindow inherits Window {
             }
         }
 
-        // Main content
+        // Main content — lighter than sidebars
         Rectangle {
-            horizontal-stretch: 1; background: Palette.background;
+            horizontal-stretch: 1; background: Palette.alternate-background;
             VerticalBox {
                 spacing: 0px; padding: 0px;
 
+                // Top channel header — slightly distinct
                 Rectangle {
-                    height: 48px; background: Palette.background;
+                    height: 48px; background: Palette.alternate-background;
                     HorizontalBox {
                         padding-left: 16px; padding-right: 8px; spacing: 8px;
                         Text { text: active-channel-type == "voice" ? "♪" : "#"; font-size: 16px; color: Palette.border; }
@@ -286,7 +291,7 @@ export component AppWindow inherits Window {
                 }
 
                 if root.active-channel-encrypted: Rectangle {
-                    vertical-stretch: 1; background: Palette.alternate-background;
+                    vertical-stretch: 1; background: Palette.background;
                     VerticalBox {
                         alignment: center; spacing: 8px;
                         Text { text: "🔒"; font-size: 32px; horizontal-alignment: center; }
@@ -319,7 +324,7 @@ export component AppWindow inherits Window {
                 }
 
                 if root.active-channel-type == "voice" && !root.active-channel-encrypted: Rectangle {
-                    vertical-stretch: 1; background: Palette.alternate-background;
+                    vertical-stretch: 1; background: Palette.background;
                     Text {
                         text: root.in-voice-channel ? "En canal de veu" : "Prem 'Entrar' per unir-te al canal de veu";
                         color: Palette.border; font-size: 16px; horizontal-alignment: center; vertical-alignment: center;
@@ -327,7 +332,7 @@ export component AppWindow inherits Window {
                 }
 
                 if root.active-channel-type == "text" && !root.active-channel-encrypted: Rectangle {
-                    height: 56px; background: Palette.background;
+                    height: 56px; background: Palette.alternate-background;
                     HorizontalBox {
                         padding: 8px; spacing: 8px;
                         LineEdit {
@@ -351,7 +356,7 @@ export component AppWindow inherits Window {
                 }
 
                 Rectangle {
-                    height: 22px; background: Palette.alternate-background;
+                    height: 22px; background: Palette.background;
                     Text { x: 8px; text: root.status-text; font-size: 11px; color: Palette.border; vertical-alignment: center; }
                 }
             }

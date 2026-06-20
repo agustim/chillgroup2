@@ -43,7 +43,7 @@ impl Default for Settings {
                 sound: true,
                 mention_only: false,
             },
-            ui: UiSettings { theme: "system".to_string() },
+            ui: UiSettings { theme: "dark".to_string() },
         }
     }
 }
