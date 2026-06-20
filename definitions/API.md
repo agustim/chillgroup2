@@ -11,21 +11,26 @@
 
 ### Format de Resposta Exitosa
 
+Els endpoints 2xx retornen l'objecte **directament** (sense wrapper `{success, data}`), en **snake_case**:
+
 ```json
 {
-  "success": true,
-  "data": { ... }
+  "user_id": "...",
+  "username": "agusti",
+  "token": "..."
 }
 ```
 
 ### Format de Resposta d'Error
+
+Errors 4xx/5xx usen el wrapper:
 
 ```json
 {
   "success": false,
   "error": {
     "code": 400,
-    "message": "Descripció de l'error en català/castellà/anglès",
+    "message": "Descripció de l'error",
     "details": {}
   }
 }
@@ -33,13 +38,14 @@
 
 ### Format de Resposta amb Paginació
 
+Endpoints paginats (missatges) retornen:
+
 ```json
 {
-  "success": true,
   "data": [ ... ],
   "pagination": {
     "has_more": true,
-    "next_cursor": "uuid-del-ultima"
+    "next_cursor": "uuid-del-ultim"
   }
 }
 ```
@@ -66,14 +72,12 @@ Registrar un nou usuari. Genera automàticament un device ID.
 **Response 201 Created:**
 ```json
 {
-  "success": true,
-  "data": {
-    "userId": "550e8400-e29b-41d4-a716-446655440000",
-    "username": "agusti",
-    "token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "deviceId": "550e8400-e29b-41d4-a716-446655440001",
-    "deviceLabel": "Chrome on macOS"
-  }
+  "user_id": "550e8400-e29b-41d4-a716-446655440000",
+  "username": "agusti",
+  "token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "device_id": "550e8400-e29b-41d4-a716-446655440001",
+  "device_label": "Chrome on macOS",
+  "is_admin": false
 }
 ```
 
@@ -131,15 +135,12 @@ Login d'usuari existent. Retorna JWT + device info.
 **Response 200 OK:**
 ```json
 {
-  "success": true,
-  "data": {
-    "userId": "550e8400-e29b-41d4-a716-446655440000",
-    "username": "agusti",
-    "token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "deviceId": "550e8400-e29b-41d4-a716-446655440001",
-    "deviceLabel": "Chrome on macOS",
-    "isAdmin": false
-  }
+  "user_id": "550e8400-e29b-41d4-a716-446655440000",
+  "username": "agusti",
+  "token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "device_id": "550e8400-e29b-41d4-a716-446655440001",
+  "device_label": "Dispositiu principal",
+  "is_admin": false
 }
 ```
 

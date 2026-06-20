@@ -33,7 +33,12 @@ fn initial(s: &str) -> String {
 }
 
 fn main() {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("chillgroup_client=debug")),
+        )
+        .init();
 
     let cfg = settings::load();
 
@@ -207,10 +212,10 @@ fn main() {
                                 match api::channels::list(client, &server_id).await {
                                     Ok(channels) => {
                                         let items: Vec<ChannelItem> = channels.iter().map(|c| ChannelItem {
-                                            id: c.channel_id.clone().into(),
+                                            id: c.id.clone().into(),
                                             name: c.name.clone().into(),
-                                            channel_type: c.channel_type.clone().into(),
-                                            unread: false,
+                                            channel_type: c.channel_type.as_str().into(),
+                                            unread: c.unread_count.map(|n| n > 0).unwrap_or(false),
                                         }).collect();
                                         let mh = main_h_bg.clone();
                                         slint::invoke_from_event_loop(move || {
@@ -263,13 +268,18 @@ fn main() {
                                 if channel_type == "text" {
                                     match api::messages::list(client, &channel_id, 50).await {
                                         Ok(msgs) => {
-                                            let items: Vec<MessageItem> = msgs.into_iter().map(|m| MessageItem {
-                                                id: m.message_id.into(),
-                                                author: m.author_username.clone().into(),
-                                                author_initial: initial(&m.author_username).into(),
-                                                content: m.content.into(),
-                                                timestamp: format_timestamp(&m.created_at).into(),
-                                                encrypted: m.iv.is_some(),
+                                            let items: Vec<MessageItem> = msgs.into_iter().map(|m| {
+                                                let encrypted = !m.iv.is_empty();
+                                                // For none-encryption channels, payload is plaintext
+                                                let content = m.encrypted_payload.clone();
+                                                MessageItem {
+                                                    id: m.message_id.into(),
+                                                    author: m.sender_username.clone().into(),
+                                                    author_initial: initial(&m.sender_username).into(),
+                                                    content: content.into(),
+                                                    timestamp: format_timestamp(&m.timestamp).into(),
+                                                    encrypted,
+                                                }
                                             }).collect();
                                             let mh = main_h_bg.clone();
                                             slint::invoke_from_event_loop(move || {
@@ -285,7 +295,7 @@ fn main() {
                         Cmd::SendMessage { content } => {
                             if let Some(client) = &api {
                                 if !session.active_channel_id.is_empty() {
-                                    if let Err(e) = api::messages::send(client, &session.active_channel_id, &content).await {
+                                    if let Err(e) = api::messages::send_plain(client, &session.active_channel_id, &content).await {
                                         tracing::warn!("Error sending message: {e}");
                                     }
                                 }

@@ -1,64 +1,70 @@
 use serde::{Deserialize, Serialize};
-use super::{ApiClient, ApiError, ApiResponse};
+use super::{ApiClient, ApiError};
 
+// Matches shared::types::MessageInfo (snake_case)
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Message {
+pub struct MessageInfo {
     pub message_id: String,
     pub channel_id: String,
-    pub author_id: String,
-    pub author_username: String,
-    pub content: String,
-    pub iv: Option<String>,
-    pub created_at: String,
+    pub sender_user_id: String,
+    pub sender_username: String,
+    pub encrypted_payload: String,  // plaintext for encryption_type=none channels
+    pub iv: String,                  // empty string for none channels
+    pub timestamp: String,
 }
 
+// PaginatedResponse wrapper from server
+#[derive(Debug, Deserialize)]
+pub struct PaginatedResponse {
+    pub data: Vec<MessageInfo>,
+}
+
+// For encryption_type=none: encrypted_payload = plaintext, iv = ""
+// For encrypted channels: caller must decrypt encrypted_payload with iv
 #[derive(Debug, Serialize)]
 struct SendMessageRequest<'a> {
-    content: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    iv: Option<&'a str>,
+    encrypted_payload: &'a str,
+    iv: &'a str,
 }
 
 pub async fn list(
     client: &ApiClient,
     channel_id: &str,
     limit: u32,
-) -> Result<Vec<Message>, ApiError> {
-    let resp: ApiResponse<Vec<Message>> = client
+) -> Result<Vec<MessageInfo>, ApiError> {
+    let response = client
         .get(&format!("/api/channels/{}/messages?limit={}", channel_id, limit))
         .send()
-        .await?
-        .json()
         .await?;
+    let status = response.status();
+    let raw = response.text().await?;
+    tracing::debug!("messages {} → {}", status, &raw[..raw.len().min(200)]);
 
-    if resp.success {
-        Ok(resp.data.unwrap_or_default())
+    if status.is_success() {
+        let paginated = serde_json::from_str::<PaginatedResponse>(&raw)
+            .map_err(|e| ApiError::Server(format!("JSON: {e} — body: {raw}")))?;
+        Ok(paginated.data)
     } else {
-        Err(ApiError::Server(
-            resp.error.map(|e| e.message).unwrap_or_else(|| "Error fetching messages".into()),
-        ))
+        Err(ApiError::Server(format!("HTTP {status}")))
     }
 }
 
-pub async fn send(
+// Send plaintext message to a none-encryption channel
+pub async fn send_plain(
     client: &ApiClient,
     channel_id: &str,
     content: &str,
-) -> Result<Message, ApiError> {
-    let resp: ApiResponse<Message> = client
+) -> Result<(), ApiError> {
+    let response = client
         .post(&format!("/api/channels/{}/messages", channel_id))
-        .json(&SendMessageRequest { content, iv: None })
+        .json(&SendMessageRequest { encrypted_payload: content, iv: "" })
         .send()
-        .await?
-        .json()
         .await?;
-
-    if resp.success {
-        resp.data.ok_or_else(|| ApiError::Server("Empty data".into()))
+    let status = response.status();
+    if status.is_success() {
+        Ok(())
     } else {
-        Err(ApiError::Server(
-            resp.error.map(|e| e.message).unwrap_or_else(|| "Error sending message".into()),
-        ))
+        let raw = response.text().await.unwrap_or_default();
+        Err(ApiError::Server(format!("HTTP {status}: {raw}")))
     }
 }

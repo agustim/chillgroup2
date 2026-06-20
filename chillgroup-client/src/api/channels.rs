@@ -1,33 +1,56 @@
 use serde::Deserialize;
-use super::{ApiClient, ApiError, ApiResponse};
+use super::{ApiClient, ApiError};
 
+// Matches server models::channel::Channel (snake_case, array returned directly)
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Channel {
-    pub channel_id: String,
+    pub id: String,               // server uses `id` not `channel_id`
     pub name: String,
-    #[serde(rename = "type")]
-    pub channel_type: String,
-    pub position: Option<i32>,
-    pub encryption_type: Option<String>,
-    pub unread_count: Option<i32>,
+    pub channel_type: ChannelType,
+    pub encryption_type: EncryptionType,
+    pub position: i32,
+    pub unread_count: Option<usize>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ChannelType {
+    Text,
+    Voice,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum EncryptionType {
+    None,
+    Symmetric,
+    Asymmetric,
+}
+
+impl ChannelType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ChannelType::Text => "text",
+            ChannelType::Voice => "voice",
+        }
+    }
 }
 
 pub async fn list(client: &ApiClient, server_id: &str) -> Result<Vec<Channel>, ApiError> {
-    let resp: ApiResponse<Vec<Channel>> = client
+    let response = client
         .get(&format!("/api/servers/{}/channels", server_id))
         .send()
-        .await?
-        .json()
         .await?;
+    let status = response.status();
+    let raw = response.text().await?;
+    tracing::debug!("channels {} → {}", status, raw);
 
-    if resp.success {
-        let mut channels = resp.data.unwrap_or_default();
-        channels.sort_by_key(|c| c.position.unwrap_or(0));
+    if status.is_success() {
+        let mut channels = serde_json::from_str::<Vec<Channel>>(&raw)
+            .map_err(|e| ApiError::Server(format!("JSON: {e} — body: {raw}")))?;
+        channels.sort_by_key(|c| c.position);
         Ok(channels)
     } else {
-        Err(ApiError::Server(
-            resp.error.map(|e| e.message).unwrap_or_else(|| "Error fetching channels".into()),
-        ))
+        Err(ApiError::Server(format!("HTTP {status}")))
     }
 }

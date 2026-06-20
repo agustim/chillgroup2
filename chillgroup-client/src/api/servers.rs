@@ -1,28 +1,27 @@
 use serde::Deserialize;
-use super::{ApiClient, ApiError, ApiResponse};
+use super::{ApiClient, ApiError};
 
+// Matches shared::types::ServerInfo (snake_case, array returned directly)
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Server {
     pub server_id: String,
     pub name: String,
     pub icon_url: Option<String>,
     pub owner_id: String,
+    pub member_count: Option<u32>,
+    pub my_role: Option<String>,
 }
 
 pub async fn list(client: &ApiClient) -> Result<Vec<Server>, ApiError> {
-    let resp: ApiResponse<Vec<Server>> = client
-        .get("/api/servers")
-        .send()
-        .await?
-        .json()
-        .await?;
+    let response = client.get("/api/servers").send().await?;
+    let status = response.status();
+    let raw = response.text().await?;
+    tracing::debug!("servers {} → {}", status, raw);
 
-    if resp.success {
-        Ok(resp.data.unwrap_or_default())
+    if status.is_success() {
+        serde_json::from_str::<Vec<Server>>(&raw)
+            .map_err(|e| ApiError::Server(format!("JSON: {e} — body: {raw}")))
     } else {
-        Err(ApiError::Server(
-            resp.error.map(|e| e.message).unwrap_or_else(|| "Error fetching servers".into()),
-        ))
+        Err(ApiError::Server(format!("HTTP {status}")))
     }
 }

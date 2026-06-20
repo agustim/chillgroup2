@@ -4,7 +4,6 @@ pub mod messages;
 pub mod servers;
 
 use reqwest::Client;
-use serde::Deserialize;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -15,18 +14,6 @@ pub enum ApiError {
     Server(String),
     #[error("Unauthorized")]
     Unauthorized,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ApiResponse<T> {
-    pub success: bool,
-    pub data: Option<T>,
-    pub error: Option<ApiErrorBody>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ApiErrorBody {
-    pub message: String,
 }
 
 #[derive(Debug, Clone)]

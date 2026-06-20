@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use super::{ApiClient, ApiError, ApiResponse};
+use super::{ApiClient, ApiError};
 
 #[derive(Debug, Serialize)]
 struct LoginRequest<'a> {
@@ -7,14 +7,26 @@ struct LoginRequest<'a> {
     password: &'a str,
 }
 
+// Servidor retorna snake_case sense wrapper {success, data}
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct LoginData {
     pub user_id: String,
     pub username: String,
     pub token: String,
     pub device_id: String,
+    pub device_label: Option<String>,
     pub is_admin: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct ErrorBody {
+    error: Option<ErrorDetail>,
+    message: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ErrorDetail {
+    message: Option<String>,
 }
 
 pub async fn login(
@@ -22,22 +34,26 @@ pub async fn login(
     username: &str,
     password: &str,
 ) -> Result<LoginData, ApiError> {
-    let resp: ApiResponse<LoginData> = client
+    let response = client
         .post("/api/auth/login")
         .json(&LoginRequest { username, password })
         .send()
-        .await?
-        .json()
         .await?;
 
-    if resp.success {
-        resp.data.ok_or_else(|| ApiError::Server("Empty data".into()))
+    let status = response.status();
+    let raw = response.text().await?;
+    tracing::debug!("login {} → {}", status, raw);
+
+    if status.is_success() {
+        serde_json::from_str::<LoginData>(&raw)
+            .map_err(|e| ApiError::Server(format!("JSON: {e} — body: {raw}")))
+    } else if status.as_u16() == 401 {
+        Err(ApiError::Unauthorized)
     } else {
-        let msg = resp.error.map(|e| e.message).unwrap_or_else(|| "Login error".into());
-        if msg.to_lowercase().contains("unauthorized") || msg.to_lowercase().contains("invalid") {
-            Err(ApiError::Unauthorized)
-        } else {
-            Err(ApiError::Server(msg))
-        }
+        let msg = serde_json::from_str::<ErrorBody>(&raw)
+            .ok()
+            .and_then(|b| b.error.and_then(|e| e.message).or(b.message))
+            .unwrap_or_else(|| format!("HTTP {status}"));
+        Err(ApiError::Server(msg))
     }
 }
