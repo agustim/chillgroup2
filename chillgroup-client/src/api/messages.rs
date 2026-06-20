@@ -42,8 +42,10 @@ pub async fn list(
     tracing::debug!("messages {} → {}", status, &raw[..raw.len().min(200)]);
 
     if status.is_success() {
-        let paginated = serde_json::from_str::<PaginatedResponse>(&raw)
+        let mut paginated = serde_json::from_str::<PaginatedResponse>(&raw)
             .map_err(|e| ApiError::Server(format!("JSON: {e} — body: {raw}")))?;
+        // Server returns newest-first; reverse to oldest-first for display
+        paginated.data.reverse();
         Ok(paginated.data)
     } else {
         Err(ApiError::Server(format!("HTTP {status}")))
