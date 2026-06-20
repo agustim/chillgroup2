@@ -10,6 +10,12 @@ pub struct ChannelKeyBundle {
     pub key_version: Option<i32>,
 }
 
+// Server wraps all responses: { "success": true, "data": { ... } }
+#[derive(Debug, Deserialize)]
+struct ApiResponse<T> {
+    data: T,
+}
+
 pub async fn get_channel_key(client: &ApiClient, channel_id: &str) -> Result<ChannelKeyBundle, ApiError> {
     let response = client
         .get(&format!("/api/channels/{}/keys", channel_id))
@@ -17,9 +23,10 @@ pub async fn get_channel_key(client: &ApiClient, channel_id: &str) -> Result<Cha
         .await?;
     let status = response.status();
     let raw = response.text().await?;
-    tracing::debug!("channel_key {} → {}", status, &raw[..raw.len().min(300)]);
+    tracing::debug!("channel_key {} → {}", status, &raw[..raw.len().min(400)]);
     if status.is_success() {
-        serde_json::from_str::<ChannelKeyBundle>(&raw)
+        serde_json::from_str::<ApiResponse<ChannelKeyBundle>>(&raw)
+            .map(|r| r.data)
             .map_err(|e| ApiError::Server(format!("JSON: {e} — body: {raw}")))
     } else {
         Err(ApiError::Server(format!("HTTP {status}: {raw}")))
