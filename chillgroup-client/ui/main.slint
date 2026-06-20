@@ -31,7 +31,7 @@ export component SettingsWindow inherits Window {
 }
 
 export struct ServerItem  { id: string, name: string, initial: string }
-export struct ChannelItem { id: string, name: string, channel-type: string, unread: bool }
+export struct ChannelItem { id: string, name: string, channel-type: string, unread: bool, encrypted: bool }
 export struct MessageItem { id: string, author: string, author-initial: string, content: string, timestamp: string, encrypted: bool }
 
 export component AppWindow inherits Window {
@@ -58,6 +58,7 @@ export component AppWindow inherits Window {
     in-out property <string>          active-channel-id;
     in-out property <string>          active-channel-name;
     in-out property <string>          active-channel-type;
+    in-out property <bool>            active-channel-encrypted: false;
     in-out property <string>          current-username;
     in-out property <string>          current-username-initial;
     in-out property <string>          message-draft;
@@ -179,7 +180,18 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                if root.active-channel-type == "text" || root.active-channel-type == "": ListView {
+                // Canal xifrat — E2EE no implementat en client natiu beta
+                if root.active-channel-encrypted: Rectangle {
+                    vertical-stretch: 1; background: #181825;
+                    VerticalBox {
+                        alignment: center; spacing: 8px;
+                        Text { text: "🔒"; font-size: 32px; horizontal-alignment: center; }
+                        Text { text: "Canal xifrat (E2EE)"; font-size: 16px; font-weight: 700; color: #cdd6f4; horizontal-alignment: center; }
+                        Text { text: "El client natiu no suporta E2EE encara.\nUsa el client web per aquest canal."; color: #6c7086; font-size: 13px; horizontal-alignment: center; }
+                    }
+                }
+
+                if root.active-channel-type == "text" && !root.active-channel-encrypted: ListView {
                     vertical-stretch: 1;
                     for msg in root.messages: Rectangle {
                         height: 58px; background: transparent;
@@ -195,7 +207,6 @@ export component AppWindow inherits Window {
                                     spacing: 8px;
                                     Text { text: msg.author; font-weight: 700; color: #89b4fa; font-size: 14px; }
                                     Text { text: msg.timestamp; color: #585b70; font-size: 11px; vertical-alignment: center; }
-                                    if msg.encrypted: Text { text: "[E2EE]"; color: #a6e3a1; font-size: 11px; vertical-alignment: center; }
                                 }
                                 Text { text: msg.content; color: #cdd6f4; font-size: 14px; wrap: word-wrap; }
                             }
@@ -203,7 +214,7 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                if root.active-channel-type == "voice": Rectangle {
+                if root.active-channel-type == "voice" && !root.active-channel-encrypted: Rectangle {
                     vertical-stretch: 1; background: #181825;
                     Text {
                         text: root.in-voice-channel ? "En canal de veu" : "Prem 'Entrar' per unir-te al canal de veu";
@@ -211,7 +222,7 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                if root.active-channel-type == "text": Rectangle {
+                if root.active-channel-type == "text" && !root.active-channel-encrypted: Rectangle {
                     height: 56px;
                     HorizontalBox {
                         padding: 8px; spacing: 8px;

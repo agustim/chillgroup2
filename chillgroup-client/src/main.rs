@@ -210,6 +210,7 @@ fn main() {
                                             name: c.name.clone().into(),
                                             channel_type: c.channel_type.as_str().into(),
                                             unread: c.unread_count.map(|n| n > 0).unwrap_or(false),
+                                            encrypted: !matches!(c.encryption_type, api::channels::EncryptionType::None),
                                         }).collect();
                                         let ah = app_bg.clone();
                                         slint::invoke_from_event_loop(move || {
@@ -246,16 +247,19 @@ fn main() {
                                 slint::invoke_from_event_loop(move || {
                                     let win = ah.unwrap();
                                     let channels = win.get_channels();
+                                    let mut is_encrypted = false;
                                     for i in 0..channels.row_count() {
                                         if let Some(ch) = channels.row_data(i) {
                                             if ch.id == ch_id.as_str() {
                                                 win.set_active_channel_name(ch.name);
+                                                is_encrypted = ch.encrypted;
                                                 break;
                                             }
                                         }
                                     }
                                     win.set_active_channel_id(ch_id.into());
                                     win.set_active_channel_type(ch_type.into());
+                                    win.set_active_channel_encrypted(is_encrypted);
                                     win.set_messages(ModelRc::new(VecModel::default()));
                                 }).ok();
 
