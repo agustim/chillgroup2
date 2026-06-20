@@ -1,4 +1,4 @@
-import { Button, LineEdit, ListView, VerticalBox, HorizontalBox, Palette } from "std-widgets.slint";
+import { Button, LineEdit, ListView, ScrollView, VerticalBox, HorizontalBox, Palette } from "std-widgets.slint";
 
 component DarkToggle {
     in-out property <bool> checked: false;
@@ -131,6 +131,7 @@ export component AppWindow inherits Window {
     in-out property <string>          active-channel-type;
     in-out property <bool>            active-channel-encrypted: false;
     in-out property <string>          active-channel-encryption-type;
+    in-out property <length>          msg-viewport-y: 0px;
     in-out property <string>          current-username;
     in-out property <string>          current-username-initial;
     in-out property <string>          message-draft;
@@ -322,24 +323,33 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                if root.active-channel-type == "text" && !root.active-channel-encrypted: ListView {
+                if root.active-channel-type == "text" && !root.active-channel-encrypted: ScrollView {
                     vertical-stretch: 1;
-                    for msg in root.messages: Rectangle {
-                        height: 58px; background: transparent;
-                        HorizontalBox {
-                            padding-left: 16px; padding-right: 16px; spacing: 12px;
+                    viewport-y <=> root.msg-viewport-y;
+                    VerticalLayout {
+                        padding: 4px; spacing: 0px; alignment: start;
+                        for msg in root.messages: HorizontalLayout {
+                            padding-left: 16px; padding-right: 16px;
+                            padding-top: 6px; padding-bottom: 6px;
+                            spacing: 12px;
                             Rectangle {
-                                width: 36px; height: 36px; border-radius: 18px; background: Palette.selection-background; y: 10px;
-                                Text { text: msg.author-initial; color: Palette.foreground; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                                width: 36px; height: 36px; border-radius: 18px;
+                                background: Palette.selection-background;
+                                vertical-stretch: 0;
+                                Text {
+                                    text: msg.author-initial; font-weight: 700;
+                                    color: Palette.foreground;
+                                    horizontal-alignment: center; vertical-alignment: center;
+                                }
                             }
-                            VerticalBox {
-                                spacing: 2px; padding-top: 8px;
-                                HorizontalBox {
-                                    spacing: 8px;
+                            VerticalLayout {
+                                spacing: 2px; horizontal-stretch: 1;
+                                HorizontalLayout {
+                                    spacing: 8px; alignment: start;
                                     Text { text: msg.author; font-weight: 700; color: Palette.accent-background; font-size: 14px; }
                                     Text { text: msg.timestamp; color: Palette.border; font-size: 11px; vertical-alignment: center; }
                                 }
-                                Text { text: msg.content; color: Palette.foreground; font-size: 14px; wrap: word-wrap; }
+                                Text { text: msg.content; color: Palette.foreground; font-size: 14px; wrap: word-wrap; horizontal-stretch: 1; }
                             }
                         }
                     }

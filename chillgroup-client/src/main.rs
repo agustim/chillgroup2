@@ -524,7 +524,9 @@ fn main() {
                                             }).collect();
                                             let ah = app_bg.clone();
                                             slint::invoke_from_event_loop(move || {
-                                                ah.unwrap().set_messages(ModelRc::new(VecModel::from(items)));
+                                                let win = ah.unwrap();
+                                                win.set_messages(ModelRc::new(VecModel::from(items)));
+                                                win.set_msg_viewport_y(-999999.0);
                                             }).ok();
                                         }
                                         Err(e) => tracing::warn!("Error loading messages: {e}"),
@@ -625,6 +627,7 @@ fn main() {
                                     if let Some(vm) = model.as_any().downcast_ref::<VecModel<MessageItem>>() {
                                         vm.push(item);
                                     }
+                                    win.set_msg_viewport_y(-999999.0);
                                 }).ok();
                             }
                         }
