@@ -1,35 +1,5 @@
 import { Button, LineEdit, ListView, VerticalBox, HorizontalBox, CheckBox } from "std-widgets.slint";
 
-export struct ServerItem { id: string, name: string, initial: string }
-export struct ChannelItem { id: string, name: string, channel-type: string, unread: bool }
-export struct MessageItem { id: string, author: string, author-initial: string, content: string, timestamp: string, encrypted: bool }
-
-export component LoginWindow inherits Window {
-    title: "ChillGroup — Connexió";
-    width: 400px; height: 480px;
-    background: #1e1e2e;
-    in-out property <string> server-url: "https://";
-    in-out property <string> username;
-    in-out property <string> password;
-    in-out property <string> error-message;
-    in-out property <bool>   loading;
-    callback login();
-    callback open-settings();
-    VerticalBox {
-        padding: 40px; spacing: 16px;
-        Text { text: "ChillGroup"; font-size: 28px; font-weight: 700; color: #cdd6f4; horizontal-alignment: center; }
-        Text { text: "Servidor"; font-size: 12px; color: #a6adc8; }
-        LineEdit { text <=> root.server-url; placeholder-text: "https://chillgroup.example.com"; enabled: !root.loading; }
-        Text { text: "Usuari"; font-size: 12px; color: #a6adc8; }
-        LineEdit { text <=> root.username; placeholder-text: "nom d'usuari"; enabled: !root.loading; }
-        Text { text: "Contrasenya"; font-size: 12px; color: #a6adc8; }
-        LineEdit { text <=> root.password; placeholder-text: "contrasenya"; input-type: InputType.password; enabled: !root.loading; accepted => { root.login(); } }
-        if root.error-message != "": Text { text: root.error-message; color: #f38ba8; font-size: 12px; wrap: word-wrap; }
-        Button { text: root.loading ? "Connectant..." : "Entrar"; enabled: !root.loading && root.username != "" && root.password != ""; clicked => { root.login(); } primary: true; }
-        Button { text: "Configuració..."; clicked => { root.open-settings(); } }
-    }
-}
-
 export component SettingsWindow inherits Window {
     title: "Configuració — ChillGroup";
     width: 480px; height: 360px;
@@ -60,27 +30,41 @@ export component SettingsWindow inherits Window {
     }
 }
 
-export component MainWindow inherits Window {
+export struct ServerItem  { id: string, name: string, initial: string }
+export struct ChannelItem { id: string, name: string, channel-type: string, unread: bool }
+export struct MessageItem { id: string, author: string, author-initial: string, content: string, timestamp: string, encrypted: bool }
+
+export component AppWindow inherits Window {
     title: "ChillGroup";
     preferred-width: 1100px; preferred-height: 720px;
-    min-width: 800px; min-height: 500px;
+    min-width: 400px; min-height: 480px;
     background: #1e1e2e;
 
-    in-out property <[ServerItem]>  servers;
-    in-out property <[ChannelItem]> channels;
-    in-out property <[MessageItem]> messages;
-    in-out property <string>        active-server-id;
-    in-out property <string>        active-channel-id;
-    in-out property <string>        active-channel-name;
-    in-out property <string>        active-channel-type;
-    in-out property <string>        current-username;
-    in-out property <string>        current-username-initial;
-    in-out property <string>        message-draft;
-    in-out property <bool>          in-voice-channel;
-    in-out property <bool>          mic-muted;
-    in-out property <bool>          deafened;
-    in-out property <string>        status-text: "Connectat";
+    // --- Login ---
+    in-out property <string> server-url: "https://";
+    in-out property <string> username;
+    in-out property <string> password;
+    in-out property <string> error-message;
+    in-out property <bool>   loading;
+    callback login();
+    callback open-settings();
 
+    // --- Chat ---
+    in-out property <bool>            logged-in: false;
+    in-out property <[ServerItem]>    servers;
+    in-out property <[ChannelItem]>   channels;
+    in-out property <[MessageItem]>   messages;
+    in-out property <string>          active-server-id;
+    in-out property <string>          active-channel-id;
+    in-out property <string>          active-channel-name;
+    in-out property <string>          active-channel-type;
+    in-out property <string>          current-username;
+    in-out property <string>          current-username-initial;
+    in-out property <string>          message-draft;
+    in-out property <bool>            in-voice-channel;
+    in-out property <bool>            mic-muted;
+    in-out property <bool>            deafened;
+    in-out property <string>          status-text: "Connectat";
     callback select-server(string);
     callback select-channel(string, string);
     callback send-message(string);
@@ -88,11 +72,33 @@ export component MainWindow inherits Window {
     callback leave-voice();
     callback toggle-mute();
     callback toggle-deafen();
-    callback open-settings();
 
-    HorizontalBox {
+    // ── LOGIN VIEW ──────────────────────────────────────────────────────────
+    if !root.logged-in: HorizontalBox {
+        alignment: center;
+        VerticalBox {
+            alignment: center;
+            VerticalBox {
+                padding: 40px; spacing: 16px; width: 360px;
+                Text { text: "ChillGroup"; font-size: 28px; font-weight: 700; color: #cdd6f4; horizontal-alignment: center; }
+                Text { text: "Servidor"; font-size: 12px; color: #a6adc8; }
+                LineEdit { text <=> root.server-url; placeholder-text: "https://chillgroup.example.com"; enabled: !root.loading; }
+                Text { text: "Usuari"; font-size: 12px; color: #a6adc8; }
+                LineEdit { text <=> root.username; placeholder-text: "nom d'usuari"; enabled: !root.loading; }
+                Text { text: "Contrasenya"; font-size: 12px; color: #a6adc8; }
+                LineEdit { text <=> root.password; placeholder-text: "contrasenya"; input-type: InputType.password; enabled: !root.loading; accepted => { root.login(); } }
+                if root.error-message != "": Text { text: root.error-message; color: #f38ba8; font-size: 12px; wrap: word-wrap; }
+                Button { text: root.loading ? "Connectant..." : "Entrar"; enabled: !root.loading && root.username != "" && root.password != ""; clicked => { root.login(); } primary: true; }
+                Button { text: "Configuració..."; clicked => { root.open-settings(); } }
+            }
+        }
+    }
+
+    // ── CHAT VIEW ───────────────────────────────────────────────────────────
+    if root.logged-in: HorizontalBox {
         spacing: 0px; padding: 0px;
 
+        // Server sidebar
         Rectangle {
             width: 72px; background: #181825;
             VerticalBox {
@@ -112,6 +118,7 @@ export component MainWindow inherits Window {
             }
         }
 
+        // Channel sidebar
         Rectangle {
             width: 220px; background: #181825;
             VerticalBox {
@@ -149,6 +156,7 @@ export component MainWindow inherits Window {
             }
         }
 
+        // Main content
         Rectangle {
             horizontal-stretch: 1; background: #1e1e2e;
             VerticalBox {

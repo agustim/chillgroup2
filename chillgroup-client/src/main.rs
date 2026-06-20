@@ -54,13 +54,16 @@ fn main() {
         .build()
         .unwrap();
 
-    // Login window
-    let login_win = LoginWindow::new().unwrap();
-    login_win.set_server_url(cfg.server.url.clone().into());
+    // Una sola finestra — login/chat canvien via `logged-in`
+    let app = AppWindow::new().unwrap();
+    app.set_server_url(cfg.server.url.clone().into());
+    app.set_servers(ModelRc::new(VecModel::default()));
+    app.set_channels(ModelRc::new(VecModel::default()));
+    app.set_messages(ModelRc::new(VecModel::default()));
 
-    login_win.on_login({
+    app.on_login({
         let cmd_tx = cmd_tx.clone();
-        let handle = login_win.as_weak();
+        let handle = app.as_weak();
         move || {
             let win = handle.unwrap();
             let cmd = Cmd::Login {
@@ -74,25 +77,19 @@ fn main() {
         }
     });
 
-    login_win.on_open_settings({
+    app.on_open_settings({
         let cfg_ref = cfg.clone();
         move || open_settings(cfg_ref.clone(), None)
     });
 
-    // Main window (hidden until login)
-    let main_win = MainWindow::new().unwrap();
-    main_win.set_servers(ModelRc::new(VecModel::default()));
-    main_win.set_channels(ModelRc::new(VecModel::default()));
-    main_win.set_messages(ModelRc::new(VecModel::default()));
-
-    main_win.on_select_server({
+    app.on_select_server({
         let cmd_tx = cmd_tx.clone();
         move |server_id| {
             let _ = cmd_tx.try_send(Cmd::SelectServer { server_id: server_id.to_string() });
         }
     });
 
-    main_win.on_select_channel({
+    app.on_select_channel({
         let cmd_tx = cmd_tx.clone();
         move |channel_id, channel_type| {
             let _ = cmd_tx.try_send(Cmd::SelectChannel {
@@ -102,25 +99,19 @@ fn main() {
         }
     });
 
-    main_win.on_send_message({
+    app.on_send_message({
         let cmd_tx = cmd_tx.clone();
         move |content| {
             let _ = cmd_tx.try_send(Cmd::SendMessage { content: content.to_string() });
         }
     });
 
-    main_win.on_open_settings({
-        let cfg_ref = cfg.clone();
-        move || open_settings(cfg_ref.clone(), None)
-    });
-    main_win.on_join_voice(|| { /* Phase 2 */ });
-    main_win.on_leave_voice(|| { /* Phase 2 */ });
-    main_win.on_toggle_mute(|| { /* Phase 2 */ });
-    main_win.on_toggle_deafen(|| { /* Phase 2 */ });
+    app.on_join_voice(|| { /* Phase 2 */ });
+    app.on_leave_voice(|| { /* Phase 2 */ });
+    app.on_toggle_mute(|| { /* Phase 2 */ });
+    app.on_toggle_deafen(|| { /* Phase 2 */ });
 
-    // Backend task
-    let login_h_bg = login_win.as_weak();
-    let main_h_bg = main_win.as_weak();
+    let app_bg = app.as_weak();
     let vault_bg = Arc::clone(&vault);
     let cfg_bg = cfg.clone();
 
@@ -168,18 +159,15 @@ fn main() {
                                             }).collect();
                                             let first_id = servers.first().map(|s| s.server_id.clone());
 
-                                            let lh = login_h_bg.clone();
-                                            let mh = main_h_bg.clone();
+                                            let ah = app_bg.clone();
                                             slint::invoke_from_event_loop(move || {
-                                                // Mostrar main PRIMER, després amagar login
-                                                // (si s'amaga sense cap finestra visible, l'event loop acaba)
-                                                let win = mh.unwrap();
+                                                let win = ah.unwrap();
                                                 win.set_current_username(username_clone.clone().into());
                                                 win.set_current_username_initial(initial(&username_clone).into());
                                                 win.set_servers(ModelRc::new(VecModel::from(server_items)));
                                                 win.set_status_text("Connectat".into());
-                                                win.show().ok();
-                                                lh.unwrap().hide().ok();
+                                                win.set_loading(false);
+                                                win.set_logged_in(true); // switch view
                                             }).ok();
 
                                             if let Some(sid) = first_id {
@@ -188,9 +176,9 @@ fn main() {
                                         }
                                         Err(e) => {
                                             let msg = format!("Error carregant servidors: {e}");
-                                            let lh = login_h_bg.clone();
+                                            let ah = app_bg.clone();
                                             slint::invoke_from_event_loop(move || {
-                                                let win = lh.unwrap();
+                                                let win = ah.unwrap();
                                                 win.set_loading(false);
                                                 win.set_error_message(msg.into());
                                             }).ok();
@@ -202,9 +190,9 @@ fn main() {
                                         api::ApiError::Unauthorized => "Usuari o contrasenya incorrectes".to_string(),
                                         other => format!("Error: {other}"),
                                     };
-                                    let lh = login_h_bg.clone();
+                                    let ah = app_bg.clone();
                                     slint::invoke_from_event_loop(move || {
-                                        let win = lh.unwrap();
+                                        let win = ah.unwrap();
                                         win.set_loading(false);
                                         win.set_error_message(msg.into());
                                     }).ok();
@@ -223,9 +211,9 @@ fn main() {
                                             channel_type: c.channel_type.as_str().into(),
                                             unread: c.unread_count.map(|n| n > 0).unwrap_or(false),
                                         }).collect();
-                                        let mh = main_h_bg.clone();
+                                        let ah = app_bg.clone();
                                         slint::invoke_from_event_loop(move || {
-                                            let win = mh.unwrap();
+                                            let win = ah.unwrap();
                                             win.set_channels(ModelRc::new(VecModel::from(items)));
                                             win.set_active_server_id(server_id.into());
                                             win.set_active_channel_id("".into());
@@ -254,9 +242,9 @@ fn main() {
 
                                 let ch_id = channel_id.clone();
                                 let ch_type = channel_type.clone();
-                                let mh = main_h_bg.clone();
+                                let ah = app_bg.clone();
                                 slint::invoke_from_event_loop(move || {
-                                    let win = mh.unwrap();
+                                    let win = ah.unwrap();
                                     let channels = win.get_channels();
                                     for i in 0..channels.row_count() {
                                         if let Some(ch) = channels.row_data(i) {
@@ -276,7 +264,6 @@ fn main() {
                                         Ok(msgs) => {
                                             let items: Vec<MessageItem> = msgs.into_iter().map(|m| {
                                                 let encrypted = !m.iv.is_empty();
-                                                // For none-encryption channels, payload is plaintext
                                                 let content = m.encrypted_payload.clone();
                                                 MessageItem {
                                                     id: m.message_id.into(),
@@ -287,9 +274,9 @@ fn main() {
                                                     encrypted,
                                                 }
                                             }).collect();
-                                            let mh = main_h_bg.clone();
+                                            let ah = app_bg.clone();
                                             slint::invoke_from_event_loop(move || {
-                                                mh.unwrap().set_messages(ModelRc::new(VecModel::from(items)));
+                                                ah.unwrap().set_messages(ModelRc::new(VecModel::from(items)));
                                             }).ok();
                                         }
                                         Err(e) => tracing::warn!("Error loading messages: {e}"),
@@ -318,18 +305,17 @@ fn main() {
                         } => {
                             if channel_id == session.active_channel_id {
                                 let encrypted = !iv.is_empty();
-                                let content = encrypted_payload; // plaintext per canals none
                                 let item = MessageItem {
                                     id: message_id.into(),
                                     author: sender_username.clone().into(),
                                     author_initial: initial(&sender_username).into(),
-                                    content: content.into(),
+                                    content: encrypted_payload.into(),
                                     timestamp: format_timestamp(&timestamp).into(),
                                     encrypted,
                                 };
-                                let mh = main_h_bg.clone();
+                                let ah = app_bg.clone();
                                 slint::invoke_from_event_loop(move || {
-                                    let win = mh.unwrap();
+                                    let win = ah.unwrap();
                                     let model = win.get_messages();
                                     if let Some(vm) = model.as_any().downcast_ref::<VecModel<MessageItem>>() {
                                         vm.push(item);
@@ -345,33 +331,27 @@ fn main() {
                         }
 
                         realtime::RealtimeEvent::Connected => {
-                            let mh = main_h_bg.clone();
+                            let ah = app_bg.clone();
                             slint::invoke_from_event_loop(move || {
-                                mh.unwrap().set_status_text("Connectat".into());
+                                ah.unwrap().set_status_text("Connectat".into());
                             }).ok();
                         }
 
                         realtime::RealtimeEvent::Disconnected => {
-                            let mh = main_h_bg.clone();
+                            let ah = app_bg.clone();
                             slint::invoke_from_event_loop(move || {
-                                mh.unwrap().set_status_text("Desconnectat — reconnectant...".into());
+                                ah.unwrap().set_status_text("Desconnectat — reconnectant...".into());
                             }).ok();
                         }
-
-                        _ => {}
                     }
                 }
             }
         }
     });
 
-    // show() no bloqueja — run_event_loop() manté el loop actiu fins que
-    // totes les finestres es tanquen o es crida quit_event_loop()
-    login_win.show().unwrap();
-    slint::run_event_loop().unwrap();
+    app.run().unwrap();
 }
 
-// `on_saved`: callback opcional per notificar el caller quan es desa
 fn open_settings(cfg: settings::Settings, on_saved: Option<Box<dyn Fn(settings::Settings) + 'static>>) {
     let win = SettingsWindow::new().unwrap();
     win.set_server_url(cfg.server.url.clone().into());
@@ -380,20 +360,14 @@ fn open_settings(cfg: settings::Settings, on_saved: Option<Box<dyn Fn(settings::
     win.set_notifications_sound(cfg.notifications.sound);
 
     let win_close = win.as_weak();
-    win.on_close(move || {
-        win_close.unwrap().hide().ok();
-    });
+    win.on_close(move || { win_close.unwrap().hide().ok(); });
 
     let win_save = win.as_weak();
     win.on_save(move || {
         let w = win_save.unwrap();
-        let mut new_cfg = settings::Settings {
-            server: settings::ServerSettings {
-                url: w.get_server_url().to_string(),
-            },
-            vault: settings::VaultSettings {
-                path: w.get_vault_path().to_string().into(),
-            },
+        let new_cfg = settings::Settings {
+            server: settings::ServerSettings { url: w.get_server_url().to_string() },
+            vault: settings::VaultSettings { path: w.get_vault_path().to_string().into() },
             notifications: settings::NotificationSettings {
                 enabled: w.get_notifications_enabled(),
                 sound: w.get_notifications_sound(),
