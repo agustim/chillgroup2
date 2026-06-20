@@ -30,6 +30,14 @@ enum Cmd {
     SendMessage { content: String },
 }
 
+fn theme_to_index(theme: &str) -> i32 {
+    match theme { "dark" => 1, "light" => 2, _ => 0 }
+}
+
+fn index_to_theme(idx: i32) -> &'static str {
+    match idx { 1 => "dark", 2 => "light", _ => "system" }
+}
+
 fn initial(s: &str) -> String {
     s.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_else(|| "?".to_string())
 }
@@ -60,6 +68,7 @@ fn main() {
     app.set_servers(ModelRc::new(VecModel::default()));
     app.set_channels(ModelRc::new(VecModel::default()));
     app.set_messages(ModelRc::new(VecModel::default()));
+    app.set_app_theme_index(theme_to_index(&cfg.ui.theme));
 
     // Check vault state at startup
     let vault_path = cfg.vault.path.clone();
@@ -111,7 +120,8 @@ fn main() {
 
     app.on_open_settings({
         let cfg_ref = cfg.clone();
-        move || open_settings(cfg_ref.clone(), None)
+        let app_weak = app.as_weak();
+        move || open_settings(cfg_ref.clone(), app_weak.clone())
     });
 
     app.on_select_server({
@@ -544,12 +554,13 @@ fn main() {
     app.run().unwrap();
 }
 
-fn open_settings(cfg: settings::Settings, on_saved: Option<Box<dyn Fn(settings::Settings) + 'static>>) {
+fn open_settings(cfg: settings::Settings, app_weak: slint::Weak<AppWindow>) {
     let win = SettingsWindow::new().unwrap();
     win.set_server_url(cfg.server.url.clone().into());
     win.set_vault_path(cfg.vault.path.to_string_lossy().to_string().into());
     win.set_notifications_enabled(cfg.notifications.enabled);
     win.set_notifications_sound(cfg.notifications.sound);
+    win.set_theme_index(theme_to_index(&cfg.ui.theme));
 
     let win_close = win.as_weak();
     win.on_close(move || { win_close.unwrap().hide().ok(); });
@@ -557,6 +568,7 @@ fn open_settings(cfg: settings::Settings, on_saved: Option<Box<dyn Fn(settings::
     let win_save = win.as_weak();
     win.on_save(move || {
         let w = win_save.unwrap();
+        let theme = index_to_theme(w.get_theme_index()).to_string();
         let new_cfg = settings::Settings {
             server: settings::ServerSettings { url: w.get_server_url().to_string() },
             vault: settings::VaultSettings { path: w.get_vault_path().to_string().into() },
@@ -565,12 +577,14 @@ fn open_settings(cfg: settings::Settings, on_saved: Option<Box<dyn Fn(settings::
                 sound: w.get_notifications_sound(),
                 mention_only: false,
             },
+            ui: settings::UiSettings { theme: theme.clone() },
         };
         if let Err(e) = settings::save(&new_cfg) {
             tracing::warn!("Error desant configuració: {e}");
         }
-        if let Some(cb) = &on_saved {
-            cb(new_cfg);
+        // Apply theme immediately
+        if let Some(app) = app_weak.upgrade() {
+            app.set_app_theme_index(theme_to_index(&theme));
         }
         w.hide().ok();
     });

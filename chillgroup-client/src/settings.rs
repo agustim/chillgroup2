@@ -7,6 +7,7 @@ pub struct Settings {
     pub server: ServerSettings,
     pub vault: VaultSettings,
     pub notifications: NotificationSettings,
+    pub ui: UiSettings,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,6 +27,12 @@ pub struct NotificationSettings {
     pub mention_only: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UiSettings {
+    /// "dark" | "light" | "system"
+    pub theme: String,
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -36,6 +43,7 @@ impl Default for Settings {
                 sound: true,
                 mention_only: false,
             },
+            ui: UiSettings { theme: "system".to_string() },
         }
     }
 }

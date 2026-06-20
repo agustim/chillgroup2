@@ -1,25 +1,76 @@
-import { Button, LineEdit, ListView, VerticalBox, HorizontalBox, CheckBox } from "std-widgets.slint";
+import { Button, LineEdit, ListView, VerticalBox, HorizontalBox, Palette } from "std-widgets.slint";
+
+// Toggle custom amb colors explícits — no depèn del tema del sistema
+component DarkToggle {
+    in-out property <bool> checked: false;
+    in property <bool>     enabled: true;
+    in property <string>   text;
+    height: 28px;
+    HorizontalBox {
+        spacing: 10px; padding: 0px;
+        Rectangle {
+            width: 36px; height: 20px; border-radius: 10px;
+            background: root.checked ? #89b4fa : #45475a;
+            animate background { duration: 120ms; }
+            Rectangle {
+                x: root.checked ? parent.width - 18px : 2px;
+                y: 2px; width: 16px; height: 16px; border-radius: 8px;
+                background: #cdd6f4;
+                animate x { duration: 120ms; }
+            }
+        }
+        Text {
+            text: root.text;
+            color: root.enabled ? #cdd6f4 : #585b70;
+            font-size: 13px; vertical-alignment: center;
+        }
+    }
+    TouchArea {
+        clicked => { if root.enabled { root.checked = !root.checked; } }
+    }
+}
 
 export component SettingsWindow inherits Window {
     title: "Configuració — ChillGroup";
-    width: 480px; height: 360px;
+    width: 480px; height: 400px;
     background: #1e1e2e;
     in-out property <string> server-url;
     in-out property <string> vault-path;
     in-out property <bool>   notifications-enabled: true;
     in-out property <bool>   notifications-sound: true;
+    // 0=Sistema, 1=Fosc, 2=Clar
+    in-out property <int>    theme-index: 0;
     callback save();
     callback close();
     VerticalBox {
         padding: 24px; spacing: 14px;
         Text { text: "Configuració"; font-size: 20px; font-weight: 700; color: #cdd6f4; }
+
         Text { text: "URL del servidor"; font-size: 12px; color: #a6adc8; }
         LineEdit { text <=> root.server-url; placeholder-text: "https://..."; }
+
         Text { text: "Ubicació del vault"; font-size: 12px; color: #a6adc8; }
         LineEdit { text <=> root.vault-path; }
-        Text { text: "Notificacions"; font-size: 14px; font-weight: 600; color: #cdd6f4; }
-        CheckBox { text: "Activar notificacions"; checked <=> root.notifications-enabled; }
-        CheckBox { text: "So"; checked <=> root.notifications-sound; enabled: root.notifications-enabled; }
+
+        Text { text: "Tema de l'aplicació"; font-size: 12px; color: #a6adc8; }
+        HorizontalBox {
+            spacing: 4px;
+            for label[i] in ["Sistema", "Fosc", "Clar"]: Rectangle {
+                height: 32px; border-radius: 6px;
+                background: root.theme-index == i ? #89b4fa : #313244;
+                Text {
+                    text: label;
+                    color: root.theme-index == i ? #1e1e2e : #a6adc8;
+                    font-size: 13px; horizontal-alignment: center; vertical-alignment: center;
+                }
+                TouchArea { clicked => { root.theme-index = i; } }
+            }
+        }
+
+        Text { text: "Notificacions"; font-size: 12px; color: #a6adc8; }
+        DarkToggle { text: "Activar notificacions"; checked <=> root.notifications-enabled; }
+        DarkToggle { text: "So"; checked <=> root.notifications-sound; enabled: root.notifications-enabled; }
+
         Rectangle { vertical-stretch: 1; }
         HorizontalBox {
             spacing: 8px;
@@ -40,8 +91,16 @@ export component AppWindow inherits Window {
     min-width: 400px; min-height: 480px;
     background: #1e1e2e;
 
+    // 0=sistema, 1=fosc, 2=clar — actualitza Palette.color-scheme quan canvia
+    in-out property <int> app-theme-index: 0;
+    changed app-theme-index => {
+        if (root.app-theme-index == 1) { Palette.color-scheme = ColorScheme.dark; }
+        else if (root.app-theme-index == 2) { Palette.color-scheme = ColorScheme.light; }
+        else { Palette.color-scheme = ColorScheme.unknown; }
+    }
+
     // --- Vault ---
-    in-out property <bool>   vault-exists: false;    // true = unlock, false = create
+    in-out property <bool>   vault-exists: false;
     in-out property <string> vault-passphrase;
     in-out property <string> vault-confirm;
     in-out property <string> vault-error;
@@ -84,7 +143,7 @@ export component AppWindow inherits Window {
     callback toggle-mute();
     callback toggle-deafen();
 
-    // ── VAULT VIEW (unlock / create) ─────────────────────────────────────
+    // ── VAULT VIEW ───────────────────────────────────────────────────────────
     if !root.vault-open: HorizontalBox {
         alignment: center;
         VerticalBox {
@@ -99,31 +158,28 @@ export component AppWindow inherits Window {
                 Text { text: "Contrasenya del vault"; font-size: 12px; color: #a6adc8; }
                 LineEdit {
                     text <=> root.vault-passphrase;
-                    placeholder-text: root.vault-exists ? "contrasenya" : "mínimo 8 caràcters";
-                    input-type: InputType.password;
-                    enabled: !root.vault-loading;
+                    placeholder-text: root.vault-exists ? "contrasenya" : "mínim 8 caràcters";
+                    input-type: InputType.password; enabled: !root.vault-loading;
                     accepted => { if !root.vault-loading { root.open-vault(); } }
                 }
                 if !root.vault-exists: Text { text: "Confirmar contrasenya"; font-size: 12px; color: #a6adc8; }
                 if !root.vault-exists: LineEdit {
                     text <=> root.vault-confirm;
                     placeholder-text: "repeteix la contrasenya";
-                    input-type: InputType.password;
-                    enabled: !root.vault-loading;
+                    input-type: InputType.password; enabled: !root.vault-loading;
                     accepted => { if !root.vault-loading { root.open-vault(); } }
                 }
                 if root.vault-error != "": Text { text: root.vault-error; color: #f38ba8; font-size: 12px; wrap: word-wrap; }
                 Button {
                     text: root.vault-loading ? "Obrint..." : (root.vault-exists ? "Obrir vault" : "Crear vault");
-                    primary: true;
-                    enabled: !root.vault-loading && root.vault-passphrase != "";
+                    primary: true; enabled: !root.vault-loading && root.vault-passphrase != "";
                     clicked => { root.open-vault(); }
                 }
             }
         }
     }
 
-    // ── LOGIN VIEW (vault obert, sense sessió) ────────────────────────────
+    // ── LOGIN VIEW ───────────────────────────────────────────────────────────
     if root.vault-open && !root.logged-in: HorizontalBox {
         alignment: center;
         VerticalBox {
@@ -144,7 +200,7 @@ export component AppWindow inherits Window {
         }
     }
 
-    // ── CHAT VIEW ───────────────────────────────────────────────────────────
+    // ── CHAT VIEW ────────────────────────────────────────────────────────────
     if root.vault-open && root.logged-in: HorizontalBox {
         spacing: 0px; padding: 0px;
 
@@ -230,7 +286,6 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                // Canal xifrat — E2EE no implementat en client natiu beta
                 if root.active-channel-encrypted: Rectangle {
                     vertical-stretch: 1; background: #181825;
                     VerticalBox {
