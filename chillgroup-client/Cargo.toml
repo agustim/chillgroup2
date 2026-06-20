@@ -1,0 +1,55 @@
+[package]
+name = "chillgroup-client"
+version = "0.1.49"
+edition = "2021"
+
+[workspace]
+# Isolated from root workspace to avoid pulling livekit into all cargo builds
+
+[dependencies]
+# UI
+slint = "1.16"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP REST
+reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] }
+
+# Socket.IO
+rust_socketio = { version = "0.6", features = ["async"] }
+
+# LiveKit (audio/video/E2EE) — Phase 2
+# livekit = { version = "0.7", features = ["native-tls"] }
+# livekit-api = { version = "0.5", features = ["native-tls", "access-token"] }
+
+# E2EE missatges — Phase 2
+# ml-kem = { version = "0.3", features = ["getrandom"] }
+# aes-gcm = "0.10"
+
+# Vault local
+sled = "0.34"
+
+# Configuració
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Tray icon — Phase 2
+# tray-icon = "0.24"
+
+# Notificacions
+notify-rust = "4"
+
+# Utils
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+dirs = "5"
+base64 = "0.22"
+
+[build-dependencies]
+slint-build = "1.16"
