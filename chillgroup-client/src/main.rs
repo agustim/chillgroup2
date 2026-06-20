@@ -171,13 +171,15 @@ fn main() {
                                             let lh = login_h_bg.clone();
                                             let mh = main_h_bg.clone();
                                             slint::invoke_from_event_loop(move || {
-                                                lh.unwrap().hide().ok();
+                                                // Mostrar main PRIMER, després amagar login
+                                                // (si s'amaga sense cap finestra visible, l'event loop acaba)
                                                 let win = mh.unwrap();
                                                 win.set_current_username(username_clone.clone().into());
                                                 win.set_current_username_initial(initial(&username_clone).into());
                                                 win.set_servers(ModelRc::new(VecModel::from(server_items)));
                                                 win.set_status_text("Connectat".into());
                                                 win.show().ok();
+                                                lh.unwrap().hide().ok();
                                             }).ok();
 
                                             if let Some(sid) = first_id {
@@ -363,7 +365,10 @@ fn main() {
         }
     });
 
-    login_win.run().unwrap();
+    // show() no bloqueja — run_event_loop() manté el loop actiu fins que
+    // totes les finestres es tanquen o es crida quit_event_loop()
+    login_win.show().unwrap();
+    slint::run_event_loop().unwrap();
 }
 
 // `on_saved`: callback opcional per notificar el caller quan es desa
