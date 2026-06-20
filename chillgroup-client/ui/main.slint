@@ -264,7 +264,6 @@ export component AppWindow inherits Window {
                             if ch.unread: Rectangle {
                                 width: 8px; height: 8px; border-radius: 4px;
                                 background: Palette.accent-background;
-                                vertical-alignment: center;
                             }
                         }
                         TouchArea { clicked => { root.select-channel(ch.id, ch.channel-type); } }
