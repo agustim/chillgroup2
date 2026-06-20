@@ -1,6 +1,5 @@
 import { Button, LineEdit, ListView, VerticalBox, HorizontalBox, Palette } from "std-widgets.slint";
 
-// Toggle custom amb colors explícits — no depèn del tema del sistema
 component DarkToggle {
     in-out property <bool> checked: false;
     in property <bool>     enabled: true;
@@ -10,18 +9,18 @@ component DarkToggle {
         spacing: 10px; padding: 0px;
         Rectangle {
             width: 36px; height: 20px; border-radius: 10px;
-            background: root.checked ? #89b4fa : #45475a;
+            background: root.checked ? Palette.accent-background : Palette.selection-background;
             animate background { duration: 120ms; }
             Rectangle {
                 x: root.checked ? parent.width - 18px : 2px;
                 y: 2px; width: 16px; height: 16px; border-radius: 8px;
-                background: #cdd6f4;
+                background: Palette.foreground;
                 animate x { duration: 120ms; }
             }
         }
         Text {
             text: root.text;
-            color: root.enabled ? #cdd6f4 : #585b70;
+            color: root.enabled ? Palette.foreground : Palette.border;
             font-size: 13px; vertical-alignment: center;
         }
     }
@@ -33,42 +32,41 @@ component DarkToggle {
 export component SettingsWindow inherits Window {
     title: "Configuració — ChillGroup";
     width: 500px; height: 520px;
-    background: #1e1e2e;
+    background: Palette.background;
     in-out property <string> server-url;
     in-out property <string> vault-path;
     in-out property <bool>   notifications-enabled: true;
     in-out property <bool>   notifications-sound: true;
-    // 0=Sistema, 1=Fosc, 2=Clar
     in-out property <int>    theme-index: 0;
-    callback theme-preview(int);  // preview immediat sense desar
+    callback theme-preview(int);
     callback save();
     callback close();
     VerticalBox {
         padding: 24px; spacing: 14px;
-        Text { text: "Configuració"; font-size: 20px; font-weight: 700; color: #cdd6f4; }
+        Text { text: "Configuració"; font-size: 20px; font-weight: 700; color: Palette.foreground; }
 
-        Text { text: "URL del servidor"; font-size: 12px; color: #a6adc8; }
+        Text { text: "URL del servidor"; font-size: 12px; color: Palette.border; }
         LineEdit { text <=> root.server-url; placeholder-text: "https://..."; }
 
-        Text { text: "Ubicació del vault"; font-size: 12px; color: #a6adc8; }
+        Text { text: "Ubicació del vault"; font-size: 12px; color: Palette.border; }
         LineEdit { text <=> root.vault-path; }
 
-        Text { text: "Tema de l'aplicació"; font-size: 12px; color: #a6adc8; }
+        Text { text: "Tema de l'aplicació"; font-size: 12px; color: Palette.border; }
         HorizontalBox {
             spacing: 4px;
             for label[i] in ["Sistema", "Fosc", "Clar"]: Rectangle {
                 height: 32px; border-radius: 6px;
-                background: root.theme-index == i ? #89b4fa : #313244;
+                background: root.theme-index == i ? Palette.accent-background : Palette.selection-background;
                 Text {
                     text: label;
-                    color: root.theme-index == i ? #1e1e2e : #a6adc8;
+                    color: root.theme-index == i ? Palette.accent-foreground : Palette.foreground;
                     font-size: 13px; horizontal-alignment: center; vertical-alignment: center;
                 }
                 TouchArea { clicked => { root.theme-index = i; root.theme-preview(i); } }
             }
         }
 
-        Text { text: "Notificacions"; font-size: 12px; color: #a6adc8; }
+        Text { text: "Notificacions"; font-size: 12px; color: Palette.border; }
         DarkToggle { text: "Activar notificacions"; checked <=> root.notifications-enabled; }
         DarkToggle { text: "So"; checked <=> root.notifications-sound; enabled: root.notifications-enabled; }
 
@@ -90,9 +88,8 @@ export component AppWindow inherits Window {
     title: "ChillGroup";
     preferred-width: 1100px; preferred-height: 720px;
     min-width: 400px; min-height: 480px;
-    background: #1e1e2e;
+    background: Palette.background;
 
-    // 0=sistema, 1=fosc, 2=clar — actualitza Palette.color-scheme quan canvia
     in-out property <int> app-theme-index: 0;
     changed app-theme-index => {
         if (root.app-theme-index == 1) { Palette.color-scheme = ColorScheme.dark; }
@@ -151,19 +148,19 @@ export component AppWindow inherits Window {
             alignment: center;
             VerticalBox {
                 padding: 40px; spacing: 16px; width: 360px;
-                Text { text: "ChillGroup"; font-size: 28px; font-weight: 700; color: #cdd6f4; horizontal-alignment: center; }
+                Text { text: "ChillGroup"; font-size: 28px; font-weight: 700; color: Palette.foreground; horizontal-alignment: center; }
                 Text {
                     text: root.vault-exists ? "Introdueix la contrasenya del vault" : "Crea un vault per guardar la sessió";
-                    font-size: 13px; color: #a6adc8; horizontal-alignment: center; wrap: word-wrap;
+                    font-size: 13px; color: Palette.border; horizontal-alignment: center; wrap: word-wrap;
                 }
-                Text { text: "Contrasenya del vault"; font-size: 12px; color: #a6adc8; }
+                Text { text: "Contrasenya del vault"; font-size: 12px; color: Palette.border; }
                 LineEdit {
                     text <=> root.vault-passphrase;
                     placeholder-text: root.vault-exists ? "contrasenya" : "mínim 8 caràcters";
                     input-type: InputType.password; enabled: !root.vault-loading;
                     accepted => { if !root.vault-loading { root.open-vault(); } }
                 }
-                if !root.vault-exists: Text { text: "Confirmar contrasenya"; font-size: 12px; color: #a6adc8; }
+                if !root.vault-exists: Text { text: "Confirmar contrasenya"; font-size: 12px; color: Palette.border; }
                 if !root.vault-exists: LineEdit {
                     text <=> root.vault-confirm;
                     placeholder-text: "repeteix la contrasenya";
@@ -187,12 +184,12 @@ export component AppWindow inherits Window {
             alignment: center;
             VerticalBox {
                 padding: 40px; spacing: 16px; width: 360px;
-                Text { text: "ChillGroup"; font-size: 28px; font-weight: 700; color: #cdd6f4; horizontal-alignment: center; }
-                Text { text: "Servidor"; font-size: 12px; color: #a6adc8; }
+                Text { text: "ChillGroup"; font-size: 28px; font-weight: 700; color: Palette.foreground; horizontal-alignment: center; }
+                Text { text: "Servidor"; font-size: 12px; color: Palette.border; }
                 LineEdit { text <=> root.server-url; placeholder-text: "https://chillgroup.example.com"; enabled: !root.loading; }
-                Text { text: "Usuari"; font-size: 12px; color: #a6adc8; }
+                Text { text: "Usuari"; font-size: 12px; color: Palette.border; }
                 LineEdit { text <=> root.username; placeholder-text: "nom d'usuari"; enabled: !root.loading; }
-                Text { text: "Contrasenya"; font-size: 12px; color: #a6adc8; }
+                Text { text: "Contrasenya"; font-size: 12px; color: Palette.border; }
                 LineEdit { text <=> root.password; placeholder-text: "contrasenya"; input-type: InputType.password; enabled: !root.loading; accepted => { root.login(); } }
                 if root.error-message != "": Text { text: root.error-message; color: #f38ba8; font-size: 12px; wrap: word-wrap; }
                 Button { text: root.loading ? "Connectant..." : "Entrar"; enabled: !root.loading && root.username != "" && root.password != ""; clicked => { root.login(); } primary: true; }
@@ -207,16 +204,16 @@ export component AppWindow inherits Window {
 
         // Server sidebar
         Rectangle {
-            width: 72px; background: #181825;
+            width: 72px; background: Palette.alternate-background;
             VerticalBox {
                 padding: 8px; spacing: 6px; alignment: start;
                 for server in root.servers: Rectangle {
                     width: 48px; height: 48px;
                     border-radius: active-server-id == server.id ? 16px : 24px;
-                    background: active-server-id == server.id ? #89b4fa : #313244;
+                    background: active-server-id == server.id ? Palette.accent-background : Palette.selection-background;
                     Text {
                         text: server.initial;
-                        color: active-server-id == server.id ? #1e1e2e : #cdd6f4;
+                        color: active-server-id == server.id ? Palette.accent-foreground : Palette.foreground;
                         font-size: 18px; font-weight: 700;
                         horizontal-alignment: center; vertical-alignment: center;
                     }
@@ -227,36 +224,37 @@ export component AppWindow inherits Window {
 
         // Channel sidebar
         Rectangle {
-            width: 220px; background: #181825;
+            width: 220px; background: Palette.alternate-background;
             VerticalBox {
                 spacing: 0px; padding: 0px;
                 Rectangle {
-                    height: 48px; background: #1e1e2e;
-                    Text { x: 16px; text: "Canals"; font-size: 14px; font-weight: 700; color: #cdd6f4; vertical-alignment: center; }
+                    height: 48px; background: Palette.background;
+                    Text { x: 16px; text: "Canals"; font-size: 14px; font-weight: 700; color: Palette.foreground; vertical-alignment: center; }
                 }
                 ListView {
                     for ch in root.channels: Rectangle {
                         height: 36px;
-                        background: active-channel-id == ch.id ? #313244 : transparent;
+                        background: active-channel-id == ch.id ? Palette.selection-background : transparent;
                         border-radius: 6px;
                         HorizontalBox {
                             padding-left: 12px; spacing: 6px;
-                            Text { text: ch.channel-type == "voice" ? "♪" : "#"; font-size: 14px; color: #6c7086; width: 16px; }
-                            Text { text: ch.name; font-size: 14px; color: ch.unread ? #cdd6f4 : #a6adc8; font-weight: ch.unread ? 700 : 400; }
+                            Text { text: ch.channel-type == "voice" ? "♪" : "#"; font-size: 14px; color: Palette.border; width: 16px; }
+                            Text { text: ch.name; font-size: 14px; color: ch.unread ? Palette.foreground : Palette.border; font-weight: ch.unread ? 700 : 400; }
                         }
                         TouchArea { clicked => { root.select-channel(ch.id, ch.channel-type); } }
                     }
                 }
                 Rectangle { vertical-stretch: 1; }
                 Rectangle {
-                    height: 52px; background: #11111b;
+                    height: 52px; background: Palette.alternate-background;
+                    border-color: Palette.border; border-width: 0px;
                     HorizontalBox {
                         padding: 8px; spacing: 8px;
                         Rectangle {
-                            width: 32px; height: 32px; border-radius: 16px; background: #89b4fa;
-                            Text { text: root.current-username-initial; color: #1e1e2e; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                            width: 32px; height: 32px; border-radius: 16px; background: Palette.accent-background;
+                            Text { text: root.current-username-initial; color: Palette.accent-foreground; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
                         }
-                        Text { text: root.current-username; color: #cdd6f4; font-size: 13px; horizontal-stretch: 1; }
+                        Text { text: root.current-username; color: Palette.foreground; font-size: 13px; horizontal-stretch: 1; }
                         Button { text: "⚙"; clicked => { root.open-settings(); } }
                         Button { text: "↩"; clicked => { root.logout(); } }
                     }
@@ -266,16 +264,16 @@ export component AppWindow inherits Window {
 
         // Main content
         Rectangle {
-            horizontal-stretch: 1; background: #1e1e2e;
+            horizontal-stretch: 1; background: Palette.background;
             VerticalBox {
                 spacing: 0px; padding: 0px;
 
                 Rectangle {
-                    height: 48px; background: #1e1e2e;
+                    height: 48px; background: Palette.background;
                     HorizontalBox {
                         padding-left: 16px; padding-right: 8px; spacing: 8px;
-                        Text { text: active-channel-type == "voice" ? "♪" : "#"; font-size: 16px; color: #6c7086; }
-                        Text { text: root.active-channel-name != "" ? root.active-channel-name : "Selecciona un canal"; font-size: 16px; font-weight: 600; color: #cdd6f4; }
+                        Text { text: active-channel-type == "voice" ? "♪" : "#"; font-size: 16px; color: Palette.border; }
+                        Text { text: root.active-channel-name != "" ? root.active-channel-name : "Selecciona un canal"; font-size: 16px; font-weight: 600; color: Palette.foreground; }
                         Rectangle { horizontal-stretch: 1; }
                         if root.active-channel-type == "voice": HorizontalBox {
                             spacing: 4px;
@@ -288,12 +286,12 @@ export component AppWindow inherits Window {
                 }
 
                 if root.active-channel-encrypted: Rectangle {
-                    vertical-stretch: 1; background: #181825;
+                    vertical-stretch: 1; background: Palette.alternate-background;
                     VerticalBox {
                         alignment: center; spacing: 8px;
                         Text { text: "🔒"; font-size: 32px; horizontal-alignment: center; }
-                        Text { text: "Canal xifrat (E2EE)"; font-size: 16px; font-weight: 700; color: #cdd6f4; horizontal-alignment: center; }
-                        Text { text: "El client natiu no suporta E2EE encara.\nUsa el client web per aquest canal."; color: #6c7086; font-size: 13px; horizontal-alignment: center; }
+                        Text { text: "Canal xifrat (E2EE)"; font-size: 16px; font-weight: 700; color: Palette.foreground; horizontal-alignment: center; }
+                        Text { text: "El client natiu no suporta E2EE encara.\nUsa el client web per aquest canal."; color: Palette.border; font-size: 13px; horizontal-alignment: center; }
                     }
                 }
 
@@ -304,32 +302,32 @@ export component AppWindow inherits Window {
                         HorizontalBox {
                             padding-left: 16px; padding-right: 16px; spacing: 12px;
                             Rectangle {
-                                width: 36px; height: 36px; border-radius: 18px; background: #313244; y: 10px;
-                                Text { text: msg.author-initial; color: #cdd6f4; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                                width: 36px; height: 36px; border-radius: 18px; background: Palette.selection-background; y: 10px;
+                                Text { text: msg.author-initial; color: Palette.foreground; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
                             }
                             VerticalBox {
                                 spacing: 2px; padding-top: 8px;
                                 HorizontalBox {
                                     spacing: 8px;
-                                    Text { text: msg.author; font-weight: 700; color: #89b4fa; font-size: 14px; }
-                                    Text { text: msg.timestamp; color: #585b70; font-size: 11px; vertical-alignment: center; }
+                                    Text { text: msg.author; font-weight: 700; color: Palette.accent-background; font-size: 14px; }
+                                    Text { text: msg.timestamp; color: Palette.border; font-size: 11px; vertical-alignment: center; }
                                 }
-                                Text { text: msg.content; color: #cdd6f4; font-size: 14px; wrap: word-wrap; }
+                                Text { text: msg.content; color: Palette.foreground; font-size: 14px; wrap: word-wrap; }
                             }
                         }
                     }
                 }
 
                 if root.active-channel-type == "voice" && !root.active-channel-encrypted: Rectangle {
-                    vertical-stretch: 1; background: #181825;
+                    vertical-stretch: 1; background: Palette.alternate-background;
                     Text {
                         text: root.in-voice-channel ? "En canal de veu" : "Prem 'Entrar' per unir-te al canal de veu";
-                        color: #6c7086; font-size: 16px; horizontal-alignment: center; vertical-alignment: center;
+                        color: Palette.border; font-size: 16px; horizontal-alignment: center; vertical-alignment: center;
                     }
                 }
 
                 if root.active-channel-type == "text" && !root.active-channel-encrypted: Rectangle {
-                    height: 56px;
+                    height: 56px; background: Palette.background;
                     HorizontalBox {
                         padding: 8px; spacing: 8px;
                         LineEdit {
@@ -353,8 +351,8 @@ export component AppWindow inherits Window {
                 }
 
                 Rectangle {
-                    height: 22px; background: #11111b;
-                    Text { x: 8px; text: root.status-text; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+                    height: 22px; background: Palette.alternate-background;
+                    Text { x: 8px; text: root.status-text; font-size: 11px; color: Palette.border; vertical-alignment: center; }
                 }
             }
         }
