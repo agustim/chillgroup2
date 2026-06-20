@@ -7,7 +7,7 @@ edition = "2021"
 [workspace]
 
 [dependencies]
-livekit = { version = "0.7", features = ["rustls-tls-native-roots"] }
-livekit-api = { version = "0.5", features = ["rustls-tls-native-roots", "access-token"] }
+livekit = { version = "0.7", features = ["native-tls"] }
+livekit-api = { version = "0.5", features = ["native-tls", "access-token"] }
 tokio = { version = "1", features = ["full"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
