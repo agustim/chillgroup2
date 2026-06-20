@@ -74,8 +74,9 @@ fn main() {
         }
     });
 
-    login_win.on_open_settings(|| {
-        // TODO: obrir SettingsWindow
+    login_win.on_open_settings({
+        let cfg_ref = cfg.clone();
+        move || open_settings(cfg_ref.clone(), None)
     });
 
     // Main window (hidden until login)
@@ -108,7 +109,10 @@ fn main() {
         }
     });
 
-    main_win.on_open_settings(|| { /* TODO */ });
+    main_win.on_open_settings({
+        let cfg_ref = cfg.clone();
+        move || open_settings(cfg_ref.clone(), None)
+    });
     main_win.on_join_voice(|| { /* Phase 2 */ });
     main_win.on_leave_voice(|| { /* Phase 2 */ });
     main_win.on_toggle_mute(|| { /* Phase 2 */ });
@@ -307,16 +311,19 @@ fn main() {
                 Some(event) = event_rx.recv() => {
                     match event {
                         realtime::RealtimeEvent::Message {
-                            channel_id, author_username, content, message_id, created_at, ..
+                            channel_id, sender_username, encrypted_payload, iv,
+                            message_id, timestamp, ..
                         } => {
                             if channel_id == session.active_channel_id {
+                                let encrypted = !iv.is_empty();
+                                let content = encrypted_payload; // plaintext per canals none
                                 let item = MessageItem {
                                     id: message_id.into(),
-                                    author: author_username.clone().into(),
-                                    author_initial: initial(&author_username).into(),
+                                    author: sender_username.clone().into(),
+                                    author_initial: initial(&sender_username).into(),
                                     content: content.into(),
-                                    timestamp: format_timestamp(&created_at).into(),
-                                    encrypted: false,
+                                    timestamp: format_timestamp(&timestamp).into(),
+                                    encrypted,
                                 };
                                 let mh = main_h_bg.clone();
                                 slint::invoke_from_event_loop(move || {
@@ -357,6 +364,47 @@ fn main() {
     });
 
     login_win.run().unwrap();
+}
+
+// `on_saved`: callback opcional per notificar el caller quan es desa
+fn open_settings(cfg: settings::Settings, on_saved: Option<Box<dyn Fn(settings::Settings) + 'static>>) {
+    let win = SettingsWindow::new().unwrap();
+    win.set_server_url(cfg.server.url.clone().into());
+    win.set_vault_path(cfg.vault.path.to_string_lossy().to_string().into());
+    win.set_notifications_enabled(cfg.notifications.enabled);
+    win.set_notifications_sound(cfg.notifications.sound);
+
+    let win_close = win.as_weak();
+    win.on_close(move || {
+        win_close.unwrap().hide().ok();
+    });
+
+    let win_save = win.as_weak();
+    win.on_save(move || {
+        let w = win_save.unwrap();
+        let mut new_cfg = settings::Settings {
+            server: settings::ServerSettings {
+                url: w.get_server_url().to_string(),
+            },
+            vault: settings::VaultSettings {
+                path: w.get_vault_path().to_string().into(),
+            },
+            notifications: settings::NotificationSettings {
+                enabled: w.get_notifications_enabled(),
+                sound: w.get_notifications_sound(),
+                mention_only: false,
+            },
+        };
+        if let Err(e) = settings::save(&new_cfg) {
+            tracing::warn!("Error desant configuració: {e}");
+        }
+        if let Some(cb) = &on_saved {
+            cb(new_cfg);
+        }
+        w.hide().ok();
+    });
+
+    win.show().ok();
 }
 
 fn format_timestamp(ts: &str) -> String {

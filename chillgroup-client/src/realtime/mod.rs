@@ -4,20 +4,18 @@ use tokio::sync::mpsc;
 
 #[derive(Debug, Clone)]
 pub enum RealtimeEvent {
+    // Socket event `message` — camelCase del servidor Rust
     Message {
-        channel_id: String,
-        author_id: String,
-        author_username: String,
-        content: String,
         message_id: String,
-        created_at: String,
+        channel_id: String,
+        sender_user_id: String,
+        sender_username: String,
+        encrypted_payload: String,  // plaintext per canals none
+        iv: String,
+        timestamp: String,
     },
     ChannelsUpdated {
         server_id: String,
-    },
-    PresenceUpdated {
-        user_id: String,
-        online: bool,
     },
     Connected,
     Disconnected,
@@ -62,10 +60,11 @@ pub async fn connect(
                             .send(RealtimeEvent::Message {
                                 message_id: get("messageId"),
                                 channel_id: get("channelId"),
-                                author_id: get("authorId"),
-                                author_username: get("authorUsername"),
-                                content: get("content"),
-                                created_at: get("createdAt"),
+                                sender_user_id: get("senderUserId"),
+                                sender_username: get("senderUsername"),
+                                encrypted_payload: get("encryptedPayload"),
+                                iv: get("iv"),
+                                timestamp: get("timestamp"),
                             })
                             .await;
                     }
