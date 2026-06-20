@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod channels;
+pub mod keys;
 pub mod messages;
 pub mod servers;
 

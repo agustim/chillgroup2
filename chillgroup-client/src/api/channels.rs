@@ -19,9 +19,10 @@ pub enum ChannelType {
     Voice,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum EncryptionType {
+    #[default]
     None,
     Symmetric,
     Asymmetric,

@@ -1,9 +1,12 @@
 mod api;
+mod crypto;
 mod realtime;
 mod settings;
 mod storage;
 
+use base64::{engine::general_purpose::STANDARD, Engine};
 use slint::{Model, ModelRc, VecModel};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
@@ -18,6 +21,12 @@ struct Session {
     active_server_id: String,
     active_channel_id: String,
     active_channel_type: String,
+    active_channel_key: Option<[u8; 32]>,
+}
+
+struct ChannelMeta {
+    name: String,
+    encryption_type: api::channels::EncryptionType,
 }
 
 #[derive(Debug)]
@@ -166,6 +175,7 @@ fn main() {
         let mut api: Option<api::ApiClient> = None;
         let mut socket: Option<rust_socketio::asynchronous::Client> = None;
         let mut session = Session::default();
+        let mut channel_meta: HashMap<String, ChannelMeta> = HashMap::new();
 
         loop {
             tokio::select! {
@@ -206,6 +216,7 @@ fn main() {
                                                         Err(e) => tracing::warn!("Socket.IO: {e}"),
                                                     }
                                                     api = Some(client);
+                                                    ensure_kem_keypair(&vault_bg, api.as_ref().unwrap()).await;
 
                                                     let server_items: Vec<ServerItem> = servers.iter().map(|s| ServerItem {
                                                         id: s.server_id.clone().into(),
@@ -301,6 +312,7 @@ fn main() {
                                     }
 
                                     api = Some(client);
+                                    ensure_kem_keypair(&vault_bg, api.as_ref().unwrap()).await;
 
                                     match api::servers::list(api.as_ref().unwrap()).await {
                                         Ok(servers) => {
@@ -358,12 +370,19 @@ fn main() {
                                 session.active_server_id = server_id.clone();
                                 match api::channels::list(client, &server_id).await {
                                     Ok(channels) => {
-                                        let items: Vec<ChannelItem> = channels.iter().map(|c| ChannelItem {
-                                            id: c.id.clone().into(),
-                                            name: c.name.clone().into(),
-                                            channel_type: c.channel_type.as_str().into(),
-                                            unread: c.unread_count.map(|n| n > 0).unwrap_or(false),
-                                            encrypted: !matches!(c.encryption_type, api::channels::EncryptionType::None),
+                                        channel_meta.clear();
+                                        let items: Vec<ChannelItem> = channels.iter().map(|c| {
+                                            channel_meta.insert(c.id.clone(), ChannelMeta {
+                                                name: c.name.clone(),
+                                                encryption_type: c.encryption_type.clone(),
+                                            });
+                                            ChannelItem {
+                                                id: c.id.clone().into(),
+                                                name: c.name.clone().into(),
+                                                channel_type: c.channel_type.as_str().into(),
+                                                unread: c.unread_count.map(|n| n > 0).unwrap_or(false),
+                                                encrypted: !matches!(c.encryption_type, api::channels::EncryptionType::None),
+                                            }
                                         }).collect();
                                         let ah = app_bg.clone();
                                         slint::invoke_from_event_loop(move || {
@@ -390,45 +409,101 @@ fn main() {
                                 }
                                 session.active_channel_id = channel_id.clone();
                                 session.active_channel_type = channel_type.clone();
+                                session.active_channel_key = None;
 
                                 if let Some(sock) = &socket {
                                     let _ = realtime::join_channel(sock, &channel_id).await;
                                 }
+
+                                // Determine encryption type and fetch key if symmetric
+                                let enc_type = channel_meta.get(&channel_id)
+                                    .map(|m| m.encryption_type.clone())
+                                    .unwrap_or_default();
+                                let ch_name = channel_meta.get(&channel_id)
+                                    .map(|m| m.name.clone())
+                                    .unwrap_or_default();
+
+                                if matches!(enc_type, api::channels::EncryptionType::Symmetric) {
+                                    // Check vault cache first
+                                    let cached = vault_bg.lock().unwrap()
+                                        .as_ref()
+                                        .and_then(|v| v.load_channel_key(&channel_id).ok().flatten());
+
+                                    let maybe_key = if let Some(bytes) = cached {
+                                        if bytes.len() == 32 {
+                                            let mut k = [0u8; 32];
+                                            k.copy_from_slice(&bytes);
+                                            Some(k)
+                                        } else { None }
+                                    } else {
+                                        // Fetch from server
+                                        match api::keys::get_channel_key(client, &channel_id).await {
+                                            Ok(bundle) => {
+                                                let dk = vault_bg.lock().unwrap()
+                                                    .as_ref()
+                                                    .and_then(|v| v.load_kem_keypair().ok().flatten())
+                                                    .map(|(dk, _)| dk);
+                                                if let Some(dk_bytes) = dk {
+                                                    match crypto::unwrap_channel_key(&dk_bytes, &bundle.encrypted_key, &bundle.kem_ciphertext) {
+                                                        Ok(key) => {
+                                                            if let Some(vault) = vault_bg.lock().unwrap().as_ref() {
+                                                                let _ = vault.save_channel_key(&channel_id, &key);
+                                                            }
+                                                            Some(key)
+                                                        }
+                                                        Err(e) => { tracing::warn!("KEM unwrap failed: {e}"); None }
+                                                    }
+                                                } else {
+                                                    tracing::warn!("No KEM keypair in vault");
+                                                    None
+                                                }
+                                            }
+                                            Err(e) => { tracing::warn!("get_channel_key failed: {e}"); None }
+                                        }
+                                    };
+                                    session.active_channel_key = maybe_key;
+                                }
+
+                                let is_blocked = match enc_type {
+                                    api::channels::EncryptionType::None => false,
+                                    api::channels::EncryptionType::Symmetric => session.active_channel_key.is_none(),
+                                    api::channels::EncryptionType::Asymmetric => true,
+                                };
 
                                 let ch_id = channel_id.clone();
                                 let ch_type = channel_type.clone();
                                 let ah = app_bg.clone();
                                 slint::invoke_from_event_loop(move || {
                                     let win = ah.unwrap();
-                                    let channels = win.get_channels();
-                                    let mut is_encrypted = false;
-                                    for i in 0..channels.row_count() {
-                                        if let Some(ch) = channels.row_data(i) {
-                                            if ch.id == ch_id.as_str() {
-                                                win.set_active_channel_name(ch.name);
-                                                is_encrypted = ch.encrypted;
-                                                break;
-                                            }
-                                        }
-                                    }
                                     win.set_active_channel_id(ch_id.into());
                                     win.set_active_channel_type(ch_type.into());
-                                    win.set_active_channel_encrypted(is_encrypted);
+                                    win.set_active_channel_name(ch_name.into());
+                                    win.set_active_channel_encrypted(is_blocked);
                                     win.set_messages(ModelRc::new(VecModel::default()));
                                 }).ok();
 
-                                if channel_type == "text" {
+                                if channel_type == "text" && !is_blocked {
                                     match api::messages::list(client, &channel_id, 50).await {
                                         Ok(msgs) => {
+                                            let channel_key = session.active_channel_key;
                                             let items: Vec<MessageItem> = msgs.into_iter().map(|m| {
-                                                let encrypted = !m.iv.is_empty();
+                                                let content = if !m.iv.is_empty() {
+                                                    if let Some(key) = &channel_key {
+                                                        crypto::decrypt_message(key, &m.encrypted_payload, &m.iv)
+                                                            .unwrap_or_else(|_| "[no s'ha pogut desxifrar]".into())
+                                                    } else {
+                                                        "[xifrat]".into()
+                                                    }
+                                                } else {
+                                                    m.encrypted_payload.clone()
+                                                };
                                                 MessageItem {
                                                     id: m.message_id.into(),
                                                     author: m.sender_username.clone().into(),
                                                     author_initial: initial(&m.sender_username).into(),
-                                                    content: m.encrypted_payload.into(),
+                                                    content: content.into(),
                                                     timestamp: format_timestamp(&m.timestamp).into(),
-                                                    encrypted,
+                                                    encrypted: false,
                                                 }
                                             }).collect();
                                             let ah = app_bg.clone();
@@ -470,7 +545,12 @@ fn main() {
                         Cmd::SendMessage { content } => {
                             if let Some(client) = &api {
                                 if !session.active_channel_id.is_empty() {
-                                    if let Err(e) = api::messages::send_plain(client, &session.active_channel_id, &content).await {
+                                    let (payload, iv) = if let Some(key) = &session.active_channel_key {
+                                        crypto::encrypt_message(key, &content)
+                                    } else {
+                                        (content.clone(), String::new())
+                                    };
+                                    if let Err(e) = api::messages::send(client, &session.active_channel_id, &payload, &iv, None).await {
                                         tracing::warn!("Error sending message: {e}");
                                     }
                                 }
@@ -485,16 +565,23 @@ fn main() {
                             channel_id, sender_username, encrypted_payload, iv,
                             message_id, timestamp, ..
                         } => {
-                            let encrypted = !iv.is_empty();
                             let is_active = channel_id == session.active_channel_id;
 
-                            // Native notification for messages in non-active channels (or all)
-                            if !encrypted && sender_username != session.username {
-                                let notif_body = if is_active {
-                                    encrypted_payload.clone()
+                            // Decrypt if we have the channel key
+                            let content = if !iv.is_empty() {
+                                if let Some(key) = &session.active_channel_key {
+                                    crypto::decrypt_message(key, &encrypted_payload, &iv)
+                                        .unwrap_or_else(|_| "[no s'ha pogut desxifrar]".into())
                                 } else {
-                                    encrypted_payload.chars().take(120).collect()
-                                };
+                                    "[xifrat]".into()
+                                }
+                            } else {
+                                encrypted_payload.clone()
+                            };
+
+                            // Native notification (skip encrypted we can't decode)
+                            if content != "[xifrat]" && sender_username != session.username {
+                                let notif_body: String = content.chars().take(120).collect();
                                 let notif_sender = sender_username.clone();
                                 tokio::spawn(async move {
                                     notify_rust::Notification::new()
@@ -511,9 +598,9 @@ fn main() {
                                     id: message_id.into(),
                                     author: sender_username.clone().into(),
                                     author_initial: initial(&sender_username).into(),
-                                    content: encrypted_payload.into(),
+                                    content: content.into(),
                                     timestamp: format_timestamp(&timestamp).into(),
-                                    encrypted,
+                                    encrypted: false,
                                 };
                                 let ah = app_bg.clone();
                                 slint::invoke_from_event_loop(move || {
@@ -602,6 +689,34 @@ fn open_settings(_cfg: settings::Settings, app_weak: slint::Weak<AppWindow>) {
     });
 
     win.show().ok();
+}
+
+async fn ensure_kem_keypair(vault: &Arc<Mutex<Option<storage::Vault>>>, client: &api::ApiClient) {
+    // Load or generate keypair
+    let keypair = vault.lock().unwrap()
+        .as_ref()
+        .and_then(|v| v.load_kem_keypair().ok().flatten());
+
+    let ek_bytes = match keypair {
+        Some((_, ek)) => ek,
+        None => {
+            let (dk, ek) = crypto::generate_kem_keypair();
+            if let Some(vault) = vault.lock().unwrap().as_ref() {
+                if let Err(e) = vault.save_kem_keypair(&dk, &ek) {
+                    tracing::warn!("Failed to save KEM keypair: {e}");
+                    return;
+                }
+            }
+            tracing::info!("Generated new ML-KEM-1024 keypair");
+            ek
+        }
+    };
+
+    let ek_b64 = STANDARD.encode(&ek_bytes);
+    match api::keys::update_device_public_key(client, &ek_b64).await {
+        Ok(()) => tracing::info!("KEM public key registered"),
+        Err(e) => tracing::warn!("KEM registration failed: {e}"),
+    }
 }
 
 fn format_timestamp(ts: &str) -> String {

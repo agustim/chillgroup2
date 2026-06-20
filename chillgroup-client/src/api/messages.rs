@@ -8,8 +8,9 @@ pub struct MessageInfo {
     pub channel_id: String,
     pub sender_user_id: String,
     pub sender_username: String,
-    pub encrypted_payload: String,  // plaintext for encryption_type=none channels
-    pub iv: String,                  // empty string for none channels
+    pub encrypted_payload: String,  // plaintext for none channels; base64 ciphertext for encrypted
+    pub iv: String,                  // empty for none; base64 12-byte nonce for encrypted
+    pub key_version: Option<i32>,
     pub timestamp: String,
 }
 
@@ -19,12 +20,12 @@ pub struct PaginatedResponse {
     pub data: Vec<MessageInfo>,
 }
 
-// For encryption_type=none: encrypted_payload = plaintext, iv = ""
-// For encrypted channels: caller must decrypt encrypted_payload with iv
 #[derive(Debug, Serialize)]
 struct SendMessageRequest<'a> {
     encrypted_payload: &'a str,
     iv: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    key_version: Option<i32>,
 }
 
 pub async fn list(
@@ -49,15 +50,16 @@ pub async fn list(
     }
 }
 
-// Send plaintext message to a none-encryption channel
-pub async fn send_plain(
+pub async fn send(
     client: &ApiClient,
     channel_id: &str,
-    content: &str,
+    encrypted_payload: &str,
+    iv: &str,
+    key_version: Option<i32>,
 ) -> Result<(), ApiError> {
     let response = client
         .post(&format!("/api/channels/{}/messages", channel_id))
-        .json(&SendMessageRequest { encrypted_payload: content, iv: "" })
+        .json(&SendMessageRequest { encrypted_payload, iv, key_version })
         .send()
         .await?;
     let status = response.status();

@@ -109,6 +109,27 @@ impl Vault {
         Ok(())
     }
 
+    // ML-KEM-1024 keypair (dk = decapsulation key, ek = encapsulation/public key)
+    pub fn save_kem_keypair(&self, dk: &[u8], ek: &[u8]) -> Result<(), VaultError> {
+        self.set("kem_dk", dk)?;
+        self.set("kem_ek", ek)?;
+        Ok(())
+    }
+
+    pub fn load_kem_keypair(&self) -> Result<Option<(Vec<u8>, Vec<u8>)>, VaultError> {
+        let Some(dk) = self.get::<Vec<u8>>("kem_dk")? else { return Ok(None) };
+        let Some(ek) = self.get::<Vec<u8>>("kem_ek")? else { return Ok(None) };
+        Ok(Some((dk, ek)))
+    }
+
+    pub fn save_channel_key(&self, channel_id: &str, key: &[u8]) -> Result<(), VaultError> {
+        self.set(&format!("chkey_{channel_id}"), key)
+    }
+
+    pub fn load_channel_key(&self, channel_id: &str) -> Result<Option<Vec<u8>>, VaultError> {
+        self.get::<Vec<u8>>(&format!("chkey_{channel_id}"))
+    }
+
     fn encrypt_insert(&self, key: &[u8], plaintext: &[u8]) -> Result<(), VaultError> {
         let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&self.key));
         let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
