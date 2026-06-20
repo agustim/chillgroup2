@@ -19,7 +19,7 @@ jobs:
           - os: ubuntu-22.04
             artifact: livekit-poc-linux
             bin: livekit-poc
-          - os: macos-latest
+          - os: macos-13
             artifact: livekit-poc-macos
             bin: livekit-poc
           - os: windows-latest
