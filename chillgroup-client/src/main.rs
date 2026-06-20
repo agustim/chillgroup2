@@ -22,6 +22,7 @@ struct Session {
 
 #[derive(Debug)]
 enum Cmd {
+    OpenVault { passphrase: String, is_new: bool },
     Login { server_url: String, username: String, password: String },
     SelectServer { server_id: String },
     SelectChannel { channel_id: String, channel_type: String },
@@ -42,9 +43,8 @@ fn main() {
 
     let cfg = settings::load();
 
-    let vault = Arc::new(Mutex::new(
-        storage::Vault::open(&cfg.vault.path).expect("Cannot open vault"),
-    ));
+    // Vault starts as None — only opened after passphrase entry
+    let vault: Arc<Mutex<Option<storage::Vault>>> = Arc::new(Mutex::new(None));
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<Cmd>(32);
     let (event_tx, mut event_rx) = mpsc::channel::<realtime::RealtimeEvent>(64);
@@ -54,12 +54,43 @@ fn main() {
         .build()
         .unwrap();
 
-    // Una sola finestra — login/chat canvien via `logged-in`
     let app = AppWindow::new().unwrap();
     app.set_server_url(cfg.server.url.clone().into());
     app.set_servers(ModelRc::new(VecModel::default()));
     app.set_channels(ModelRc::new(VecModel::default()));
     app.set_messages(ModelRc::new(VecModel::default()));
+
+    // Check vault state at startup
+    let vault_path = cfg.vault.path.clone();
+    let vault_exists = storage::Vault::exists(&vault_path);
+    app.set_vault_exists(vault_exists);
+
+    app.on_open_vault({
+        let cmd_tx = cmd_tx.clone();
+        let handle = app.as_weak();
+        let vault_exists_ref = vault_exists;
+        move || {
+            let win = handle.unwrap();
+            let passphrase = win.get_vault_passphrase().to_string();
+            let is_new = !vault_exists_ref;
+
+            if is_new {
+                let confirm = win.get_vault_confirm().to_string();
+                if passphrase.len() < 8 {
+                    win.set_vault_error("La contrasenya ha de tenir com a mínim 8 caràcters".into());
+                    return;
+                }
+                if passphrase != confirm {
+                    win.set_vault_error("Les contrasenyes no coincideixen".into());
+                    return;
+                }
+            }
+
+            win.set_vault_error("".into());
+            win.set_vault_loading(true);
+            let _ = cmd_tx.try_send(Cmd::OpenVault { passphrase, is_new });
+        }
+    });
 
     app.on_login({
         let cmd_tx = cmd_tx.clone();
@@ -124,6 +155,110 @@ fn main() {
             tokio::select! {
                 Some(cmd) = cmd_rx.recv() => {
                     match cmd {
+                        Cmd::OpenVault { passphrase, is_new } => {
+                            let vault_path = cfg_bg.vault.path.clone();
+                            let result = tokio::task::spawn_blocking(move || {
+                                if is_new {
+                                    storage::Vault::create(&vault_path, &passphrase)
+                                } else {
+                                    storage::Vault::open(&vault_path, &passphrase)
+                                }
+                            }).await;
+
+                            match result {
+                                Ok(Ok(v)) => {
+                                    // Try auto-login from saved session
+                                    let saved = v.load_session().unwrap_or(None);
+                                    *vault_bg.lock().unwrap() = Some(v);
+
+                                    let ah = app_bg.clone();
+                                    if let Some((token, user_id, username, device_id)) = saved {
+                                        // Have a saved token — try to use it
+                                        let server_url = cfg_bg.server.url.clone();
+                                        if !server_url.is_empty() && !token.is_empty() {
+                                            let client = api::ApiClient::new(&server_url).with_token(&token);
+                                            match api::servers::list(&client).await {
+                                                Ok(servers) if !servers.is_empty() => {
+                                                    // Token valid — auto-login
+                                                    session.token = token.clone();
+                                                    session.user_id = user_id;
+                                                    session.username = username.clone();
+                                                    session.device_id = device_id;
+
+                                                    match realtime::connect(&server_url, &token, event_tx.clone()).await {
+                                                        Ok(sock) => { socket = Some(sock); }
+                                                        Err(e) => tracing::warn!("Socket.IO: {e}"),
+                                                    }
+                                                    api = Some(client);
+
+                                                    let server_items: Vec<ServerItem> = servers.iter().map(|s| ServerItem {
+                                                        id: s.server_id.clone().into(),
+                                                        name: s.name.clone().into(),
+                                                        initial: initial(&s.name).into(),
+                                                    }).collect();
+                                                    let first_id = servers.first().map(|s| s.server_id.clone());
+
+                                                    slint::invoke_from_event_loop(move || {
+                                                        let win = ah.unwrap();
+                                                        win.set_current_username(username.clone().into());
+                                                        win.set_current_username_initial(initial(&username).into());
+                                                        win.set_servers(ModelRc::new(VecModel::from(server_items)));
+                                                        win.set_status_text("Connectat".into());
+                                                        win.set_vault_loading(false);
+                                                        win.set_vault_open(true);
+                                                        win.set_logged_in(true);
+                                                    }).ok();
+
+                                                    if let Some(sid) = first_id {
+                                                        let _ = cmd_tx.try_send(Cmd::SelectServer { server_id: sid });
+                                                    }
+                                                }
+                                                _ => {
+                                                    // Token expired or server unreachable — show login
+                                                    slint::invoke_from_event_loop(move || {
+                                                        let win = ah.unwrap();
+                                                        win.set_vault_loading(false);
+                                                        win.set_vault_open(true); // shows login screen
+                                                    }).ok();
+                                                }
+                                            }
+                                        } else {
+                                            slint::invoke_from_event_loop(move || {
+                                                let win = ah.unwrap();
+                                                win.set_vault_loading(false);
+                                                win.set_vault_open(true);
+                                            }).ok();
+                                        }
+                                    } else {
+                                        // New vault or no session saved — show login
+                                        slint::invoke_from_event_loop(move || {
+                                            let win = ah.unwrap();
+                                            win.set_vault_loading(false);
+                                            win.set_vault_open(true);
+                                        }).ok();
+                                    }
+                                }
+                                Ok(Err(e)) => {
+                                    let msg = e.to_string();
+                                    let ah = app_bg.clone();
+                                    slint::invoke_from_event_loop(move || {
+                                        let win = ah.unwrap();
+                                        win.set_vault_loading(false);
+                                        win.set_vault_error(msg.into());
+                                    }).ok();
+                                }
+                                Err(e) => {
+                                    tracing::error!("spawn_blocking vault panic: {e}");
+                                    let ah = app_bg.clone();
+                                    slint::invoke_from_event_loop(move || {
+                                        let win = ah.unwrap();
+                                        win.set_vault_loading(false);
+                                        win.set_vault_error("Error intern obrint el vault".into());
+                                    }).ok();
+                                }
+                            }
+                        }
+
                         Cmd::Login { server_url, username, password } => {
                             let client = api::ApiClient::new(&server_url);
                             match api::auth::login(&client, &username, &password).await {
@@ -134,8 +269,10 @@ fn main() {
                                     session.username = data.username.clone();
                                     session.device_id = data.device_id.clone();
 
-                                    if let Ok(v) = vault_bg.lock() {
-                                        let _ = v.save_session(&data.token, &data.user_id, &data.username, &data.device_id);
+                                    if let Ok(mut v) = vault_bg.lock() {
+                                        if let Some(vault) = v.as_ref() {
+                                            let _ = vault.save_session(&data.token, &data.user_id, &data.username, &data.device_id);
+                                        }
                                     }
 
                                     let mut new_cfg = cfg_bg.clone();
@@ -167,7 +304,7 @@ fn main() {
                                                 win.set_servers(ModelRc::new(VecModel::from(server_items)));
                                                 win.set_status_text("Connectat".into());
                                                 win.set_loading(false);
-                                                win.set_logged_in(true); // switch view
+                                                win.set_logged_in(true);
                                             }).ok();
 
                                             if let Some(sid) = first_id {
@@ -219,6 +356,7 @@ fn main() {
                                             win.set_active_server_id(server_id.into());
                                             win.set_active_channel_id("".into());
                                             win.set_active_channel_name("".into());
+                                            win.set_active_channel_encrypted(false);
                                             win.set_messages(ModelRc::new(VecModel::default()));
                                         }).ok();
                                     }
@@ -268,12 +406,11 @@ fn main() {
                                         Ok(msgs) => {
                                             let items: Vec<MessageItem> = msgs.into_iter().map(|m| {
                                                 let encrypted = !m.iv.is_empty();
-                                                let content = m.encrypted_payload.clone();
                                                 MessageItem {
                                                     id: m.message_id.into(),
                                                     author: m.sender_username.clone().into(),
                                                     author_initial: initial(&m.sender_username).into(),
-                                                    content: content.into(),
+                                                    content: m.encrypted_payload.into(),
                                                     timestamp: format_timestamp(&m.timestamp).into(),
                                                     encrypted,
                                                 }

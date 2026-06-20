@@ -40,6 +40,15 @@ export component AppWindow inherits Window {
     min-width: 400px; min-height: 480px;
     background: #1e1e2e;
 
+    // --- Vault ---
+    in-out property <bool>   vault-exists: false;    // true = unlock, false = create
+    in-out property <string> vault-passphrase;
+    in-out property <string> vault-confirm;
+    in-out property <string> vault-error;
+    in-out property <bool>   vault-loading;
+    in-out property <bool>   vault-open: false;
+    callback open-vault();
+
     // --- Login ---
     in-out property <string> server-url: "https://";
     in-out property <string> username;
@@ -74,8 +83,47 @@ export component AppWindow inherits Window {
     callback toggle-mute();
     callback toggle-deafen();
 
-    // ── LOGIN VIEW ──────────────────────────────────────────────────────────
-    if !root.logged-in: HorizontalBox {
+    // ── VAULT VIEW (unlock / create) ─────────────────────────────────────
+    if !root.vault-open: HorizontalBox {
+        alignment: center;
+        VerticalBox {
+            alignment: center;
+            VerticalBox {
+                padding: 40px; spacing: 16px; width: 360px;
+                Text { text: "ChillGroup"; font-size: 28px; font-weight: 700; color: #cdd6f4; horizontal-alignment: center; }
+                Text {
+                    text: root.vault-exists ? "Introdueix la contrasenya del vault" : "Crea un vault per guardar la sessió";
+                    font-size: 13px; color: #a6adc8; horizontal-alignment: center; wrap: word-wrap;
+                }
+                Text { text: "Contrasenya del vault"; font-size: 12px; color: #a6adc8; }
+                LineEdit {
+                    text <=> root.vault-passphrase;
+                    placeholder-text: root.vault-exists ? "contrasenya" : "mínimo 8 caràcters";
+                    input-type: InputType.password;
+                    enabled: !root.vault-loading;
+                    accepted => { if !root.vault-loading { root.open-vault(); } }
+                }
+                if !root.vault-exists: Text { text: "Confirmar contrasenya"; font-size: 12px; color: #a6adc8; }
+                if !root.vault-exists: LineEdit {
+                    text <=> root.vault-confirm;
+                    placeholder-text: "repeteix la contrasenya";
+                    input-type: InputType.password;
+                    enabled: !root.vault-loading;
+                    accepted => { if !root.vault-loading { root.open-vault(); } }
+                }
+                if root.vault-error != "": Text { text: root.vault-error; color: #f38ba8; font-size: 12px; wrap: word-wrap; }
+                Button {
+                    text: root.vault-loading ? "Obrint..." : (root.vault-exists ? "Obrir vault" : "Crear vault");
+                    primary: true;
+                    enabled: !root.vault-loading && root.vault-passphrase != "";
+                    clicked => { root.open-vault(); }
+                }
+            }
+        }
+    }
+
+    // ── LOGIN VIEW (vault obert, sense sessió) ────────────────────────────
+    if root.vault-open && !root.logged-in: HorizontalBox {
         alignment: center;
         VerticalBox {
             alignment: center;
@@ -96,7 +144,7 @@ export component AppWindow inherits Window {
     }
 
     // ── CHAT VIEW ───────────────────────────────────────────────────────────
-    if root.logged-in: HorizontalBox {
+    if root.vault-open && root.logged-in: HorizontalBox {
         spacing: 0px; padding: 0px;
 
         // Server sidebar

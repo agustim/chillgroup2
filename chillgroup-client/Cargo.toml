@@ -23,9 +23,13 @@ rust_socketio = { version = "0.6", features = ["async"] }
 # livekit = { version = "0.7", features = ["native-tls"] }
 # livekit-api = { version = "0.5", features = ["native-tls", "access-token"] }
 
+# Vault encryption
+aes-gcm = "0.10"
+argon2 = { version = "0.5", features = ["std"] }
+rand = "0.8"
+
 # E2EE missatges — Phase 2
 # ml-kem = { version = "0.3", features = ["getrandom"] }
-# aes-gcm = "0.10"
 
 # Vault local
 sled = "0.34"
