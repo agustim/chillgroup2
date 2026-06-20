@@ -39,6 +39,11 @@ jobs:
         working-directory: livekit-poc
         run: cargo build --release
 
+      - name: Run E2EE test
+        working-directory: livekit-poc
+        run: ./target/release/${{ matrix.bin }}
+        shell: bash
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
