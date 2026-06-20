@@ -176,14 +176,12 @@ Si la invitació està vinculada a un servidor (`serverId`/`server_id`), l'usuar
 **Response 201 Created:**
 ```json
 {
-  "success": true,
-  "data": {
-    "userId": "550e8400-e29b-41d4-a716-446655440005",
-    "username": "newuser",
-    "token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "deviceId": "550e8400-e29b-41d4-a716-446655440101",
-    "deviceLabel": "Chrome on macOS"
-  }
+  "user_id": "550e8400-e29b-41d4-a716-446655440005",
+  "username": "newuser",
+  "token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "device_id": "550e8400-e29b-41d4-a716-446655440101",
+  "device_label": "Chrome on macOS",
+  "is_admin": false
 }
 ```
 
@@ -220,10 +218,7 @@ Renovar el token JWT.
 **Response 200 OK:**
 ```json
 {
-  "success": true,
-  "data": {
-    "token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
-  }
+  "token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
 }
 ```
 
@@ -251,6 +246,8 @@ Obtenir informació de l'usuari actual (autenticat).
 ---
 
 ## Amics i Cerca Global
+
+> **Nota:** Els exemples de resposta d'aquesta secció encara no han estat verificats contra el codi del servidor. Poden contenir wrappers `{success,data}` o camps en camelCase incorrectes.
 
 ### GET `/api/friends`
 
@@ -330,6 +327,8 @@ Buscar usuaris de manera global a tota l'eina, no només dins del servidor actua
 ---
 
 ## Dispositius
+
+> **Nota:** Els exemples de resposta d'aquesta secció encara no han estat verificats contra el codi del servidor. Poden contenir wrappers `{success,data}` o camps en camelCase incorrectes.
 
 ### GET `/api/user/me/devices`
 
@@ -428,6 +427,8 @@ Obtenir les claus públiques dels dispositius d'un altre usuari. Útil per a con
 ---
 
 ## Administració
+
+> **Nota:** Els exemples de resposta d'aquesta secció encara no han estat verificats contra el codi del servidor. Poden contenir wrappers `{success,data}` o camps en camelCase incorrectes.
 
 Els endpoints de administració són **només accessibles als usuaris amb rol `admin`**. Si intenteun usuari normal accedir-hi, reben **403 Forbidden**.
 
@@ -675,6 +676,8 @@ Plan assignat correctament.
 ---
 
 ## Plans i Límits
+
+> **Nota:** Els exemples de resposta d'aquesta secció encara no han estat verificats contra el codi del servidor. Poden contenir wrappers `{success,data}` o camps en camelCase incorrectes.
 
 ### Gestió de Plans (Admin)
 
@@ -945,6 +948,8 @@ Verificar si l'usuari pot realitzar una acció específica (crear servidor, cana
 
 ## Invitacions
 
+> **Nota:** Els exemples de resposta d'aquesta secció encara no han estat verificats contra el codi del servidor. Poden contenir wrappers `{success,data}` o camps en camelCase incorrectes.
+
 ### POST `/api/invitations`
 
 Generar una nova invitació (admin only).
@@ -1060,20 +1065,17 @@ Llistar tots els servidors als quals pertany l'usuari.
 
 **Response 200 OK:**
 ```json
-{
-  "success": true,
-  "data": [
-    {
-      "serverId": "550e8400-e29b-41d4-a716-446655440010",
-      "name": "ChillGroup Dev",
-      "iconUrl": null,
-      "ownerId": "550e8400-e29b-41d4-a716-446655440000",
-      "memberCount": 3,
-      "myRole": "owner",
-      "createdAt": "2026-05-01T08:00:00Z"
-    }
-  ]
-}
+[
+  {
+    "server_id": "550e8400-e29b-41d4-a716-446655440010",
+    "name": "ChillGroup Dev",
+    "icon_url": null,
+    "owner_id": "550e8400-e29b-41d4-a716-446655440000",
+    "member_count": 3,
+    "my_role": "owner",
+    "created_at": "2026-05-01T08:00:00Z"
+  }
+]
 ```
 
 ---
@@ -1094,14 +1096,21 @@ Crear un nou servidor. L'usuari es converteix en owner.
 **Response 201 Created:**
 ```json
 {
-  "success": true,
-  "data": {
-    "serverId": "550e8400-e29b-41d4-a716-446655440010",
-    "name": "ChillGroup Dev",
-    "iconUrl": null,
-    "ownerId": "550e8400-e29b-41d4-a716-446655440000",
-    "createdAt": "2026-05-13T10:30:00Z"
-  }
+  "server_id": "550e8400-e29b-41d4-a716-446655440010",
+  "name": "ChillGroup Dev",
+  "icon_url": null,
+  "owner_id": "550e8400-e29b-41d4-a716-446655440000",
+  "my_role": "owner",
+  "members": [
+    {
+      "user_id": "550e8400-e29b-41d4-a716-446655440000",
+      "username": "agusti",
+      "role": "owner",
+      "joined_at": "2026-05-13T10:30:00Z"
+    }
+  ],
+  "livekit_config": null,
+  "created_at": "2026-05-13T10:30:00Z"
 }
 ```
 
@@ -1145,28 +1154,27 @@ Obtenir informació d'un servidor.
 **Response 200 OK:**
 ```json
 {
-  "success": true,
-  "data": {
-    "serverId": "550e8400-e29b-41d4-a716-446655440010",
-    "name": "ChillGroup Dev",
-    "iconUrl": null,
-    "ownerId": "550e8400-e29b-41d4-a716-446655440000",
-    "members": [
-      {
-        "userId": "550e8400-e29b-41d4-a716-446655440000",
-        "username": "agusti",
-        "role": "owner",
-        "joinedAt": "2026-05-01T08:00:00Z"
-      },
-      {
-        "userId": "550e8400-e29b-41d4-a716-446655440002",
-        "username": "marcus",
-        "role": "admin",
-        "joinedAt": "2026-05-05T12:00:00Z"
-      }
-    ],
-    "createdAt": "2026-05-01T08:00:00Z"
-  }
+  "server_id": "550e8400-e29b-41d4-a716-446655440010",
+  "name": "ChillGroup Dev",
+  "icon_url": null,
+  "owner_id": "550e8400-e29b-41d4-a716-446655440000",
+  "my_role": "owner",
+  "members": [
+    {
+      "user_id": "550e8400-e29b-41d4-a716-446655440000",
+      "username": "agusti",
+      "role": "owner",
+      "joined_at": "2026-05-01T08:00:00Z"
+    },
+    {
+      "user_id": "550e8400-e29b-41d4-a716-446655440002",
+      "username": "marcus",
+      "role": "admin",
+      "joined_at": "2026-05-05T12:00:00Z"
+    }
+  ],
+  "livekit_config": null,
+  "created_at": "2026-05-01T08:00:00Z"
 }
 ```
 
@@ -1182,11 +1190,8 @@ Eliminar un servidor (només l'owner).
 **Response 200 OK:**
 ```json
 {
-  "success": true,
-  "data": {
-    "serverId": "550e8400-e29b-41d4-a716-446655440010",
-    "deleted": true
-  }
+  "server_id": "550e8400-e29b-41d4-a716-446655440010",
+  "deleted": true
 }
 ```
 
@@ -1217,17 +1222,14 @@ Llistar membres d'un servidor.
 
 **Response 200 OK:**
 ```json
-{
-  "success": true,
-  "data": [
-    {
-      "userId": "550e8400-e29b-41d4-a716-446655440000",
-      "username": "agusti",
-      "role": "owner",
-      "joinedAt": "2026-05-01T08:00:00Z"
-    }
-  ]
-}
+[
+  {
+    "user_id": "550e8400-e29b-41d4-a716-446655440000",
+    "username": "agusti",
+    "role": "owner",
+    "joined_at": "2026-05-01T08:00:00Z"
+  }
+]
 ```
 
 ---
@@ -1249,12 +1251,14 @@ Actualitzar metadades del servidor (`name`, `iconUrl`).
 **Response 200 OK:**
 ```json
 {
-  "success": true,
-  "data": {
-    "serverId": "550e8400-e29b-41d4-a716-446655440010",
-    "name": "ChillGroup Core",
-    "iconUrl": "https://cdn.example.com/icons/core.png"
-  }
+  "server_id": "550e8400-e29b-41d4-a716-446655440010",
+  "name": "ChillGroup Core",
+  "icon_url": "https://cdn.example.com/icons/core.png",
+  "owner_id": "550e8400-e29b-41d4-a716-446655440000",
+  "my_role": "owner",
+  "members": [ "..." ],
+  "livekit_config": null,
+  "created_at": "2026-05-01T08:00:00Z"
 }
 ```
 
@@ -1276,10 +1280,7 @@ Afegir un membre al servidor per username.
 **Response 201 Created:**
 ```json
 {
-  "success": true,
-  "data": {
-    "invitedUser": "marcus"
-  }
+  "invited_user": "marcus"
 }
 ```
 
@@ -1301,11 +1302,10 @@ Canviar el rol d'un membre.
 **Response 200 OK:**
 ```json
 {
-  "success": true,
-  "data": {
-    "userId": "550e8400-e29b-41d4-a716-446655440002",
-    "role": "admin"
-  }
+  "user_id": "550e8400-e29b-41d4-a716-446655440002",
+  "username": "marcus",
+  "role": "admin",
+  "joined_at": "2026-05-05T12:00:00Z"
 }
 ```
 
@@ -1321,11 +1321,8 @@ Eliminar un membre del servidor.
 **Response 200 OK:**
 ```json
 {
-  "success": true,
-  "data": {
-    "userId": "550e8400-e29b-41d4-a716-446655440002",
-    "removed": true
-  }
+  "user_id": "550e8400-e29b-41d4-a716-446655440002",
+  "removed": true
 }
 ```
 
@@ -1377,34 +1374,35 @@ Llistar canals d'un servidor. Per a canals E2EE, només retorna canals on l'usua
 
 **Response 200 OK:**
 ```json
-{
-  "success": true,
-  "data": [
-    {
-      "channelId": "550e8400-e29b-41d4-a716-446655440020",
-      "name": "general",
-      "type": "text",
-      "encryptionType": "none",
-      "permissionLevel": 3,
-      "messageTTL": null,
-      "isPrivate": false,
-      "createdAt": "2026-05-01T08:00:00Z"
-    },
-    {
-      "channelId": "550e8400-e29b-41d4-a716-446655440021",
-      "name": "secret-room",
-      "type": "text",
-      "encryptionType": "asymmetric",
-      "permissionLevel": 2,
-      "messageTTL": null,
-      "isPrivate": true,
-      "createdAt": "2026-05-01T08:00:00Z"
-    }
-  ]
-}
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440020",
+    "server_id": "550e8400-e29b-41d4-a716-446655440010",
+    "name": "general",
+    "channel_type": "text",
+    "encryption_type": "none",
+    "permission_level": 3,
+    "message_ttl": null,
+    "is_private": false,
+    "unread_count": 0,
+    "created_at": "2026-05-01T08:00:00Z"
+  },
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440021",
+    "server_id": "550e8400-e29b-41d4-a716-446655440010",
+    "name": "secret-room",
+    "channel_type": "text",
+    "encryption_type": "asymmetric",
+    "permission_level": 2,
+    "message_ttl": null,
+    "is_private": true,
+    "unread_count": 0,
+    "created_at": "2026-05-01T08:00:00Z"
+  }
+]
 ```
 
-**Nota:** `permissionLevel` és el nivell efectiu resolt pel backend (`0..3`) i es pot usar al frontend per habilitar/deshabilitar accions (p. ex. configuració de canal).
+**Nota:** `permission_level` és el nivell efectiu resolt pel backend (`0..3`) i es pot usar al frontend per habilitar/deshabilitar accions (p. ex. configuració de canal).
 
 ---
 
@@ -1418,27 +1416,26 @@ Crear un nou canal.
 ```json
 {
   "name": "general",            // string, 1-100 chars
-  "type": "text",               // "text" | "voice"
-  "encryptionType": "none",     // "none" | "symmetric" | "asymmetric"
-  "messageTTL": null,           // integer | null (segons)
-  "isPrivate": false            // boolean
+  "channel_type": "text",       // "text" | "voice"
+  "encryption_type": "none",    // "none" | "symmetric" | "asymmetric"
+  "message_ttl": null,          // integer | null (segons)
+  "is_private": false           // boolean
 }
 ```
 
 **Response 201 Created:**
 ```json
 {
-  "success": true,
-  "data": {
-    "channelId": "550e8400-e29b-41d4-a716-446655440020",
-    "name": "general",
-    "type": "text",
-    "encryptionType": "none",
-    "permissionLevel": 3,
-    "messageTTL": null,
-    "isPrivate": false,
-    "createdAt": "2026-05-13T10:30:00Z"
-  }
+  "id": "550e8400-e29b-41d4-a716-446655440020",
+  "server_id": "550e8400-e29b-41d4-a716-446655440010",
+  "name": "general",
+  "channel_type": "text",
+  "encryption_type": "none",
+  "permission_level": 3,
+  "message_ttl": null,
+  "is_private": false,
+  "unread_count": 0,
+  "created_at": "2026-05-13T10:30:00Z"
 }
 ```
 
@@ -1480,22 +1477,21 @@ Obtenir les claus de canal encriptades per al dispositiu actual.
 **Headers:** `Authorization: Bearer <JWT>`
 **Path Params:** `{ "channelId": "string" }`
 
-**Response 200 OK:**
+**Response 200 OK (canal `symmetric`):**
 ```json
 {
   "success": true,
-  "data": [
-    {
-      "keyId": "550e8400-e29b-41d4-a716-446655440030",
-      "deviceId": "550e8400-e29b-41d4-a716-446655440001",
-      "encryptedKey": "base64-encrypted-channel-key",
-      "kemCiphertext": "base64-kem-ciphertext",
-      "encryptionType": "asymmetric",
-      "createdAt": "2026-05-13T10:30:00Z"
-    }
-  ]
+  "data": {
+    "deviceId": "550e8400-e29b-41d4-a716-446655440001",
+    "keyVersionId": "550e8400-e29b-41d4-a716-446655440030",
+    "encryptedKey": "base64-encrypted-channel-key",
+    "kemCiphertext": "base64-kem-ciphertext",
+    "keyVersion": 1
+  }
 }
 ```
+
+**Nota:** Aquest endpoint encara usa wrapper `{success, data}` amb camelCase internament. Pendent d'alinear amb la convenció general.
 
 **Response 403 Forbidden (no té accés al canal):**
 ```json
@@ -1538,11 +1534,8 @@ Convidar un usuari a un canal. Encripta la clau de canal per als dispositius del
 **Response 201 Created:**
 ```json
 {
-  "success": true,
-  "data": {
-    "invitedUser": "marcus",
-    "devicesInvited": 2
-  }
+  "invited_user": "marcus",
+  "devices_invited": 2
 }
 ```
 
@@ -1567,12 +1560,15 @@ Actualitzar configuració del canal.
 **Response 200 OK:**
 ```json
 {
-  "success": true,
-  "data": {
-    "channelId": "550e8400-e29b-41d4-a716-446655440020",
-    "name": "novo-nom",
-    "messageTTL": 3600
-  }
+  "id": "550e8400-e29b-41d4-a716-446655440020",
+  "server_id": "550e8400-e29b-41d4-a716-446655440010",
+  "name": "novo-nom",
+  "channel_type": "text",
+  "encryption_type": "none",
+  "message_ttl": 3600,
+  "is_private": false,
+  "unread_count": 0,
+  "created_at": "2026-05-01T08:00:00Z"
 }
 ```
 
@@ -1585,16 +1581,7 @@ Eliminar un canal.
 **Headers:** `Authorization: Bearer <JWT>`
 **Path Params:** `{ "channelId": "string" }`
 
-**Response 200 OK:**
-```json
-{
-  "success": true,
-  "data": {
-    "channelId": "550e8400-e29b-41d4-a716-446655440020",
-    "deleted": true
-  }
-}
-```
+**Response 200 OK** — cos buit (sense JSON).
 
 **Autorització:** mínim nivell `3` (`manage`).
 
@@ -1618,20 +1605,22 @@ Llistar permisos efectius per usuari d'un canal.
   "success": true,
   "data": [
     {
-      "userId": "550e8400-e29b-41d4-a716-446655440111",
+      "user_id": "550e8400-e29b-41d4-a716-446655440111",
       "username": "agusti",
-      "permissionLevel": 3,
+      "permission_level": 3,
       "permission": "manage"
     },
     {
-      "userId": "550e8400-e29b-41d4-a716-446655440112",
+      "user_id": "550e8400-e29b-41d4-a716-446655440112",
       "username": "pop",
-      "permissionLevel": 1,
+      "permission_level": 1,
       "permission": "read"
     }
   ]
 }
 ```
+
+**Nota:** Aquest endpoint usa wrapper `{success, data}` internament.
 
 ---
 
@@ -1650,14 +1639,16 @@ Llistar només overrides explícits (`channel_members.permission_level`) del can
   "success": true,
   "data": [
     {
-      "userId": "550e8400-e29b-41d4-a716-446655440112",
+      "user_id": "550e8400-e29b-41d4-a716-446655440112",
       "username": "pop",
-      "permissionLevel": 1,
+      "permission_level": 1,
       "permission": "read"
     }
   ]
 }
 ```
+
+**Nota:** Aquest endpoint usa wrapper `{success, data}` internament.
 
 ---
 
@@ -1703,12 +1694,9 @@ Rotar versió de clau de canal (`keyVersion = N+1`).
 **Response 200 OK:**
 ```json
 {
-  "success": true,
-  "data": {
-    "channelId": "550e8400-e29b-41d4-a716-446655440020",
-    "keyVersionId": "550e8400-e29b-41d4-a716-446655440030",
-    "keyVersion": 2
-  }
+  "channel_id": "550e8400-e29b-41d4-a716-446655440020",
+  "key_version_id": "550e8400-e29b-41d4-a716-446655440030",
+  "key_version": 2
 }
 ```
 
@@ -1734,28 +1722,26 @@ Llistar missatges d'un canal. Només retorna missatges que l'usuari pot desxifra
 **Response 200 OK:**
 ```json
 {
-  "success": true,
   "data": [
     {
-      "messageId": "550e8400-e29b-41d4-a716-446655440040",
-      "channelId": "550e8400-e29b-41d4-a716-446655440020",
-      "senderUserId": "550e8400-e29b-41d4-a716-446655440000",
-      "senderUsername": "agusti",
-      "senderDeviceId": "550e8400-e29b-41d4-a716-446655440001",
-      "encryptedPayload": "base64-encrypted-or-plain-text",
-      "iv": "base64-initialization-vector",
-      "attachmentIds": [],
+      "id": "550e8400-e29b-41d4-a716-446655440040",
+      "channel_id": "550e8400-e29b-41d4-a716-446655440020",
+      "sender_user_id": "550e8400-e29b-41d4-a716-446655440000",
+      "sender_username": "agusti",
+      "sender_device_id": "550e8400-e29b-41d4-a716-446655440001",
+      "encrypted_payload": "base64-encrypted-or-plain-text",
+      "iv": "",
       "timestamp": "2026-05-13T10:30:00Z",
-      "expiresAt": null,
-      "editedAt": null,
-      "deletedAt": null,
-      "replyToMessageId": null,
-      "reactions": []
+      "expires_at": null,
+      "edited_at": null,
+      "deleted_at": null
     }
   ],
   "pagination": {
     "has_more": true,
-    "next_cursor": "550e8400-e29b-41d4-a716-446655440040"
+    "next_cursor": "550e8400-e29b-41d4-a716-446655440040",
+    "prev_cursor": null,
+    "total_new": null
   }
 }
 ```
@@ -1784,12 +1770,17 @@ Enviar un missatge a un canal.
 **Response 201 Created:**
 ```json
 {
-  "success": true,
-  "data": {
-    "messageId": "550e8400-e29b-41d4-a716-446655440040",
-    "channelId": "550e8400-e29b-41d4-a716-446655440020",
-    "timestamp": "2026-05-13T10:30:00Z"
-  }
+  "id": "550e8400-e29b-41d4-a716-446655440040",
+  "channel_id": "550e8400-e29b-41d4-a716-446655440020",
+  "sender_user_id": "550e8400-e29b-41d4-a716-446655440000",
+  "sender_username": "agusti",
+  "sender_device_id": "550e8400-e29b-41d4-a716-446655440001",
+  "encrypted_payload": "base64-encrypted-text",
+  "iv": "",
+  "timestamp": "2026-05-13T10:30:00Z",
+  "expires_at": null,
+  "edited_at": null,
+  "deleted_at": null
 }
 ```
 
@@ -1823,20 +1814,17 @@ Editar un missatge (només el remitent original). No té límit de temps.
 **Response 200 OK** — retorna el `Message` complet actualitzat:
 ```json
 {
-  "messageId": "550e8400-e29b-41d4-a716-446655440040",
-  "channelId": "550e8400-e29b-41d4-a716-446655440020",
-  "senderUserId": "550e8400-e29b-41d4-a716-446655440000",
-  "senderUsername": "agusti",
-  "senderDeviceId": "550e8400-e29b-41d4-a716-446655440001",
-  "encryptedPayload": "base64-new-encrypted-text",
+  "id": "550e8400-e29b-41d4-a716-446655440040",
+  "channel_id": "550e8400-e29b-41d4-a716-446655440020",
+  "sender_user_id": "550e8400-e29b-41d4-a716-446655440000",
+  "sender_username": "agusti",
+  "sender_device_id": "550e8400-e29b-41d4-a716-446655440001",
+  "encrypted_payload": "base64-new-encrypted-text",
   "iv": "base64-new-nonce",
-  "attachmentIds": [],
   "timestamp": "2026-05-13T10:30:00Z",
-  "expiresAt": null,
-  "editedAt": "2026-05-13T10:35:00Z",
-  "deletedAt": null,
-  "replyToMessageId": null,
-  "reactions": []
+  "expires_at": null,
+  "edited_at": "2026-05-13T10:35:00Z",
+  "deleted_at": null
 }
 ```
 
@@ -1864,9 +1852,17 @@ Actualitzar la data d'expiració d'un missatge. Accessible pel remitent original
 **Response 200 OK:**
 ```json
 {
-  "messageId": "550e8400-e29b-41d4-a716-446655440040",
-  "channelId": "550e8400-e29b-41d4-a716-446655440020",
-  "expiresAt": "2026-05-14T10:30:00Z"
+  "id": "550e8400-e29b-41d4-a716-446655440040",
+  "channel_id": "550e8400-e29b-41d4-a716-446655440020",
+  "sender_user_id": "550e8400-e29b-41d4-a716-446655440000",
+  "sender_username": "agusti",
+  "sender_device_id": "550e8400-e29b-41d4-a716-446655440001",
+  "encrypted_payload": "base64-encrypted-text",
+  "iv": "base64-iv",
+  "timestamp": "2026-05-13T10:30:00Z",
+  "expires_at": "2026-05-14T10:30:00Z",
+  "edited_at": null,
+  "deleted_at": null
 }
 ```
 
@@ -1904,38 +1900,27 @@ Recuperar un missatge concret pel seu ID.
 **Response 200 OK:**
 ```json
 {
-  "success": true,
-  "data": {
-    "messageId": "550e8400-e29b-41d4-a716-446655440040",
-    "channelId": "550e8400-e29b-41d4-a716-446655440020",
-    "senderUserId": "550e8400-e29b-41d4-a716-446655440000",
-    "senderUsername": "agusti",
-    "senderDeviceId": "550e8400-e29b-41d4-a716-446655440001",
-    "encryptedPayload": "base64-encrypted-text",
-    "iv": "base64-iv",
-    "attachments": [
-      {
-        "attachmentId": "550e8400-e29b-41d4-a716-4466554400f1",
-        "fileName": "contracte.pdf",
-        "mimeType": "application/pdf",
-        "sizeBytes": 184223,
-        "createdAt": "2026-05-13T10:29:54Z"
-      }
-    ],
-    "timestamp": "2026-05-13T10:30:00Z",
-    "expiresAt": null,
-    "editedAt": null,
-    "deletedAt": null,
-    "replyToMessageId": null,
-    "reactions": [
-      {
-        "emoji": "👍",
-        "userIds": ["550e8400-e29b-41d4-a716-446655440000"],
-        "usernames": ["agusti"],
-        "count": 1
-      }
-    ]
-  }
+  "id": "550e8400-e29b-41d4-a716-446655440040",
+  "channel_id": "550e8400-e29b-41d4-a716-446655440020",
+  "sender_user_id": "550e8400-e29b-41d4-a716-446655440000",
+  "sender_username": "agusti",
+  "sender_device_id": "550e8400-e29b-41d4-a716-446655440001",
+  "encrypted_payload": "base64-encrypted-text",
+  "iv": "base64-iv",
+  "attachment_ids": ["550e8400-e29b-41d4-a716-4466554400f1"],
+  "timestamp": "2026-05-13T10:30:00Z",
+  "expires_at": null,
+  "edited_at": null,
+  "deleted_at": null,
+  "reply_to_message_id": null,
+  "reactions": [
+    {
+      "emoji": "👍",
+      "user_ids": ["550e8400-e29b-41d4-a716-446655440000"],
+      "usernames": ["agusti"],
+      "count": 1
+    }
+  ]
 }
 ```
 
@@ -2003,34 +1988,29 @@ torna a entrar a un canal.
 **Response 200 OK:**
 ```json
 {
-  "success": true,
-  "data": {
-    "channelId": "550e8400-e29b-41d4-a716-446655440020",
-    "hasNew": true,
-    "newCount": 5,
-    "firstNewMessageId": "550e8400-e29b-41d4-a716-446655440045",
-    "lastSeen": "2026-05-13T10:00:00Z"
-  }
+  "channel_id": "550e8400-e29b-41d4-a716-446655440020",
+  "has_new": true,
+  "new_count": 5,
+  "first_new_message_id": "550e8400-e29b-41d4-a716-446655440045",
+  "last_seen": "2026-05-13T10:00:00Z"
 }
 ```
 
 **Response amb zero missatges nous:**
 ```json
 {
-  "success": true,
-  "data": {
-    "channelId": "550e8400-e29b-41d4-a716-446655440020",
-    "hasNew": false,
-    "newCount": 0,
-    "firstNewMessageId": null,
-    "lastSeen": "2026-05-13T10:00:00Z"
-  }
+  "channel_id": "550e8400-e29b-41d4-a716-446655440020",
+  "has_new": false,
+  "new_count": 0,
+  "last_seen": "2026-05-13T10:00:00Z"
 }
 ```
 
 ---
 
 ## Adjunts (S3-compatible, xifrats client-side)
+
+> **Nota:** Els exemples de resposta d'aquesta secció encara no han estat verificats contra el codi del servidor. Poden contenir wrappers `{success,data}` o camps en camelCase incorrectes.
 
 ### POST `/api/channels/:channelId/attachments/init`
 
@@ -2209,6 +2189,8 @@ Igual que amb els missatges, si el client no disposa de la clau de `keyVersionId
 
 ## Missatges Directes (DM)
 
+> **Nota:** Els exemples de resposta d'aquesta secció encara no han estat verificats contra el codi del servidor. Poden contenir wrappers `{success,data}` o camps en camelCase incorrectes.
+
 ### DM v2 (canal 1:1 asimètric)
 
 Implementació nova basada en canal privat 1:1.
@@ -2363,6 +2345,8 @@ Llistar les converses directes de l'usuari amb resum de cada conversa.
 ---
 
 ## LiveKit
+
+> **Nota:** Els exemples de resposta d'aquesta secció encara no han estat verificats contra el codi del servidor. Poden contenir wrappers `{success,data}` o camps en camelCase incorrectes.
 
 ### POST `/api/livekit/token`
 
