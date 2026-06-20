@@ -91,3 +91,90 @@ pub fn encrypt_message(channel_key: &[u8; 32], plaintext: &str) -> (String, Stri
         .expect("AES-GCM encrypt cannot fail");
     (STANDARD.encode(&ciphertext), STANDARD.encode(nonce.as_slice()))
 }
+
+/// Simulate server-side key wrapping (for tests).
+/// Returns (encryptedKey_b64, kemCiphertext_b64) matching the server format.
+#[cfg(test)]
+pub fn server_wrap_channel_key(ek_bytes: &[u8], channel_key: &[u8; 32]) -> (String, String) {
+    use ml_kem::{Encapsulate, TryKeyInit, Key, ml_kem_1024::EncapsulationKey};
+
+    // Restore EK from bytes
+    let mut ek_arr: Key<EncapsulationKey> = Default::default();
+    ek_arr.as_mut_slice().copy_from_slice(ek_bytes);
+    let ek = EncapsulationKey::new(&ek_arr).expect("invalid EK bytes");
+
+    // ML-KEM encapsulate (uses getrandom feature)
+    let (kem_ct, shared_secret) = ek.encapsulate();
+
+    let mut wrapping_key = [0u8; 32];
+    wrapping_key.copy_from_slice(shared_secret.as_ref());
+
+    // AES-256-GCM wrap channel key: nonce[12] || ciphertext
+    let cipher = Aes256Gcm::new(AesKey::<Aes256Gcm>::from_slice(&wrapping_key));
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let wrapped_key = cipher.encrypt(&nonce, channel_key.as_slice()).unwrap();
+
+    let mut envelope = Vec::with_capacity(12 + wrapped_key.len());
+    envelope.extend_from_slice(&nonce);
+    envelope.extend_from_slice(&wrapped_key);
+
+    (STANDARD.encode(&envelope), STANDARD.encode(kem_ct.as_slice()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_kem_roundtrip() {
+        let (dk_bytes, ek_bytes) = generate_kem_keypair();
+        assert_eq!(dk_bytes.len(), 64,  "dk seed must be 64 bytes");
+        assert_eq!(ek_bytes.len(), 1568, "ek must be 1568 bytes");
+
+        // Fake 32-byte channel key (as server would have)
+        let channel_key: [u8; 32] = rand::random();
+
+        let (enc_key_b64, kem_ct_b64) = server_wrap_channel_key(&ek_bytes, &channel_key);
+
+        let unwrapped = unwrap_channel_key(&dk_bytes, &enc_key_b64, &kem_ct_b64)
+            .expect("unwrap_channel_key failed");
+
+        assert_eq!(unwrapped, channel_key, "unwrapped key must match original");
+    }
+
+    #[test]
+    fn test_message_roundtrip() {
+        let key: [u8; 32] = rand::random();
+        let plaintext = "Hola, món xifrat!";
+
+        let (ciphertext_b64, iv_b64) = encrypt_message(&key, plaintext);
+        let decrypted = decrypt_message(&key, &ciphertext_b64, &iv_b64)
+            .expect("decrypt_message failed");
+
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_full_e2e_chain() {
+        // Full chain: generate keypair → server wraps channel key → client unwraps → encrypt/decrypt message
+        let (dk_bytes, ek_bytes) = generate_kem_keypair();
+        let channel_key: [u8; 32] = rand::random();
+
+        let (enc_key_b64, kem_ct_b64) = server_wrap_channel_key(&ek_bytes, &channel_key);
+        let unwrapped = unwrap_channel_key(&dk_bytes, &enc_key_b64, &kem_ct_b64).unwrap();
+
+        let plaintext = "Missatge secret per al canal E2EE";
+        let (ciphertext_b64, iv_b64) = encrypt_message(&unwrapped, plaintext);
+        let decrypted = decrypt_message(&unwrapped, &ciphertext_b64, &iv_b64).unwrap();
+
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_wrong_key_fails() {
+        let key: [u8; 32] = rand::random();
+        let wrong_key: [u8; 32] = rand::random();
+        let (ct, iv) = encrypt_message(&key, "secret");
+        assert!(decrypt_message(&wrong_key, &ct, &iv).is_err());
+    }
+}
