@@ -906,10 +906,13 @@ fn main() {
                 Some(ve) = voice_event_rx.recv() => {
                     match ve {
                         voice::VoiceEvent::Connected { session_gen } => {
-                            // Ignore stale events from replaced sessions
                             if session_gen != session.voice_session_gen { continue; }
-                            // Add ourselves to sidebar presence
                             let channel_id = session.active_channel_id.clone();
+                            // Notify server we're in this voice channel
+                            if let Some(sock) = &socket {
+                                let _ = realtime::join_voice_channel(sock, &channel_id).await;
+                            }
+                            // Add ourselves to sidebar presence locally
                             let self_user = realtime::VoicePresenceUser {
                                 user_id: session.user_id.clone(),
                                 username: session.username.clone(),
@@ -926,10 +929,13 @@ fn main() {
                             }).ok();
                         }
                         voice::VoiceEvent::Disconnected { session_gen } => {
-                            // Ignore stale disconnects from replaced sessions
                             if session_gen != session.voice_session_gen { continue; }
-                            // Remove ourselves from sidebar presence
                             let channel_id = session.active_channel_id.clone();
+                            // Notify server we've left this voice channel
+                            if let Some(sock) = &socket {
+                                let _ = realtime::leave_voice_channel(sock, &channel_id).await;
+                            }
+                            // Remove ourselves from sidebar presence locally
                             if let Some(users) = session.voice_presence.get_mut(&channel_id) {
                                 users.retain(|u| u.user_id != session.user_id);
                                 if users.is_empty() { session.voice_presence.remove(&channel_id); }
@@ -1094,6 +1100,8 @@ fn main() {
                                 for (channel_id, users) in channels {
                                     session.voice_presence.insert(channel_id, users);
                                 }
+                                // Re-add self if in voice (server snapshot never includes local user)
+                                ensure_self_in_presence(&mut session);
                                 push_voice_sidebar(&session.voice_presence, &app_bg);
                             }
                         }
@@ -1104,6 +1112,8 @@ fn main() {
                             } else {
                                 session.voice_presence.insert(channel_id, users);
                             }
+                            // Re-add self to updated channel if in voice
+                            ensure_self_in_presence(&mut session);
                             push_voice_sidebar(&session.voice_presence, &app_bg);
                         }
                     }
@@ -1119,6 +1129,20 @@ fn main() {
     });
 
     app.run().unwrap();
+}
+
+fn ensure_self_in_presence(session: &mut Session) {
+    if session.voice_cmd_tx.is_none() { return; }
+    let channel_id = session.active_channel_id.clone();
+    if channel_id.is_empty() { return; }
+    let self_user = realtime::VoicePresenceUser {
+        user_id: session.user_id.clone(),
+        username: session.username.clone(),
+    };
+    let entry = session.voice_presence.entry(channel_id).or_default();
+    if !entry.iter().any(|u| u.user_id == self_user.user_id) {
+        entry.push(self_user);
+    }
 }
 
 fn push_voice_sidebar(

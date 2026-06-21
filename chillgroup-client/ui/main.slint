@@ -283,7 +283,12 @@ export component AppWindow inherits Window {
                                         background: Palette.accent-background;
                                     }
                                 }
-                                TouchArea { clicked => { root.select-channel(ch.id, ch.channel-type); } }
+                                TouchArea {
+                                    clicked => {
+                                        root.select-channel(ch.id, ch.channel-type);
+                                        if ch.channel-type == "voice" { root.join-voice(); }
+                                    }
+                                }
                             }
                             // ── Voice participants (sidebar presence) ───
                             if ch.channel-type == "voice": VerticalLayout {
@@ -357,12 +362,11 @@ export component AppWindow inherits Window {
                             text: "Rotar Clau"; height: 28px;
                             clicked => { root.rotate-channel-key(); }
                         }
-                        if root.active-channel-type == "voice": HorizontalBox {
+                        if root.active-channel-type == "voice" && root.in-voice-channel: HorizontalBox {
                             spacing: 4px;
-                            if !root.in-voice-channel: Button { text: "Entrar"; primary: true; clicked => { root.join-voice(); } }
-                            if root.in-voice-channel: Button { text: root.mic-muted ? "Activar mic" : "Silenciar"; clicked => { root.toggle-mute(); } }
-                            if root.in-voice-channel: Button { text: root.deafened ? "Activar so" : "Ensordir"; clicked => { root.toggle-deafen(); } }
-                            if root.in-voice-channel: Button { text: "Sortir"; clicked => { root.leave-voice(); } }
+                            Button { text: root.mic-muted ? "Activar mic" : "Silenciar"; clicked => { root.toggle-mute(); } }
+                            Button { text: root.deafened ? "Activar so" : "Ensordir"; clicked => { root.toggle-deafen(); } }
+                            Button { text: "Sortir"; clicked => { root.leave-voice(); } }
                         }
                     }
                 }
@@ -445,7 +449,7 @@ export component AppWindow inherits Window {
                 if root.active-channel-type == "voice": Rectangle {
                     vertical-stretch: 1; background: Palette.background;
                     if !root.in-voice-channel: Text {
-                        text: "Prem 'Entrar' per unir-te al canal de veu";
+                        text: "Fes clic al canal per unir-te";
                         color: Palette.border; font-size: 16px; horizontal-alignment: center; vertical-alignment: center;
                     }
                     if root.in-voice-channel: ScrollView {

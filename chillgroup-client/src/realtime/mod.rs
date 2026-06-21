@@ -188,3 +188,23 @@ pub async fn leave_channel(
         .await?;
     Ok(())
 }
+
+pub async fn join_voice_channel(
+    client: &rust_socketio::asynchronous::Client,
+    channel_id: &str,
+) -> Result<(), anyhow::Error> {
+    client
+        .emit("join-voice-channel", serde_json::json!({ "channelId": channel_id }))
+        .await?;
+    Ok(())
+}
+
+pub async fn leave_voice_channel(
+    client: &rust_socketio::asynchronous::Client,
+    channel_id: &str,
+) -> Result<(), anyhow::Error> {
+    client
+        .emit("leave-voice-channel", serde_json::json!({ "channelId": channel_id }))
+        .await?;
+    Ok(())
+}
