@@ -83,6 +83,9 @@ export component SettingsWindow inherits Window {
 export struct ServerItem  { id: string, name: string, initial: string }
 export struct ChannelItem { id: string, name: string, channel-type: string, unread: bool, encrypted: bool, encryption-type: string, permission-level: int }
 export struct MessageItem { id: string, author: string, author-initial: string, content: string, timestamp: string, encrypted: bool, key-version: int, expires-at: string }
+export struct VoiceParticipant { user-id: string, username: string, initial: string, is-speaking: bool, is-suppressed: bool }
+// Sidebar presence entries (one row per user per channel)
+export struct VoiceSidebarEntry { channel-id: string, username: string, initial: string, is-speaking: bool, is-suppressed: bool }
 
 export component AppWindow inherits Window {
     title: "ChillGroup";
@@ -141,6 +144,8 @@ export component AppWindow inherits Window {
     in-out property <bool>            in-voice-channel;
     in-out property <bool>            mic-muted;
     in-out property <bool>            deafened;
+    in-out property <[VoiceParticipant]>     voice-participants;
+    in-out property <[VoiceSidebarEntry]>    voice-sidebar-presences;
     in-out property <string>          status-text: "Connectat";
     callback select-server(string);
     callback select-channel(string, string);
@@ -243,36 +248,71 @@ export component AppWindow inherits Window {
                     height: 48px; background: Palette.alternate-background;
                     Text { x: 16px; text: "Canals"; font-size: 14px; font-weight: 700; color: Palette.foreground; vertical-alignment: center; }
                 }
-                ListView {
-                    for ch in root.channels: Rectangle {
-                        height: 36px;
-                        background: active-channel-id == ch.id ? Palette.selection-background : transparent;
-                        border-radius: 6px;
-                        HorizontalBox {
-                            padding-left: 12px; padding-right: 4px; spacing: 4px;
-                            Text {
-                                text: ch.channel-type == "voice" ? "♪" : "#";
-                                font-size: 14px; color: Palette.border; width: 14px;
+                ScrollView {
+                    vertical-stretch: 1;
+                    VerticalLayout {
+                        spacing: 0px; padding: 2px; alignment: start;
+                        for ch in root.channels: VerticalLayout {
+                            spacing: 0px;
+                            // ── Channel row ─────────────────────────────
+                            Rectangle {
+                                height: 36px;
+                                background: active-channel-id == ch.id ? Palette.selection-background : transparent;
+                                border-radius: 6px;
+                                HorizontalBox {
+                                    padding-left: 12px; padding-right: 4px; spacing: 4px;
+                                    Text {
+                                        text: ch.channel-type == "voice" ? "♪" : "#";
+                                        font-size: 14px; color: Palette.border; width: 14px;
+                                    }
+                                    Text {
+                                        text: ch.name;
+                                        font-size: 14px;
+                                        color: ch.unread ? Palette.foreground : Palette.border;
+                                        font-weight: ch.unread ? 700 : 400;
+                                        horizontal-stretch: 1;
+                                    }
+                                    if ch.encryption-type == "symmetric": Text {
+                                        text: "🔑"; font-size: 11px; vertical-alignment: center;
+                                    }
+                                    if ch.encryption-type == "asymmetric": Text {
+                                        text: "🔒"; font-size: 11px; vertical-alignment: center;
+                                    }
+                                    if ch.unread: Rectangle {
+                                        width: 8px; height: 8px; border-radius: 4px;
+                                        background: Palette.accent-background;
+                                    }
+                                }
+                                TouchArea { clicked => { root.select-channel(ch.id, ch.channel-type); } }
                             }
-                            Text {
-                                text: ch.name;
-                                font-size: 14px;
-                                color: ch.unread ? Palette.foreground : Palette.border;
-                                font-weight: ch.unread ? 700 : 400;
-                                horizontal-stretch: 1;
-                            }
-                            if ch.encryption-type == "symmetric": Text {
-                                text: "🔑"; font-size: 11px; vertical-alignment: center;
-                            }
-                            if ch.encryption-type == "asymmetric": Text {
-                                text: "🔒"; font-size: 11px; vertical-alignment: center;
-                            }
-                            if ch.unread: Rectangle {
-                                width: 8px; height: 8px; border-radius: 4px;
-                                background: Palette.accent-background;
+                            // ── Voice participants (sidebar presence) ───
+                            if ch.channel-type == "voice": VerticalLayout {
+                                spacing: 0px;
+                                for p in root.voice-sidebar-presences: Rectangle {
+                                    visible: p.channel-id == ch.id;
+                                    height: p.channel-id == ch.id ? 26px : 0px;
+                                    clip: true;
+                                    HorizontalLayout {
+                                        padding-left: 30px; padding-right: 8px; spacing: 6px; alignment: start;
+                                        Rectangle {
+                                            width: 18px; height: 18px; border-radius: 9px;
+                                            background: p.is-speaking ? #22c55e : Palette.border;
+                                            Text {
+                                                text: p.initial;
+                                                color: white; font-size: 10px; font-weight: 700;
+                                                horizontal-alignment: center; vertical-alignment: center;
+                                            }
+                                        }
+                                        Text {
+                                            text: p.username; font-size: 12px;
+                                            color: p.is-speaking ? #22c55e : Palette.foreground;
+                                            vertical-alignment: center; horizontal-stretch: 1;
+                                        }
+                                        if p.is-suppressed: Text { text: "🔇"; font-size: 10px; vertical-alignment: center; }
+                                    }
+                                }
                             }
                         }
-                        TouchArea { clicked => { root.select-channel(ch.id, ch.channel-type); } }
                     }
                 }
                 Rectangle { vertical-stretch: 1; }
@@ -402,11 +442,50 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                if root.active-channel-type == "voice" && !root.active-channel-encrypted: Rectangle {
+                if root.active-channel-type == "voice": Rectangle {
                     vertical-stretch: 1; background: Palette.background;
-                    Text {
-                        text: root.in-voice-channel ? "En canal de veu" : "Prem 'Entrar' per unir-te al canal de veu";
+                    if !root.in-voice-channel: Text {
+                        text: "Prem 'Entrar' per unir-te al canal de veu";
                         color: Palette.border; font-size: 16px; horizontal-alignment: center; vertical-alignment: center;
+                    }
+                    if root.in-voice-channel: ScrollView {
+                        VerticalBox {
+                            padding: 16px; spacing: 8px; alignment: start;
+                            for p in root.voice-participants: Rectangle {
+                                height: 56px;
+                                border-radius: 8px;
+                                background: p.is-speaking
+                                    ? #22c55e33
+                                    : Palette.alternate-background;
+                                border-width: p.is-speaking ? 2px : 0px;
+                                border-color: #22c55e;
+                                HorizontalBox {
+                                    padding: 8px; spacing: 10px; alignment: start;
+                                    // Avatar circle
+                                    Rectangle {
+                                        width: 40px; height: 40px; border-radius: 20px;
+                                        background: p.is-speaking ? #22c55e : Palette.border;
+                                        Text {
+                                            text: p.initial == "" ? "?" : p.initial;
+                                            color: white; font-size: 16px; font-weight: 700;
+                                            horizontal-alignment: center; vertical-alignment: center;
+                                        }
+                                    }
+                                    // Name + state
+                                    VerticalBox {
+                                        spacing: 2px; alignment: center;
+                                        Text {
+                                            text: p.username;
+                                            color: Palette.foreground; font-size: 14px; font-weight: 600;
+                                        }
+                                        Text {
+                                            text: p.is-suppressed ? "🔇 Silenciat" : p.is-speaking ? "🎙 Parlant..." : "🎙 Micròfon actiu";
+                                            color: Palette.border; font-size: 11px;
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 

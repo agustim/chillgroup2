@@ -3,6 +3,7 @@ mod crypto;
 mod realtime;
 mod settings;
 mod storage;
+mod voice;
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use slint::{Model, ModelRc, VecModel};
@@ -24,6 +25,12 @@ struct Session {
     active_channel_key: Option<[u8; 32]>,
     active_channel_key_version: Option<i32>,
     active_channel_key_version_id: Option<String>,
+    // Voice
+    voice_cmd_tx: Option<mpsc::Sender<voice::VoiceCmd>>,
+    voice_session_gen: u64,
+    voice_muted: bool,
+    voice_deafened: bool,
+    voice_presence: HashMap<String, Vec<realtime::VoicePresenceUser>>,
 }
 
 struct ChannelMeta {
@@ -45,6 +52,11 @@ enum Cmd {
     SendMessage { content: String },
     RepairChannel { channel_id: String },
     RotateChannelKey { channel_id: String },
+    // Voice
+    JoinVoice,
+    LeaveVoice,
+    ToggleMute,
+    ToggleDeafen,
 }
 
 fn theme_to_index(theme: &str) -> i32 {
@@ -74,6 +86,7 @@ fn main() {
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<Cmd>(32);
     let (event_tx, mut event_rx) = mpsc::channel::<realtime::RealtimeEvent>(64);
+    let (voice_event_tx, mut voice_event_rx) = mpsc::channel::<voice::VoiceEvent>(32);
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -170,10 +183,22 @@ fn main() {
         move || { let _ = cmd_tx.try_send(Cmd::Logout); }
     });
 
-    app.on_join_voice(|| { /* Phase 2 */ });
-    app.on_leave_voice(|| { /* Phase 2 */ });
-    app.on_toggle_mute(|| { /* Phase 2 */ });
-    app.on_toggle_deafen(|| { /* Phase 2 */ });
+    app.on_join_voice({
+        let cmd_tx = cmd_tx.clone();
+        move || { let _ = cmd_tx.try_send(Cmd::JoinVoice); }
+    });
+    app.on_leave_voice({
+        let cmd_tx = cmd_tx.clone();
+        move || { let _ = cmd_tx.try_send(Cmd::LeaveVoice); }
+    });
+    app.on_toggle_mute({
+        let cmd_tx = cmd_tx.clone();
+        move || { let _ = cmd_tx.try_send(Cmd::ToggleMute); }
+    });
+    app.on_toggle_deafen({
+        let cmd_tx = cmd_tx.clone();
+        move || { let _ = cmd_tx.try_send(Cmd::ToggleDeafen); }
+    });
 
     app.on_repair_channel({
         let cmd_tx = cmd_tx.clone();
@@ -204,6 +229,7 @@ fn main() {
     let app_bg = app.as_weak();
     let vault_bg = Arc::clone(&vault);
     let cfg_bg = cfg.clone();
+    let cmd_tx_close = cmd_tx.clone();
 
     rt.spawn(async move {
         let mut api: Option<api::ApiClient> = None;
@@ -827,6 +853,142 @@ fn main() {
                                 }
                             }
                         }
+
+                        Cmd::JoinVoice => {
+                            // Auto-disconnect from any existing voice session first
+                            if let Some(tx) = session.voice_cmd_tx.take() {
+                                let _ = tx.try_send(voice::VoiceCmd::Disconnect);
+                            }
+                            if let Some(client) = &api {
+                                let channel_id = session.active_channel_id.clone();
+                                let client = client.clone();
+                                let e2ee_key = session.active_channel_key;
+                                let vtx = voice_event_tx.clone();
+                                let (vcmd_tx, vcmd_rx) = mpsc::channel::<voice::VoiceCmd>(8);
+                                session.voice_session_gen += 1;
+                                let gen = session.voice_session_gen;
+                                session.voice_cmd_tx = Some(vcmd_tx);
+                                tokio::spawn(async move {
+                                    match api::livekit::get_token(&client, &channel_id).await {
+                                        Ok(resp) => {
+                                            voice::run(resp.url, resp.token, e2ee_key, gen, vcmd_rx, vtx).await;
+                                        }
+                                        Err(e) => {
+                                            let _ = vtx.send(voice::VoiceEvent::Error { session_gen: gen, msg: format!("Token LiveKit: {e}") }).await;
+                                        }
+                                    }
+                                });
+                            } else {
+                                tracing::warn!("JoinVoice: no API client (not logged in)");
+                            }
+                        }
+
+                        Cmd::LeaveVoice => {
+                            if let Some(tx) = session.voice_cmd_tx.take() {
+                                let _ = tx.try_send(voice::VoiceCmd::Disconnect);
+                            }
+                        }
+
+                        Cmd::ToggleMute => {
+                            if let Some(tx) = &session.voice_cmd_tx {
+                                let _ = tx.try_send(voice::VoiceCmd::ToggleMute);
+                            }
+                        }
+
+                        Cmd::ToggleDeafen => {
+                            if let Some(tx) = &session.voice_cmd_tx {
+                                let _ = tx.try_send(voice::VoiceCmd::ToggleDeafen);
+                            }
+                        }
+                    }
+                }
+
+                Some(ve) = voice_event_rx.recv() => {
+                    match ve {
+                        voice::VoiceEvent::Connected { session_gen } => {
+                            // Ignore stale events from replaced sessions
+                            if session_gen != session.voice_session_gen { continue; }
+                            // Add ourselves to sidebar presence
+                            let channel_id = session.active_channel_id.clone();
+                            let self_user = realtime::VoicePresenceUser {
+                                user_id: session.user_id.clone(),
+                                username: session.username.clone(),
+                            };
+                            let entry = session.voice_presence.entry(channel_id).or_default();
+                            entry.retain(|u| u.user_id != session.user_id);
+                            entry.push(self_user);
+                            push_voice_sidebar(&session.voice_presence, &app_bg);
+
+                            let ah = app_bg.clone();
+                            slint::invoke_from_event_loop(move || {
+                                ah.unwrap().set_in_voice_channel(true);
+                                ah.unwrap().set_voice_participants(Default::default());
+                            }).ok();
+                        }
+                        voice::VoiceEvent::Disconnected { session_gen } => {
+                            // Ignore stale disconnects from replaced sessions
+                            if session_gen != session.voice_session_gen { continue; }
+                            // Remove ourselves from sidebar presence
+                            let channel_id = session.active_channel_id.clone();
+                            if let Some(users) = session.voice_presence.get_mut(&channel_id) {
+                                users.retain(|u| u.user_id != session.user_id);
+                                if users.is_empty() { session.voice_presence.remove(&channel_id); }
+                            }
+                            push_voice_sidebar(&session.voice_presence, &app_bg);
+
+                            session.voice_cmd_tx = None;
+                            session.voice_muted = false;
+                            session.voice_deafened = false;
+                            let ah = app_bg.clone();
+                            slint::invoke_from_event_loop(move || {
+                                let h = ah.unwrap();
+                                h.set_in_voice_channel(false);
+                                h.set_mic_muted(false);
+                                h.set_deafened(false);
+                                h.set_voice_participants(Default::default());
+                            }).ok();
+                        }
+                        voice::VoiceEvent::ParticipantsUpdated(parts) => {
+                            let slint_parts: Vec<VoiceParticipant> = parts.into_iter().map(|p| VoiceParticipant {
+                                user_id: p.user_id.into(),
+                                username: p.username.into(),
+                                initial: p.initial.into(),
+                                is_speaking: p.is_speaking,
+                                is_suppressed: p.is_suppressed,
+                            }).collect();
+                            let ah = app_bg.clone();
+                            slint::invoke_from_event_loop(move || {
+                                let model = std::rc::Rc::new(slint::VecModel::from(slint_parts));
+                                ah.unwrap().set_voice_participants(slint::ModelRc::from(model));
+                            }).ok();
+                        }
+                        voice::VoiceEvent::MuteChanged(muted) => {
+                            session.voice_muted = muted;
+                            let ah = app_bg.clone();
+                            slint::invoke_from_event_loop(move || {
+                                ah.unwrap().set_mic_muted(muted);
+                            }).ok();
+                        }
+                        voice::VoiceEvent::DeafenChanged(deafened) => {
+                            session.voice_deafened = deafened;
+                            let ah = app_bg.clone();
+                            slint::invoke_from_event_loop(move || {
+                                ah.unwrap().set_deafened(deafened);
+                            }).ok();
+                        }
+                        voice::VoiceEvent::Error { session_gen, msg } => {
+                            tracing::error!("Voice error (gen={session_gen}): {msg}");
+                            if session_gen == session.voice_session_gen {
+                                session.voice_cmd_tx = None;
+                                let ah = app_bg.clone();
+                                let smsg: slint::SharedString = format!("Error de veu: {msg}").into();
+                                slint::invoke_from_event_loop(move || {
+                                    let h = ah.unwrap();
+                                    h.set_in_voice_channel(false);
+                                    h.set_status_text(smsg);
+                                }).ok();
+                            }
+                        }
                     }
                 }
 
@@ -925,13 +1087,66 @@ fn main() {
                                 ah.unwrap().set_status_text("Desconnectat — reconnectant...".into());
                             }).ok();
                         }
+
+                        realtime::RealtimeEvent::VoicePresenceSnapshot { server_id, channels } => {
+                            if server_id == session.active_server_id {
+                                session.voice_presence.clear();
+                                for (channel_id, users) in channels {
+                                    session.voice_presence.insert(channel_id, users);
+                                }
+                                push_voice_sidebar(&session.voice_presence, &app_bg);
+                            }
+                        }
+
+                        realtime::RealtimeEvent::VoicePresenceUpdated { channel_id, users } => {
+                            if users.is_empty() {
+                                session.voice_presence.remove(&channel_id);
+                            } else {
+                                session.voice_presence.insert(channel_id, users);
+                            }
+                            push_voice_sidebar(&session.voice_presence, &app_bg);
+                        }
                     }
                 }
             }
         }
     });
 
+    // Leave voice channel cleanly on window close
+    app.window().on_close_requested(move || {
+        let _ = cmd_tx_close.try_send(Cmd::LeaveVoice);
+        slint::CloseRequestResponse::HideWindow
+    });
+
     app.run().unwrap();
+}
+
+fn push_voice_sidebar(
+    presence: &HashMap<String, Vec<realtime::VoicePresenceUser>>,
+    app_bg: &slint::Weak<AppWindow>,
+) {
+    let entries: Vec<VoiceSidebarEntry> = presence
+        .iter()
+        .flat_map(|(channel_id, users)| {
+            users.iter().map(move |u| {
+                let initial = u.username.chars().next()
+                    .map(|c| c.to_uppercase().to_string())
+                    .unwrap_or_else(|| "?".into());
+                VoiceSidebarEntry {
+                    channel_id: channel_id.clone().into(),
+                    username: u.username.clone().into(),
+                    initial: initial.into(),
+                    is_speaking: false,
+                    is_suppressed: false,
+                }
+            })
+        })
+        .collect();
+    let ah = app_bg.clone();
+    slint::invoke_from_event_loop(move || {
+        let model = std::rc::Rc::new(slint::VecModel::from(entries));
+        ah.unwrap().set_voice_sidebar_presences(slint::ModelRc::from(model));
+    }).ok();
 }
 
 fn open_settings(_cfg: settings::Settings, app_weak: slint::Weak<AppWindow>) {

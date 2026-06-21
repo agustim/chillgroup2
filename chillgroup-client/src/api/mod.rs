@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod channels;
 pub mod keys;
+pub mod livekit;
 pub mod messages;
 pub mod servers;
 

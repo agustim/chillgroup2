@@ -3,6 +3,12 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 
 #[derive(Debug, Clone)]
+pub struct VoicePresenceUser {
+    pub user_id: String,
+    pub username: String,
+}
+
+#[derive(Debug, Clone)]
 pub enum RealtimeEvent {
     // Socket event `message` — camelCase del servidor Rust
     Message {
@@ -19,8 +25,26 @@ pub enum RealtimeEvent {
     ChannelsUpdated {
         server_id: String,
     },
+    VoicePresenceSnapshot {
+        server_id: String,
+        channels: Vec<(String, Vec<VoicePresenceUser>)>,
+    },
+    VoicePresenceUpdated {
+        channel_id: String,
+        users: Vec<VoicePresenceUser>,
+    },
     Connected,
     Disconnected,
+}
+
+fn parse_presence_users(arr: &[Value]) -> Vec<VoicePresenceUser> {
+    arr.iter().filter_map(|u| {
+        let obj = u.as_object()?;
+        let user_id = obj.get("userId").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let username = obj.get("username").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        if user_id.is_empty() { return None; }
+        Some(VoicePresenceUser { user_id, username })
+    }).collect()
 }
 
 pub async fn connect(
@@ -32,6 +56,8 @@ pub async fn connect(
     let tx_channels = tx.clone();
     let tx_connected = tx.clone();
     let tx_disconnected = tx.clone();
+    let tx_vp_snapshot = tx.clone();
+    let tx_vp_updated = tx.clone();
 
     let client = ClientBuilder::new(server_url)
         .auth(serde_json::json!({ "token": token }))
@@ -92,6 +118,47 @@ pub async fn connect(
                             .unwrap_or("")
                             .to_string();
                         let _ = tx.send(RealtimeEvent::ChannelsUpdated { server_id }).await;
+                    }
+                }
+            })
+        })
+        .on("voice-presence-snapshot", move |payload, _| {
+            let tx = tx_vp_snapshot.clone();
+            Box::pin(async move {
+                if let Payload::Text(values) = payload {
+                    if let Some(Value::Object(data)) = values.into_iter().next() {
+                        let server_id = data.get("serverId")
+                            .and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let channels = data.get("channels")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| arr.iter().filter_map(|ch| {
+                                let obj = ch.as_object()?;
+                                let channel_id = obj.get("channelId")
+                                    .and_then(|v| v.as_str())?.to_string();
+                                let users = obj.get("users")
+                                    .and_then(|v| v.as_array())
+                                    .map(|a| parse_presence_users(a))
+                                    .unwrap_or_default();
+                                Some((channel_id, users))
+                            }).collect::<Vec<_>>())
+                            .unwrap_or_default();
+                        let _ = tx.send(RealtimeEvent::VoicePresenceSnapshot { server_id, channels }).await;
+                    }
+                }
+            })
+        })
+        .on("voice-presence-updated", move |payload, _| {
+            let tx = tx_vp_updated.clone();
+            Box::pin(async move {
+                if let Payload::Text(values) = payload {
+                    if let Some(Value::Object(data)) = values.into_iter().next() {
+                        let channel_id = data.get("channelId")
+                            .and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let users = data.get("users")
+                            .and_then(|v| v.as_array())
+                            .map(|a| parse_presence_users(a))
+                            .unwrap_or_default();
+                        let _ = tx.send(RealtimeEvent::VoicePresenceUpdated { channel_id, users }).await;
                     }
                 }
             })
