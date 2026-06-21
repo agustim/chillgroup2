@@ -82,7 +82,7 @@ export component SettingsWindow inherits Window {
 
 export struct ServerItem  { id: string, name: string, initial: string }
 export struct ChannelItem { id: string, name: string, channel-type: string, unread: bool, encrypted: bool, encryption-type: string, permission-level: int }
-export struct MessageItem { id: string, author: string, author-initial: string, content: string, timestamp: string, encrypted: bool }
+export struct MessageItem { id: string, author: string, author-initial: string, content: string, timestamp: string, encrypted: bool, key-version: int, expires-at: string }
 
 export component AppWindow inherits Window {
     title: "ChillGroup";
@@ -131,6 +131,8 @@ export component AppWindow inherits Window {
     in-out property <string>          active-channel-type;
     in-out property <bool>            active-channel-encrypted: false;
     in-out property <string>          active-channel-encryption-type;
+    in-out property <int>             active-channel-ttl: 0;
+    in-out property <int>             active-channel-key-version: 0;
     in-out property <length>          msg-viewport-y: 0px;
     in-out property <bool>            scroll-to-bottom: false;
     in-out property <string>          current-username;
@@ -148,6 +150,8 @@ export component AppWindow inherits Window {
     callback leave-voice();
     callback toggle-mute();
     callback toggle-deafen();
+    callback repair-channel();
+    callback rotate-channel-key();
 
     // ── VAULT VIEW ───────────────────────────────────────────────────────────
     if !root.vault-open: HorizontalBox {
@@ -303,7 +307,16 @@ export component AppWindow inherits Window {
                         Text { text: root.active-channel-name != "" ? root.active-channel-name : "Selecciona un canal"; font-size: 16px; font-weight: 600; color: Palette.foreground; }
                         if root.active-channel-encryption-type == "symmetric": Text { text: "🔑"; font-size: 13px; vertical-alignment: center; }
                         if root.active-channel-encryption-type == "asymmetric": Text { text: "🔒"; font-size: 13px; vertical-alignment: center; }
+                        if root.active-channel-ttl > 0: Text { text: "⏱"; font-size: 13px; vertical-alignment: center; color: Palette.border; }
                         Rectangle { horizontal-stretch: 1; }
+                        if root.active-channel-encryption-type == "asymmetric": Button {
+                            text: "Arreglar Claus"; height: 28px;
+                            clicked => { root.repair-channel(); }
+                        }
+                        if root.active-channel-encryption-type == "asymmetric" || root.active-channel-encryption-type == "symmetric": Button {
+                            text: "Rotar Clau"; height: 28px;
+                            clicked => { root.rotate-channel-key(); }
+                        }
                         if root.active-channel-type == "voice": HorizontalBox {
                             spacing: 4px;
                             if !root.in-voice-channel: Button { text: "Entrar"; primary: true; clicked => { root.join-voice(); } }
@@ -318,9 +331,28 @@ export component AppWindow inherits Window {
                     vertical-stretch: 1; background: Palette.background;
                     VerticalBox {
                         alignment: center; spacing: 8px;
-                        Text { text: "🔒"; font-size: 32px; horizontal-alignment: center; }
-                        Text { text: "Canal xifrat (E2EE)"; font-size: 16px; font-weight: 700; color: Palette.foreground; horizontal-alignment: center; }
-                        Text { text: "El client natiu no suporta E2EE encara.\nUsa el client web per aquest canal."; color: Palette.border; font-size: 13px; horizontal-alignment: center; }
+                        if root.active-channel-encryption-type == "asymmetric": Text {
+                            text: "🔒"; font-size: 32px; horizontal-alignment: center;
+                        }
+                        if root.active-channel-encryption-type == "asymmetric": Text {
+                            text: "Esperant distribució de claus";
+                            font-size: 16px; font-weight: 700; color: Palette.foreground; horizontal-alignment: center;
+                        }
+                        if root.active-channel-encryption-type == "asymmetric": Text {
+                            text: "Un altre dispositiu connectat amb accés al canal ha de distribuir la clau.\nAlternativament, prem 'Arreglar Claus' si tens accés.";
+                            color: Palette.border; font-size: 13px; horizontal-alignment: center;
+                        }
+                        if root.active-channel-encryption-type != "asymmetric": Text {
+                            text: "🔑"; font-size: 32px; horizontal-alignment: center;
+                        }
+                        if root.active-channel-encryption-type != "asymmetric": Text {
+                            text: "Canal xifrat (E2EE)";
+                            font-size: 16px; font-weight: 700; color: Palette.foreground; horizontal-alignment: center;
+                        }
+                        if root.active-channel-encryption-type != "asymmetric": Text {
+                            text: "No s'ha pogut obtenir la clau de xifrat.";
+                            color: Palette.border; font-size: 13px; horizontal-alignment: center;
+                        }
                     }
                 }
 
@@ -355,6 +387,14 @@ export component AppWindow inherits Window {
                                     spacing: 8px; alignment: start;
                                     Text { text: msg.author; font-weight: 700; color: Palette.accent-background; font-size: 14px; }
                                     Text { text: msg.timestamp; color: Palette.border; font-size: 11px; vertical-alignment: center; }
+                                    if msg.key-version > 0: Text {
+                                        text: "🔐v" + msg.key-version;
+                                        color: Palette.border; font-size: 10px; vertical-alignment: center;
+                                    }
+                                    if msg.expires-at != "": Text {
+                                        text: msg.expires-at;
+                                        color: Palette.border; font-size: 10px; vertical-alignment: center;
+                                    }
                                 }
                                 Text { text: msg.content; color: Palette.foreground; font-size: 14px; wrap: word-wrap; horizontal-stretch: 1; }
                             }

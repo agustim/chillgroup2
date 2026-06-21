@@ -30,6 +30,7 @@ rand = "0.8"
 
 # E2EE missatges — Phase 2
 ml-kem = { version = "0.3", features = ["getrandom"] }
+ml-dsa = { version = "0.1", features = ["getrandom"] }
 
 # Vault local
 sled = "0.34"

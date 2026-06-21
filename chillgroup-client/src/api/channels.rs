@@ -11,6 +11,12 @@ pub struct Channel {
     pub position: i32,
     pub unread_count: Option<usize>,
     pub permission_level: Option<i32>,
+    #[serde(default)]
+    pub message_ttl: Option<i32>,
+    #[serde(default)]
+    pub key_version: Option<i32>,
+    #[serde(default)]
+    pub key_version_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]

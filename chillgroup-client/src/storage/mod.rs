@@ -122,12 +122,58 @@ impl Vault {
         Ok(Some((dk, ek)))
     }
 
+    pub fn save_dsa_keypair(&self, sk_seed: &[u8], vk: &[u8]) -> Result<(), VaultError> {
+        self.set("dsa_sk", sk_seed)?;
+        self.set("dsa_vk", vk)?;
+        Ok(())
+    }
+
+    pub fn load_dsa_keypair(&self) -> Result<Option<(Vec<u8>, Vec<u8>)>, VaultError> {
+        let Some(sk) = self.get::<Vec<u8>>("dsa_sk")? else { return Ok(None) };
+        let Some(vk) = self.get::<Vec<u8>>("dsa_vk")? else { return Ok(None) };
+        Ok(Some((sk, vk)))
+    }
+
     pub fn save_channel_key(&self, channel_id: &str, key: &[u8]) -> Result<(), VaultError> {
         self.set(&format!("chkey_{channel_id}"), key)
     }
 
     pub fn load_channel_key(&self, channel_id: &str) -> Result<Option<Vec<u8>>, VaultError> {
         self.get::<Vec<u8>>(&format!("chkey_{channel_id}"))
+    }
+
+    pub fn save_channel_key_current_version(&self, channel_id: &str, version: i32, version_id: &str) -> Result<(), VaultError> {
+        self.set(&format!("chkeyver_{channel_id}"), &version)?;
+        self.set(&format!("chkeyverid_{channel_id}"), version_id)?;
+        Ok(())
+    }
+
+    pub fn load_channel_key_current_version(&self, channel_id: &str) -> Result<Option<(i32, String)>, VaultError> {
+        let Some(v) = self.get::<i32>(&format!("chkeyver_{channel_id}"))? else { return Ok(None) };
+        let vid = self.get::<String>(&format!("chkeyverid_{channel_id}"))?.unwrap_or_default();
+        Ok(Some((v, vid)))
+    }
+
+    pub fn save_channel_key_version(
+        &self,
+        channel_id: &str,
+        version: i32,
+        key: &[u8],
+        key_version_id: Option<&str>,
+    ) -> Result<(), VaultError> {
+        self.set(&format!("chkey_{channel_id}_v{version}"), key)?;
+        if let Some(vid) = key_version_id {
+            self.set(&format!("chkeyid_{channel_id}_v{version}"), vid)?;
+        }
+        Ok(())
+    }
+
+    pub fn load_channel_key_version(&self, channel_id: &str, version: i32) -> Result<Option<Vec<u8>>, VaultError> {
+        self.get::<Vec<u8>>(&format!("chkey_{channel_id}_v{version}"))
+    }
+
+    pub fn load_channel_key_version_id(&self, channel_id: &str, version: i32) -> Result<Option<String>, VaultError> {
+        self.get::<String>(&format!("chkeyid_{channel_id}_v{version}"))
     }
 
     fn encrypt_insert(&self, key: &[u8], plaintext: &[u8]) -> Result<(), VaultError> {

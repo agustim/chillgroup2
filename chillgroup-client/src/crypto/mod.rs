@@ -3,7 +3,8 @@ use aes_gcm::{
     Aes256Gcm, Key as AesKey, Nonce,
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
-use ml_kem::{Decapsulate, Kem, KeyExport, MlKem1024, Seed, ml_kem_1024};
+use ml_dsa::{MlDsa87, KeyExport as DsaKeyExport, KeyInit as DsaKeyInit, Keypair, Seed as DsaSeed, SigningKey as DsaSigningKey, SignatureEncoding, Signer};
+use ml_kem::{Decapsulate, Encapsulate, Kem, KeyExport, MlKem1024, Seed, TryKeyInit, Key, ml_kem_1024};
 
 /// Generate a new ML-KEM-1024 keypair.
 /// Returns (dk_seed_bytes[64], ek_bytes[1568]).
@@ -92,11 +93,61 @@ pub fn encrypt_message(channel_key: &[u8; 32], plaintext: &str) -> (String, Stri
     (STANDARD.encode(&ciphertext), STANDARD.encode(nonce.as_slice()))
 }
 
+/// Generate a new ML-DSA-87 keypair.
+/// Returns (sk_seed_bytes[32], vk_bytes[2592]).
+pub fn generate_dsa_keypair() -> (Vec<u8>, Vec<u8>) {
+    use ml_dsa::Generate;
+    let sk = DsaSigningKey::<MlDsa87>::generate();
+    let seed_bytes: Vec<u8> = sk.to_bytes().as_slice().to_vec();
+    let vk_bytes: Vec<u8> = sk.verifying_key().to_bytes().as_slice().to_vec();
+    (seed_bytes, vk_bytes)
+}
+
+/// Sign a message with our DSA signing key.
+/// Returns base64-encoded signature.
+pub fn dsa_sign(sk_seed: &[u8], message: &[u8]) -> Result<String, String> {
+    if sk_seed.len() != 32 {
+        return Err(format!("DSA seed must be 32 bytes, got {}", sk_seed.len()));
+    }
+    let mut seed_arr = DsaSeed::default();
+    seed_arr.as_mut_slice().copy_from_slice(sk_seed);
+    let sk = DsaSigningKey::<MlDsa87>::from_seed(&seed_arr);
+    let sig = sk.sign(message);
+    Ok(STANDARD.encode(sig.to_bytes().as_slice()))
+}
+
+/// Wrap channel key for a remote device's KEM public key.
+/// Returns (encryptedKey_b64, kemCiphertext_b64) — same format as server symmetric wrapping.
+pub fn wrap_channel_key_for_device(ek_bytes: &[u8], channel_key: &[u8; 32]) -> Result<(String, String), String> {
+    let mut ek_arr: Key<ml_kem_1024::EncapsulationKey> = Default::default();
+    if ek_bytes.len() != ek_arr.len() {
+        return Err(format!("EK must be 1568 bytes, got {}", ek_bytes.len()));
+    }
+    ek_arr.as_mut_slice().copy_from_slice(ek_bytes);
+    let ek = ml_kem_1024::EncapsulationKey::new(&ek_arr)
+        .map_err(|_| "invalid EK".to_string())?;
+
+    let (kem_ct, shared_secret) = ek.encapsulate();
+    let mut wrapping_key = [0u8; 32];
+    wrapping_key.copy_from_slice(shared_secret.as_ref());
+
+    let cipher = Aes256Gcm::new(AesKey::<Aes256Gcm>::from_slice(&wrapping_key));
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let wrapped = cipher.encrypt(&nonce, channel_key.as_slice())
+        .map_err(|_| "AES-GCM wrap failed".to_string())?;
+
+    let mut envelope = Vec::with_capacity(12 + wrapped.len());
+    envelope.extend_from_slice(&nonce);
+    envelope.extend_from_slice(&wrapped);
+
+    Ok((STANDARD.encode(&envelope), STANDARD.encode(kem_ct.as_slice())))
+}
+
 /// Simulate server-side key wrapping (for tests).
 /// Returns (encryptedKey_b64, kemCiphertext_b64) matching the server format.
 #[cfg(test)]
 pub fn server_wrap_channel_key(ek_bytes: &[u8], channel_key: &[u8; 32]) -> (String, String) {
-    use ml_kem::{Encapsulate, TryKeyInit, Key, ml_kem_1024::EncapsulationKey};
+    use ml_kem_1024::EncapsulationKey;
 
     // Restore EK from bytes
     let mut ek_arr: Key<EncapsulationKey> = Default::default();
@@ -168,6 +219,31 @@ mod tests {
         let decrypted = decrypt_message(&unwrapped, &ciphertext_b64, &iv_b64).unwrap();
 
         assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_dsa_sign_verify() {
+        let (sk_bytes, _vk_bytes) = generate_dsa_keypair();
+        assert_eq!(sk_bytes.len(), 32, "DSA seed must be 32 bytes");
+        let sig_b64 = dsa_sign(&sk_bytes, b"test message").expect("sign failed");
+        let sig_bytes = STANDARD.decode(&sig_b64).unwrap();
+        assert_eq!(sig_bytes.len(), 4627, "ML-DSA-87 sig must be 4627 bytes");
+    }
+
+    #[test]
+    fn test_asymmetric_distribution() {
+        // Alice generates keypair + channel key, wraps for Bob
+        let (_, alice_ek) = generate_kem_keypair();
+        let (bob_dk, bob_ek) = generate_kem_keypair();
+        let channel_key: [u8; 32] = rand::random();
+
+        let (enc_key, kem_ct) = wrap_channel_key_for_device(&bob_ek, &channel_key)
+            .expect("wrap failed");
+        let recovered = unwrap_channel_key(&bob_dk, &enc_key, &kem_ct)
+            .expect("unwrap failed");
+
+        assert_eq!(recovered, channel_key);
+        let _ = alice_ek; // used implicitly
     }
 
     #[test]

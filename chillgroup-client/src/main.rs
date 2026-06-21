@@ -22,12 +22,17 @@ struct Session {
     active_channel_id: String,
     active_channel_type: String,
     active_channel_key: Option<[u8; 32]>,
+    active_channel_key_version: Option<i32>,
+    active_channel_key_version_id: Option<String>,
 }
 
 struct ChannelMeta {
     name: String,
     encryption_type: api::channels::EncryptionType,
     permission_level: i32,
+    message_ttl: Option<i32>,
+    key_version: Option<i32>,
+    key_version_id: Option<String>,
 }
 
 #[derive(Debug)]
@@ -38,6 +43,8 @@ enum Cmd {
     SelectServer { server_id: String },
     SelectChannel { channel_id: String, channel_type: String },
     SendMessage { content: String },
+    RepairChannel { channel_id: String },
+    RotateChannelKey { channel_id: String },
 }
 
 fn theme_to_index(theme: &str) -> i32 {
@@ -168,6 +175,32 @@ fn main() {
     app.on_toggle_mute(|| { /* Phase 2 */ });
     app.on_toggle_deafen(|| { /* Phase 2 */ });
 
+    app.on_repair_channel({
+        let cmd_tx = cmd_tx.clone();
+        let app_weak = app.as_weak();
+        move || {
+            if let Some(win) = app_weak.upgrade() {
+                let ch_id = win.get_active_channel_id().to_string();
+                if !ch_id.is_empty() {
+                    let _ = cmd_tx.try_send(Cmd::RepairChannel { channel_id: ch_id });
+                }
+            }
+        }
+    });
+
+    app.on_rotate_channel_key({
+        let cmd_tx = cmd_tx.clone();
+        let app_weak = app.as_weak();
+        move || {
+            if let Some(win) = app_weak.upgrade() {
+                let ch_id = win.get_active_channel_id().to_string();
+                if !ch_id.is_empty() {
+                    let _ = cmd_tx.try_send(Cmd::RotateChannelKey { channel_id: ch_id });
+                }
+            }
+        }
+    });
+
     let app_bg = app.as_weak();
     let vault_bg = Arc::clone(&vault);
     let cfg_bg = cfg.clone();
@@ -217,7 +250,7 @@ fn main() {
                                                         Err(e) => tracing::warn!("Socket.IO: {e}"),
                                                     }
                                                     api = Some(client);
-                                                    ensure_kem_keypair(&vault_bg, api.as_ref().unwrap()).await;
+                                                    ensure_keypairs(&vault_bg, api.as_ref().unwrap()).await;
 
                                                     let server_items: Vec<ServerItem> = servers.iter().map(|s| ServerItem {
                                                         id: s.server_id.clone().into(),
@@ -313,7 +346,7 @@ fn main() {
                                     }
 
                                     api = Some(client);
-                                    ensure_kem_keypair(&vault_bg, api.as_ref().unwrap()).await;
+                                    ensure_keypairs(&vault_bg, api.as_ref().unwrap()).await;
 
                                     match api::servers::list(api.as_ref().unwrap()).await {
                                         Ok(servers) => {
@@ -382,6 +415,9 @@ fn main() {
                                                 name: c.name.clone(),
                                                 encryption_type: c.encryption_type.clone(),
                                                 permission_level: c.permission_level.unwrap_or(2),
+                                                message_ttl: c.message_ttl,
+                                                key_version: c.key_version,
+                                                key_version_id: c.key_version_id.clone(),
                                             });
                                             ChannelItem {
                                                 id: c.id.clone().into(),
@@ -419,73 +455,137 @@ fn main() {
                                 session.active_channel_id = channel_id.clone();
                                 session.active_channel_type = channel_type.clone();
                                 session.active_channel_key = None;
+                                session.active_channel_key_version = None;
+                                session.active_channel_key_version_id = None;
 
                                 if let Some(sock) = &socket {
                                     let _ = realtime::join_channel(sock, &channel_id).await;
                                 }
 
-                                // Determine encryption type and fetch key if symmetric
                                 let enc_type = channel_meta.get(&channel_id)
                                     .map(|m| m.encryption_type.clone())
                                     .unwrap_or_default();
                                 let ch_name = channel_meta.get(&channel_id)
                                     .map(|m| m.name.clone())
                                     .unwrap_or_default();
+                                let ch_ttl = channel_meta.get(&channel_id)
+                                    .and_then(|m| m.message_ttl);
                                 let enc_type_str = match enc_type {
                                     api::channels::EncryptionType::Symmetric => "symmetric",
                                     api::channels::EncryptionType::Asymmetric => "asymmetric",
                                     api::channels::EncryptionType::None => "none",
                                 }.to_string();
 
-                                if matches!(enc_type, api::channels::EncryptionType::Symmetric) {
-                                    // Check vault cache first
+                                let needs_key = matches!(enc_type,
+                                    api::channels::EncryptionType::Symmetric |
+                                    api::channels::EncryptionType::Asymmetric
+                                );
+                                if needs_key {
+                                    let dk = vault_bg.lock().unwrap()
+                                        .as_ref()
+                                        .and_then(|v| v.load_kem_keypair().ok().flatten())
+                                        .map(|(dk, _)| dk);
+
+                                    if matches!(enc_type, api::channels::EncryptionType::Asymmetric) {
+                                        // Sync ALL versions from /keys/all
+                                        sync_all_key_bundles(client, &vault_bg, &channel_id, dk.as_deref()).await;
+                                    }
+
+                                    // Try to get latest key (from vault cache or server)
                                     let cached = vault_bg.lock().unwrap()
                                         .as_ref()
                                         .and_then(|v| v.load_channel_key(&channel_id).ok().flatten());
 
-                                    let maybe_key = if let Some(bytes) = cached {
+                                    let (maybe_key, key_version, key_version_id) = if let Some(bytes) = cached {
                                         if bytes.len() == 32 {
                                             let mut k = [0u8; 32];
                                             k.copy_from_slice(&bytes);
-                                            Some(k)
-                                        } else { None }
+                                            // Restore version from vault (authoritative, updated on every key save/rotate)
+                                            let (cur_ver, cur_ver_id) = vault_bg.lock().unwrap().as_ref()
+                                                .and_then(|v| v.load_channel_key_current_version(&channel_id).ok().flatten())
+                                                .map(|(v, vid)| (Some(v), Some(vid)))
+                                                .unwrap_or_else(|| {
+                                                    // Fallback: channel_meta from last SelectServer (may be stale after rotation)
+                                                    let kv = channel_meta.get(&channel_id).and_then(|m| m.key_version);
+                                                    let kvid = channel_meta.get(&channel_id).and_then(|m| m.key_version_id.clone());
+                                                    (kv, kvid)
+                                                });
+                                            tracing::debug!("SelectChannel {}: flat cache hit, key_version={:?} key_version_id={:?}", channel_id, cur_ver, cur_ver_id);
+                                            (Some(k), cur_ver, cur_ver_id)
+                                        } else {
+                                            tracing::warn!("SelectChannel {}: flat cache bad len={}", channel_id, bytes.len());
+                                            (None, None, None)
+                                        }
                                     } else {
-                                        // Fetch from server
+                                        tracing::debug!("SelectChannel {}: flat cache miss, fetching from server", channel_id);
+                                        // Fetch key bundle from server
                                         match api::keys::get_channel_key(client, &channel_id).await {
                                             Ok(bundle) => {
-                                                let dk = vault_bg.lock().unwrap()
-                                                    .as_ref()
-                                                    .and_then(|v| v.load_kem_keypair().ok().flatten())
-                                                    .map(|(dk, _)| dk);
-                                                if let Some(dk_bytes) = dk {
-                                                    match crypto::unwrap_channel_key(&dk_bytes, &bundle.encrypted_key, &bundle.kem_ciphertext) {
+                                                let key_ver = bundle.key_version;
+                                                let key_ver_id = bundle.key_version_id.clone();
+                                                if let Some(dk_bytes) = &dk {
+                                                    match crypto::unwrap_channel_key(dk_bytes, &bundle.encrypted_key, &bundle.kem_ciphertext) {
                                                         Ok(key) => {
                                                             if let Some(vault) = vault_bg.lock().unwrap().as_ref() {
                                                                 let _ = vault.save_channel_key(&channel_id, &key);
+                                                                if let Some(v) = key_ver {
+                                                                    let _ = vault.save_channel_key_version(
+                                                                        &channel_id, v, &key,
+                                                                        key_ver_id.as_deref()
+                                                                    );
+                                                                    if let Some(ref vid) = key_ver_id {
+                                                                        let _ = vault.save_channel_key_current_version(&channel_id, v, vid);
+                                                                    }
+                                                                }
                                                             }
-                                                            Some(key)
+                                                            (Some(key), key_ver, key_ver_id)
                                                         }
-                                                        Err(e) => { tracing::warn!("KEM unwrap failed: {e}"); None }
+                                                        Err(e) => { tracing::warn!("KEM unwrap failed: {e}"); (None, None, None) }
                                                     }
                                                 } else {
                                                     tracing::warn!("No KEM keypair in vault");
-                                                    None
+                                                    (None, None, None)
                                                 }
                                             }
-                                            Err(e) => { tracing::warn!("get_channel_key failed: {e}"); None }
+                                            Err(e) => {
+                                                if matches!(enc_type, api::channels::EncryptionType::Asymmetric) {
+                                                    tracing::info!("Asymmetric: no bundle yet ({e})");
+                                                } else {
+                                                    tracing::warn!("get_channel_key failed: {e}");
+                                                }
+                                                (None, None, None)
+                                            }
                                         }
                                     };
                                     session.active_channel_key = maybe_key;
+                                    session.active_channel_key_version = key_version;
+                                    session.active_channel_key_version_id = key_version_id;
+
+                                    // Asymmetric: if we have key + version_id, distribute to devices without bundles
+                                    if matches!(enc_type, api::channels::EncryptionType::Asymmetric) {
+                                        if let (Some(channel_key), Some(kvid)) = (session.active_channel_key, session.active_channel_key_version_id.clone()) {
+                                            let client2 = client.clone();
+                                            let vault2 = vault_bg.clone();
+                                            let ch_id2 = channel_id.clone();
+                                            let device_id2 = session.device_id.clone();
+                                            let kv = session.active_channel_key_version;
+                                            tokio::spawn(async move {
+                                                distribute_channel_key(&client2, &vault2, &ch_id2, &device_id2, channel_key, kv, Some(kvid)).await;
+                                            });
+                                        }
+                                    }
                                 }
 
                                 let is_blocked = match enc_type {
                                     api::channels::EncryptionType::None => false,
                                     api::channels::EncryptionType::Symmetric => session.active_channel_key.is_none(),
-                                    api::channels::EncryptionType::Asymmetric => true,
+                                    api::channels::EncryptionType::Asymmetric => session.active_channel_key.is_none(),
                                 };
 
                                 let ch_id = channel_id.clone();
                                 let ch_type = channel_type.clone();
+                                let ch_ttl_i = ch_ttl.unwrap_or(0);
+                                let ch_key_ver = session.active_channel_key_version.unwrap_or(0);
                                 let ah = app_bg.clone();
                                 slint::invoke_from_event_loop(move || {
                                     let win = ah.unwrap();
@@ -494,25 +594,41 @@ fn main() {
                                     win.set_active_channel_name(ch_name.into());
                                     win.set_active_channel_encrypted(is_blocked);
                                     win.set_active_channel_encryption_type(enc_type_str.into());
+                                    win.set_active_channel_ttl(ch_ttl_i);
+                                    win.set_active_channel_key_version(ch_key_ver);
                                     win.set_messages(ModelRc::new(VecModel::default()));
                                 }).ok();
 
                                 if channel_type == "text" && !is_blocked {
                                     match api::messages::list(client, &channel_id, 50).await {
                                         Ok(msgs) => {
-                                            let channel_key = session.active_channel_key;
+                                            let vault_lock = vault_bg.lock().unwrap();
+                                            let vault_ref = vault_lock.as_ref();
                                             let items: Vec<MessageItem> = msgs.into_iter().map(|m| {
                                                 let content = if !m.iv.is_empty() {
-                                                    if let Some(key) = &channel_key {
-                                                        crypto::decrypt_message(key, &m.encrypted_payload, &m.iv)
-                                                            .unwrap_or_else(|_| "[no s'ha pogut desxifrar]".into())
+                                                    let key_opt = if let Some(v) = m.key_version {
+                                                        // Try version-specific key first
+                                                        let from_vault = vault_ref.and_then(|v2| v2.load_channel_key_version(&channel_id, v).ok().flatten());
+                                                        tracing::debug!("msg {} kv={} vault={} fallback={}", m.id, v, from_vault.is_some(), session.active_channel_key.is_some());
+                                                        from_vault.or_else(|| session.active_channel_key.map(|k| k.to_vec()))
                                                     } else {
-                                                        "[xifrat]".into()
+                                                        session.active_channel_key.map(|k| k.to_vec())
+                                                    };
+                                                    if let Some(key_bytes) = key_opt {
+                                                        if key_bytes.len() == 32 {
+                                                            let mut key = [0u8; 32];
+                                                            key.copy_from_slice(&key_bytes);
+                                                            crypto::decrypt_message(&key, &m.encrypted_payload, &m.iv)
+                                                                .unwrap_or_else(|_| "[no s'ha pogut desxifrar]".into())
+                                                        } else { "[clau invàlida]".into() }
+                                                    } else {
+                                                        "[xifrat — falta clau v{}]".replace("{}", &m.key_version.map(|v| v.to_string()).unwrap_or_default())
                                                     }
                                                 } else {
                                                     m.encrypted_payload.clone()
                                                 };
                                                 let author = m.sender_username.clone().unwrap_or_default();
+                                                let expires = m.expires_at.as_deref().map(format_expires).unwrap_or_default();
                                                 MessageItem {
                                                     id: m.id.into(),
                                                     author: author.clone().into(),
@@ -520,8 +636,11 @@ fn main() {
                                                     content: content.into(),
                                                     timestamp: format_timestamp(&m.timestamp).into(),
                                                     encrypted: false,
+                                                    key_version: m.key_version.unwrap_or(0),
+                                                    expires_at: expires.into(),
                                                 }
                                             }).collect();
+                                            drop(vault_lock);
                                             let ah = app_bg.clone();
                                             slint::invoke_from_event_loop(move || {
                                                 let win = ah.unwrap();
@@ -571,6 +690,8 @@ fn main() {
                                         content: content.clone().into(),
                                         timestamp: "Ara".into(),
                                         encrypted: false,
+                                        key_version: session.active_channel_key_version.unwrap_or(0),
+                                        expires_at: "".into(),
                                     };
                                     let ah = app_bg.clone();
                                     slint::invoke_from_event_loop(move || {
@@ -587,7 +708,7 @@ fn main() {
                                     } else {
                                         (content.clone(), String::new())
                                     };
-                                    if let Err(e) = api::messages::send(client, &session.active_channel_id, &payload, &iv, None).await {
+                                    if let Err(e) = api::messages::send(client, &session.active_channel_id, &payload, &iv, session.active_channel_key_version).await {
                                         tracing::warn!("Error sending message: {e}");
                                     }
                                     // Real message arrives via Socket.IO; remove optimistic item
@@ -609,6 +730,103 @@ fn main() {
                                 }
                             }
                         }
+
+                        Cmd::RepairChannel { channel_id } => {
+                            if let Some(client) = &api {
+                                let channel_key = if channel_id == session.active_channel_id {
+                                    session.active_channel_key
+                                } else { None };
+                                if let Some(key) = channel_key {
+                                    let client2 = client.clone();
+                                    let vault2 = vault_bg.clone();
+                                    let dev_id = session.device_id.clone();
+                                    let kv = session.active_channel_key_version;
+                                    let kvid = session.active_channel_key_version_id.clone();
+                                    tokio::spawn(async move {
+                                        distribute_channel_key(&client2, &vault2, &channel_id, &dev_id, key, kv, kvid).await;
+                                    });
+                                } else {
+                                    tracing::warn!("RepairChannel: no key available for {channel_id}");
+                                }
+                            }
+                        }
+
+                        Cmd::RotateChannelKey { channel_id } => {
+                            if let Some(client) = &api {
+                                let enc_type = channel_meta.get(&channel_id)
+                                    .map(|m| m.encryption_type.clone())
+                                    .unwrap_or_default();
+                                match api::keys::rotate_channel_key(client, &channel_id).await {
+                                    Ok(result) => {
+                                        tracing::info!("Rotated key to v{} for {channel_id}", result.key_version);
+                                        if matches!(enc_type, api::channels::EncryptionType::Asymmetric) {
+                                            // Generate new channel key and distribute
+                                            let new_key: [u8; 32] = rand::random();
+                                            if let Some(vault) = vault_bg.lock().unwrap().as_ref() {
+                                                let _ = vault.save_channel_key(&channel_id, &new_key);
+                                                let _ = vault.save_channel_key_version(
+                                                    &channel_id, result.key_version, &new_key,
+                                                    Some(&result.key_version_id)
+                                                );
+                                                let _ = vault.save_channel_key_current_version(
+                                                    &channel_id, result.key_version, &result.key_version_id
+                                                );
+                                            }
+                                            if channel_id == session.active_channel_id {
+                                                session.active_channel_key = Some(new_key);
+                                                session.active_channel_key_version = Some(result.key_version);
+                                                session.active_channel_key_version_id = Some(result.key_version_id.clone());
+                                                let kv = result.key_version;
+                                                let ah = app_bg.clone();
+                                                slint::invoke_from_event_loop(move || {
+                                                    ah.unwrap().set_active_channel_key_version(kv);
+                                                }).ok();
+                                            }
+                                            let client2 = client.clone();
+                                            let vault2 = vault_bg.clone();
+                                            let dev_id = session.device_id.clone();
+                                            let kv = Some(result.key_version);
+                                            let kvid = Some(result.key_version_id);
+                                            tokio::spawn(async move {
+                                                distribute_channel_key(&client2, &vault2, &channel_id, &dev_id, new_key, kv, kvid).await;
+                                            });
+                                        } else {
+                                            // Symmetric: server generated new key; refresh
+                                            let dk = vault_bg.lock().unwrap()
+                                                .as_ref()
+                                                .and_then(|v| v.load_kem_keypair().ok().flatten())
+                                                .map(|(dk, _)| dk);
+                                            if let Some(dk_bytes) = dk {
+                                                if let Ok(bundle) = api::keys::get_channel_key(client, &channel_id).await {
+                                                    if let Ok(key) = crypto::unwrap_channel_key(&dk_bytes, &bundle.encrypted_key, &bundle.kem_ciphertext) {
+                                                        if let Some(vault) = vault_bg.lock().unwrap().as_ref() {
+                                                            let _ = vault.save_channel_key(&channel_id, &key);
+                                                            if let Some(v) = bundle.key_version {
+                                                                let _ = vault.save_channel_key_version(&channel_id, v, &key, bundle.key_version_id.as_deref());
+                                                                if let Some(ref vid) = bundle.key_version_id {
+                                                                    let _ = vault.save_channel_key_current_version(&channel_id, v, vid);
+                                                                }
+                                                            }
+                                                        }
+                                                        if channel_id == session.active_channel_id {
+                                                            session.active_channel_key = Some(key);
+                                                            session.active_channel_key_version = bundle.key_version;
+                                                            session.active_channel_key_version_id = bundle.key_version_id;
+                                                            let kv = session.active_channel_key_version.unwrap_or(0);
+                                                            let ah = app_bg.clone();
+                                                            slint::invoke_from_event_loop(move || {
+                                                                ah.unwrap().set_active_channel_key_version(kv);
+                                                            }).ok();
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Err(e) => tracing::warn!("Rotate key failed: {e}"),
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -616,14 +834,31 @@ fn main() {
                     match event {
                         realtime::RealtimeEvent::Message {
                             channel_id, sender_username, encrypted_payload, iv,
-                            message_id, timestamp, ..
+                            message_id, timestamp, key_version: msg_key_version, expires_at, ..
                         } => {
                             let is_active = channel_id == session.active_channel_id;
 
-                            // Decrypt if we have the channel key
+                            // Decrypt using version-specific key when available
                             let content = if !iv.is_empty() {
-                                if let Some(key) = &session.active_channel_key {
-                                    crypto::decrypt_message(key, &encrypted_payload, &iv)
+                                let key_opt: Option<[u8; 32]> = if let Some(v) = msg_key_version {
+                                    let from_vault = vault_bg.lock().unwrap()
+                                        .as_ref()
+                                        .and_then(|vlt| vlt.load_channel_key_version(&channel_id, v).ok().flatten());
+                                    tracing::debug!("realtime msg {} ch={} kv={} vault={} active_key={}", message_id, channel_id, v, from_vault.is_some(), session.active_channel_key.is_some());
+                                    if let Some(bytes) = from_vault {
+                                        if bytes.len() == 32 {
+                                            let mut k = [0u8; 32];
+                                            k.copy_from_slice(&bytes);
+                                            Some(k)
+                                        } else { session.active_channel_key }
+                                    } else { session.active_channel_key }
+                                } else {
+                                    tracing::debug!("realtime msg {} ch={} kv=None active_key={}", message_id, channel_id, session.active_channel_key.is_some());
+                                    session.active_channel_key
+                                };
+
+                                if let Some(key) = key_opt {
+                                    crypto::decrypt_message(&key, &encrypted_payload, &iv)
                                         .unwrap_or_else(|_| "[no s'ha pogut desxifrar]".into())
                                 } else {
                                     "[xifrat]".into()
@@ -647,6 +882,7 @@ fn main() {
                             }
 
                             if is_active {
+                                let expires_str = expires_at.as_deref().map(format_expires).unwrap_or_default();
                                 let item = MessageItem {
                                     id: message_id.into(),
                                     author: sender_username.clone().into(),
@@ -654,6 +890,8 @@ fn main() {
                                     content: content.into(),
                                     timestamp: format_timestamp(&timestamp).into(),
                                     encrypted: false,
+                                    key_version: msg_key_version.unwrap_or(0),
+                                    expires_at: expires_str.into(),
                                 };
                                 let ah = app_bg.clone();
                                 slint::invoke_from_event_loop(move || {
@@ -668,6 +906,7 @@ fn main() {
                         }
 
                         realtime::RealtimeEvent::ChannelsUpdated { server_id } => {
+                            tracing::debug!("ChannelsUpdated server={} active={}", server_id, session.active_server_id);
                             if server_id == session.active_server_id {
                                 let _ = cmd_tx.try_send(Cmd::SelectServer { server_id });
                             }
@@ -745,13 +984,138 @@ fn open_settings(_cfg: settings::Settings, app_weak: slint::Weak<AppWindow>) {
     win.show().ok();
 }
 
-async fn ensure_kem_keypair(vault: &Arc<Mutex<Option<storage::Vault>>>, client: &api::ApiClient) {
-    // Load or generate keypair
-    let keypair = vault.lock().unwrap()
+/// Sync all key bundle versions for an asymmetric channel.
+async fn sync_all_key_bundles(
+    client: &api::ApiClient,
+    vault: &Arc<Mutex<Option<storage::Vault>>>,
+    channel_id: &str,
+    dk_bytes: Option<&[u8]>,
+) {
+    let Some(dk) = dk_bytes else { return; };
+    let bundles = match api::keys::get_all_key_bundles(client, channel_id).await {
+        Ok(b) => b,
+        Err(e) => { tracing::warn!("get_all_key_bundles failed: {e}"); return; }
+    };
+    for bundle in bundles {
+        let Some(version) = bundle.key_version else { continue; };
+        // Skip if already cached
+        let already_cached = vault.lock().unwrap()
+            .as_ref()
+            .and_then(|v| v.load_channel_key_version(channel_id, version).ok().flatten())
+            .is_some();
+        if already_cached { continue; }
+
+        match crypto::unwrap_channel_key(dk, &bundle.encrypted_key, &bundle.kem_ciphertext) {
+            Ok(key) => {
+                if let Some(v) = vault.lock().unwrap().as_ref() {
+                    let _ = v.save_channel_key_version(
+                        channel_id, version, &key,
+                        bundle.key_version_id.as_deref()
+                    );
+                }
+                tracing::debug!("Synced key v{version} for channel {channel_id}");
+            }
+            Err(e) => {
+                tracing::debug!("Bundle v{version} not for us or invalid: {e}");
+            }
+        }
+    }
+}
+
+/// Distribute an asymmetric channel key to all member devices that don't have a bundle yet.
+async fn distribute_channel_key(
+    client: &api::ApiClient,
+    vault: &Arc<Mutex<Option<storage::Vault>>>,
+    channel_id: &str,
+    our_device_id: &str,
+    channel_key: [u8; 32],
+    key_version: Option<i32>,
+    key_version_id: Option<String>,
+) {
+    let devices = match api::keys::get_member_devices(client, channel_id).await {
+        Ok(d) => d,
+        Err(e) => { tracing::warn!("get_member_devices failed: {e}"); return; }
+    };
+
+    let dsa_sk = vault.lock().unwrap()
+        .as_ref()
+        .and_then(|v| v.load_dsa_keypair().ok().flatten())
+        .map(|(sk, _)| sk);
+    let Some(dsa_sk_bytes) = dsa_sk else {
+        tracing::warn!("No DSA keypair in vault, cannot distribute");
+        return;
+    };
+
+    // Find which devices already have a bundle for this key_version — skip them
+    let devices_with_bundle: std::collections::HashSet<String> = if key_version_id.is_some() {
+        match api::keys::get_all_key_bundles(client, channel_id).await {
+            Ok(all) => all.into_iter()
+                .filter(|b| b.key_version_id == key_version_id)
+                .map(|b| b.device_id)
+                .collect(),
+            Err(_) => std::collections::HashSet::new(),
+        }
+    } else {
+        std::collections::HashSet::new()
+    };
+
+    let mut bundles = Vec::new();
+    for device in &devices {
+        if device.device_id == our_device_id { continue; }
+        if device.kem_public_key.is_empty() { continue; }
+        if devices_with_bundle.contains(&device.device_id) {
+            tracing::debug!("Device {} already has bundle for v{:?}, skipping", device.device_id, key_version);
+            continue;
+        }
+
+        let ek_bytes = match STANDARD.decode(&device.kem_public_key) {
+            Ok(b) => b,
+            Err(e) => { tracing::warn!("Bad KEM key for device {}: {e}", device.device_id); continue; }
+        };
+
+        match crypto::wrap_channel_key_for_device(&ek_bytes, &channel_key) {
+            Ok((enc_key, kem_ct)) => {
+                // Signature payload: "${keyVersionId}:${deviceId}:${kemCiphertext}:${encryptedKey}"
+                // Matches frontend format in channel-crypto.ts buildSignaturePayload()
+                let signature = if let Some(ref vid) = key_version_id {
+                    let msg = format!("{}:{}:{}:{}", vid, device.device_id, kem_ct, enc_key);
+                    crypto::dsa_sign(&dsa_sk_bytes, msg.as_bytes()).ok()
+                } else { None };
+                bundles.push(api::keys::KeyBundle {
+                    device_id: device.device_id.clone(),
+                    encrypted_key: enc_key,
+                    kem_ciphertext: kem_ct,
+                    key_version,
+                    signature,
+                    signed_by_device_id: Some(our_device_id.to_string()),
+                });
+            }
+            Err(e) => { tracing::warn!("wrap_channel_key_for_device failed for {}: {e}", device.device_id); }
+        }
+    }
+
+    let mut distributed = 0usize;
+    for bundle in bundles {
+        let device_id = bundle.device_id.clone();
+        match api::keys::upload_key_bundles(client, channel_id, &[bundle]).await {
+            Ok(()) => { distributed += 1; }
+            Err(e) if e.to_string().contains("409") || e.to_string().contains("Conflict") => {
+                tracing::debug!("Device {device_id} already has key bundle, skipping");
+            }
+            Err(e) => { tracing::warn!("upload_key_bundles for {device_id} failed: {e}"); }
+        }
+    }
+    if distributed > 0 {
+        tracing::info!("Distributed key to {distributed} devices for channel {channel_id}");
+    }
+}
+
+async fn ensure_keypairs(vault: &Arc<Mutex<Option<storage::Vault>>>, client: &api::ApiClient) {
+    // KEM keypair
+    let kem_pair = vault.lock().unwrap()
         .as_ref()
         .and_then(|v| v.load_kem_keypair().ok().flatten());
-
-    let ek_bytes = match keypair {
+    let ek_bytes = match kem_pair {
         Some((_, ek)) => ek,
         None => {
             let (dk, ek) = crypto::generate_kem_keypair();
@@ -766,10 +1130,30 @@ async fn ensure_kem_keypair(vault: &Arc<Mutex<Option<storage::Vault>>>, client: 
         }
     };
 
+    // DSA keypair
+    let dsa_pair = vault.lock().unwrap()
+        .as_ref()
+        .and_then(|v| v.load_dsa_keypair().ok().flatten());
+    let dsa_vk_bytes = match dsa_pair {
+        Some((_, vk)) => vk,
+        None => {
+            let (sk, vk) = crypto::generate_dsa_keypair();
+            if let Some(vault) = vault.lock().unwrap().as_ref() {
+                if let Err(e) = vault.save_dsa_keypair(&sk, &vk) {
+                    tracing::warn!("Failed to save DSA keypair: {e}");
+                    return;
+                }
+            }
+            tracing::info!("Generated new ML-DSA-87 keypair");
+            vk
+        }
+    };
+
     let ek_b64 = STANDARD.encode(&ek_bytes);
-    match api::keys::update_device_public_key(client, &ek_b64).await {
-        Ok(()) => tracing::info!("KEM public key registered"),
-        Err(e) => tracing::warn!("KEM registration failed: {e}"),
+    let dsa_vk_b64 = STANDARD.encode(&dsa_vk_bytes);
+    match api::keys::update_device_public_key(client, &ek_b64, &dsa_vk_b64).await {
+        Ok(()) => tracing::info!("KEM + DSA public keys registered"),
+        Err(e) => tracing::warn!("Key registration failed: {e}"),
     }
 }
 
@@ -778,5 +1162,27 @@ fn format_timestamp(ts: &str) -> String {
         t.chars().take(5).collect()
     } else {
         ts.chars().take(5).collect()
+    }
+}
+
+fn format_expires(expires_at: &str) -> String {
+    // Returns "⏱ HH:MM" or "⏱ Dd" depending on remaining time
+    use chrono::{DateTime, Utc};
+    if let Ok(exp) = expires_at.parse::<DateTime<Utc>>() {
+        let now = Utc::now();
+        let diff = exp.signed_duration_since(now);
+        if diff.num_seconds() <= 0 {
+            return "⏱ Caducat".into();
+        }
+        let secs = diff.num_seconds();
+        if secs < 3600 {
+            format!("⏱ {}m", secs / 60)
+        } else if secs < 86400 {
+            format!("⏱ {}h", secs / 3600)
+        } else {
+            format!("⏱ {}d", secs / 86400)
+        }
+    } else {
+        String::new()
     }
 }

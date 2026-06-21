@@ -13,6 +13,8 @@ pub enum RealtimeEvent {
         encrypted_payload: String,  // plaintext per canals none
         iv: String,
         timestamp: String,
+        key_version: Option<i32>,
+        expires_at: Option<String>,
     },
     ChannelsUpdated {
         server_id: String,
@@ -56,6 +58,12 @@ pub async fn connect(
                                 .unwrap_or("")
                                 .to_string()
                         };
+                        let key_version = msg.get("keyVersion")
+                            .and_then(|v| v.as_i64())
+                            .map(|v| v as i32);
+                        let expires_at = msg.get("expiresAt")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
                         let _ = tx
                             .send(RealtimeEvent::Message {
                                 message_id: get("messageId"),
@@ -65,6 +73,8 @@ pub async fn connect(
                                 encrypted_payload: get("encryptedPayload"),
                                 iv: get("iv"),
                                 timestamp: get("timestamp"),
+                                key_version,
+                                expires_at,
                             })
                             .await;
                     }

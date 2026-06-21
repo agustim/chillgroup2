@@ -14,6 +14,7 @@ pub struct MessageInfo {
     pub iv: String,
     pub key_version: Option<i32>,
     pub timestamp: String,
+    pub expires_at: Option<String>,
 }
 
 // PaginatedResponse wrapper from server
