@@ -61,6 +61,7 @@ enum Cmd {
     ToggleDeafen,
     ToggleCamera,
     ToggleScreenShare,
+    StartScreenShare(u64, bool),
 }
 
 fn theme_to_index(theme: &str) -> i32 {
@@ -210,6 +211,18 @@ fn main() {
     app.on_toggle_screen_share({
         let cmd_tx = cmd_tx.clone();
         move || { let _ = cmd_tx.try_send(Cmd::ToggleScreenShare); }
+    });
+    app.on_start_screen_share({
+        let cmd_tx = cmd_tx.clone();
+        move |id_str: slint::SharedString, is_window: bool| {
+            if let Ok(source_id) = id_str.parse::<u64>() {
+                let _ = cmd_tx.try_send(Cmd::StartScreenShare(source_id, is_window));
+            }
+        }
+    });
+    app.on_cancel_screen_share_picker({
+        let aw = app.as_weak();
+        move || { if let Some(h) = aw.upgrade() { h.set_screen_sources(Default::default()); } }
     });
 
     app.on_repair_channel({
@@ -937,6 +950,16 @@ fn main() {
                                 let _ = tx.try_send(voice::VoiceCmd::ToggleScreenShare);
                             }
                         }
+
+                        Cmd::StartScreenShare(source_id, is_window) => {
+                            if let Some(tx) = &session.voice_cmd_tx {
+                                let _ = tx.try_send(voice::VoiceCmd::StartScreenShare { source_id, is_window });
+                            }
+                            let ah = app_bg.clone();
+                            slint::invoke_from_event_loop(move || {
+                                ah.unwrap().set_screen_sources(Default::default());
+                            }).ok();
+                        }
                     }
                 }
 
@@ -993,6 +1016,7 @@ fn main() {
                                 h.set_camera_on(false);
                                 h.set_camera_preview(Default::default());
                                 h.set_screen_sharing(false);
+                                h.set_screen_sources(Default::default());
                                 h.set_voice_participants(Default::default());
                             }).ok();
                         }
@@ -1019,6 +1043,7 @@ fn main() {
                                         is_suppressed: p.is_suppressed,
                                         has_video,
                                         video_preview,
+                                        is_screen: p.is_screen,
                                     }
                                 }).collect();
                                 let model = std::rc::Rc::new(slint::VecModel::from(new_parts));
@@ -1066,11 +1091,28 @@ fn main() {
                                 if !on { h.set_camera_preview(Default::default()); }
                             }).ok();
                         }
+                        voice::VoiceEvent::ScreenSources(sources) => {
+                            let ah = app_bg.clone();
+                            slint::invoke_from_event_loop(move || {
+                                let h = ah.unwrap();
+                                let items: Vec<ScreenSource> = sources.iter().map(|(id, title, is_window)| {
+                                    ScreenSource {
+                                        id: id.to_string().into(),
+                                        title: title.as_str().into(),
+                                        is_window: *is_window,
+                                    }
+                                }).collect();
+                                let model = std::rc::Rc::new(slint::VecModel::from(items));
+                                h.set_screen_sources(slint::ModelRc::from(model));
+                            }).ok();
+                        }
                         voice::VoiceEvent::ScreenShareChanged(on) => {
                             session.voice_screen_sharing = on;
                             let ah = app_bg.clone();
                             slint::invoke_from_event_loop(move || {
-                                ah.unwrap().set_screen_sharing(on);
+                                let h = ah.unwrap();
+                                h.set_screen_sharing(on);
+                                if !on { h.set_screen_sources(Default::default()); }
                             }).ok();
                         }
                         voice::VoiceEvent::Error { session_gen, msg } => {

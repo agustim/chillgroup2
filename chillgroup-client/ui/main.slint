@@ -111,7 +111,8 @@ component VoiceBtn {
 export struct ServerItem  { id: string, name: string, initial: string }
 export struct ChannelItem { id: string, name: string, channel-type: string, unread: bool, encrypted: bool, encryption-type: string, permission-level: int }
 export struct MessageItem { id: string, author: string, author-initial: string, content: string, timestamp: string, encrypted: bool, key-version: int, expires-at: string }
-export struct VoiceParticipant { user-id: string, username: string, initial: string, is-speaking: bool, is-suppressed: bool, has-video: bool, video-preview: image }
+export struct VoiceParticipant { user-id: string, username: string, initial: string, is-speaking: bool, is-suppressed: bool, has-video: bool, video-preview: image, is-screen: bool }
+export struct ScreenSource { id: string, title: string, is-window: bool }
 // Sidebar presence entries (one row per user per channel)
 export struct VoiceSidebarEntry { channel-id: string, username: string, initial: string, is-speaking: bool, is-suppressed: bool }
 
@@ -155,6 +156,16 @@ component VoiceTile {
                 alignment: center; spacing: 4px;
                 if root.participant.is-suppressed: Text { text: "🔇"; font-size: 13px; vertical-alignment: center; }
                 if root.participant.is-speaking && !root.participant.is-suppressed: Text { text: "🎙"; font-size: 13px; color: #22c55e; vertical-alignment: center; }
+            }
+        }
+
+        if root.participant.is-screen: Rectangle {
+            x: parent.width - self.width - 5px; y: 5px;
+            width: screen-badge.preferred-width + 8px; height: 18px;
+            border-radius: 4px; background: #e74c3c;
+            screen-badge := Text {
+                text: "SCREEN"; color: white; font-size: 9px; font-weight: 700;
+                horizontal-alignment: center; vertical-alignment: center;
             }
         }
     }
@@ -235,6 +246,9 @@ export component AppWindow inherits Window {
     callback toggle-deafen();
     callback toggle-camera();
     callback toggle-screen-share();
+    callback start-screen-share(string, bool);
+    callback cancel-screen-share-picker();
+    in-out property <[ScreenSource]> screen-sources: [];
     callback repair-channel();
     callback rotate-channel-key();
 
@@ -698,6 +712,68 @@ export component AppWindow inherits Window {
                 Rectangle {
                     height: 22px; background: Palette.background;
                     Text { x: 8px; text: root.status-text; font-size: 11px; color: Palette.border; vertical-alignment: center; }
+                }
+            }
+        }
+    }
+
+    // ── Screen Source Picker Modal ────────────────────────────────────────────
+    if root.screen-sources.length > 0: Rectangle {
+        x: 0; y: 0; width: parent.width; height: parent.height;
+        background: #00000099;
+
+        Rectangle {
+            width: 420px;
+            height: Math.min(520px, root.screen-sources.length * 44px + 120px);
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            background: Palette.background;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Palette.border;
+
+            VerticalLayout {
+                padding: 16px; spacing: 8px;
+
+                Text {
+                    text: "Selecciona pantalla o finestra";
+                    font-size: 15px; font-weight: 700; color: Palette.foreground;
+                }
+
+                ScrollView {
+                    vertical-stretch: 1;
+                    VerticalLayout {
+                        spacing: 3px;
+                        for s in root.screen-sources: Rectangle {
+                            height: 40px;
+                            border-radius: 6px;
+                            background: src-touch.has-hover ? Palette.alternate-background : transparent;
+                            src-touch := TouchArea {
+                                clicked => { root.start-screen-share(s.id, s.is-window); }
+                            }
+                            HorizontalLayout {
+                                padding-left: 10px; padding-right: 10px; spacing: 10px; alignment: start;
+                                Text {
+                                    text: s.is-window ? "🪟" : "🖥️";
+                                    font-size: 16px; vertical-alignment: center;
+                                }
+                                Text {
+                                    text: s.title; color: Palette.foreground; font-size: 13px;
+                                    vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    height: 36px; border-radius: 6px;
+                    background: cancel-touch.has-hover ? Palette.alternate-background : #2a2a3a;
+                    cancel-touch := TouchArea { clicked => { root.cancel-screen-share-picker(); } }
+                    Text {
+                        text: "Cancel·lar"; color: Palette.foreground; font-size: 13px;
+                        horizontal-alignment: center; vertical-alignment: center;
+                    }
                 }
             }
         }

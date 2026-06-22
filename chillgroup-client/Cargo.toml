@@ -21,7 +21,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "nat
 rust_socketio = { version = "0.6", features = ["async"] }
 
 # LiveKit (audio/video/E2EE)
-livekit = { version = "0.7", features = ["native-tls"] }
+livekit = { version = "0.7", features = ["native-tls", "glib-main-loop"] }
 
 # Vault encryption
 aes-gcm = "0.10"

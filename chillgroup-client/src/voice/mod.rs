@@ -9,7 +9,7 @@ use livekit::webrtc::{
     video_source::{RtcVideoSource, VideoResolution, native::NativeVideoSource},
     video_frame::{I420Buffer, VideoFrame, VideoRotation, VideoBuffer, VideoFormatType},
     video_stream::native::NativeVideoStream,
-    desktop_capturer::{DesktopCapturer, DesktopCapturerOptions, DesktopCaptureSourceType},
+    desktop_capturer::{DesktopCapturer, DesktopCapturerOptions, DesktopCaptureSourceType, CaptureSource},
 };
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt as _;
@@ -20,6 +20,7 @@ pub enum VoiceCmd {
     ToggleDeafen,
     ToggleCamera,
     ToggleScreenShare,
+    StartScreenShare { source_id: u64, is_window: bool },
     Disconnect,
 }
 
@@ -31,6 +32,7 @@ pub struct VoiceParticipant {
     pub is_speaking: bool,
     pub is_suppressed: bool,
     pub has_video: bool,
+    pub is_screen: bool,
 }
 
 #[derive(Debug)]
@@ -42,11 +44,12 @@ pub enum VoiceEvent {
     DeafenChanged(bool),
     CameraChanged(bool),
     ScreenShareChanged(bool),
+    ScreenSources(Vec<(u64, String, bool)>),
     RemoteVideoFrame { participant_id: String, bytes: Vec<u8>, w: u32, h: u32 },
     Error { session_gen: u64, msg: String },
 }
 
-fn collect_participants(room: &Room) -> Vec<VoiceParticipant> {
+fn collect_participants(room: &Room, local_screen_sharing: bool) -> Vec<VoiceParticipant> {
     let mut parts = Vec::new();
 
     let lp = room.local_participant();
@@ -59,30 +62,55 @@ fn collect_participants(room: &Room) -> Vec<VoiceParticipant> {
     let display_name = if local_name.is_empty() { "Tu".to_string() } else { local_name };
     let initial = display_name.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_else(|| "?".into());
     parts.push(VoiceParticipant {
-        user_id: local_id,
+        user_id: local_id.clone(),
         username: display_name,
         initial,
         is_speaking: lp.is_speaking(),
         is_suppressed: !local_has_mic,
         has_video: false,
+        is_screen: false,
     });
+    if local_screen_sharing {
+        parts.push(VoiceParticipant {
+            user_id: format!("{local_id}-screen"),
+            username: "La meva pantalla".to_string(),
+            initial: "P".to_string(),
+            is_speaking: false,
+            is_suppressed: true,
+            has_video: false,
+            is_screen: true,
+        });
+    }
 
     for p in room.remote_participants().values() {
         let uid = p.identity().to_string();
         let name = p.name();
         let pubs = p.track_publications();
         let has_mic = pubs.values().any(|pub_| pub_.source() == TrackSource::Microphone && !pub_.is_muted());
-        let has_video = pubs.values().any(|pub_| pub_.kind() == TrackKind::Video && !pub_.is_muted());
+        let has_camera = pubs.values().any(|pub_| pub_.kind() == TrackKind::Video && pub_.source() == TrackSource::Camera && !pub_.is_muted());
+        let has_screen = pubs.values().any(|pub_| pub_.kind() == TrackKind::Video && pub_.source() == TrackSource::Screenshare && !pub_.is_muted());
         let display_name = if name.is_empty() { uid.clone() } else { name };
         let initial = display_name.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_else(|| "?".into());
         parts.push(VoiceParticipant {
-            user_id: uid,
-            username: display_name,
-            initial,
+            user_id: uid.clone(),
+            username: display_name.clone(),
+            initial: initial.clone(),
             is_speaking: p.is_speaking(),
             is_suppressed: !has_mic,
-            has_video,
+            has_video: has_camera,
+            is_screen: false,
         });
+        if has_screen {
+            parts.push(VoiceParticipant {
+                user_id: format!("{uid}-screen"),
+                username: format!("{display_name} (pantalla)"),
+                initial: "P".to_string(),
+                is_speaking: false,
+                is_suppressed: true,
+                has_video: true,
+                is_screen: true,
+            });
+        }
     }
     parts
 }
@@ -219,27 +247,95 @@ fn rgb_to_i420(rgb: &[u8], i420: &mut I420Buffer, width: usize, height: usize) {
     }
 }
 
-fn start_screen_capture(stop: Arc<AtomicBool>, source: NativeVideoSource) {
+fn start_screen_capture(
+    stop: Arc<AtomicBool>,
+    source: NativeVideoSource,
+    source_id: Option<u64>,
+    is_window: bool,
+    preview_tx: mpsc::Sender<VoiceEvent>,
+    local_screen_pid: String,
+) {
     std::thread::spawn(move || {
-        let opts = DesktopCapturerOptions::new(DesktopCaptureSourceType::Screen);
+        // source_id == None → Wayland PipeWire portal: Generic permet escollir Monitor i Window
+        #[cfg(target_os = "linux")]
+        let src_type = if source_id.is_none() {
+            DesktopCaptureSourceType::Generic
+        } else if is_window {
+            DesktopCaptureSourceType::Window
+        } else {
+            DesktopCaptureSourceType::Screen
+        };
+        #[cfg(not(target_os = "linux"))]
+        let src_type = if is_window { DesktopCaptureSourceType::Window } else { DesktopCaptureSourceType::Screen };
+        let opts = DesktopCapturerOptions::new(src_type);
         let Some(mut capturer) = DesktopCapturer::new(opts) else {
             tracing::error!("screen share: DesktopCapturer::new failed (Wayland?)");
             return;
         };
+        let capture_source: Option<CaptureSource> = if let Some(id) = source_id {
+            capturer.get_source_list().into_iter().find(|s| s.id() == id)
+        } else {
+            None
+        };
         let source_cb = source.clone();
-        capturer.start_capture(None, move |result| {
+        let mut rgb_buf: Vec<u8> = Vec::new();
+        let mut frame_count = 0u32;
+        capturer.start_capture(capture_source, move |result| {
             match result {
                 Ok(frame) => {
                     let w = frame.width() as usize;
                     let h = frame.height() as usize;
                     if w == 0 || h == 0 { return; }
-                    let bgra = frame.data();
+                    let raw = frame.data();
                     let stride = frame.stride() as usize;
-                    if bgra.len() < stride * h { return; }
+                    if raw.len() < stride * h { return; }
+
+                    if frame_count == 0 {
+                        tracing::info!(
+                            "screen first frame: {}×{} stride={} ({}×4={}) bytes={}",
+                            w, h, stride, w, w * 4, raw.len()
+                        );
+                    }
+                    frame_count += 1;
+
+                    // BGRA → RGB24 (WebRTC encode)
+                    let need = w * h * 3;
+                    if rgb_buf.len() != need { rgb_buf.resize(need, 0); }
+                    for row in 0..h {
+                        for col in 0..w {
+                            let src = row * stride + col * 4;
+                            let dst = (row * w + col) * 3;
+                            rgb_buf[dst]     = raw[src + 2]; // R
+                            rgb_buf[dst + 1] = raw[src + 1]; // G
+                            rgb_buf[dst + 2] = raw[src];     // B
+                        }
+                    }
+
                     let mut i420 = I420Buffer::new(w as u32, h as u32);
-                    bgra_to_i420(bgra, stride, &mut i420, w, h);
+                    rgb_to_i420(&rgb_buf, &mut i420, w, h);
                     let vf = VideoFrame::new(VideoRotation::VideoRotation0, i420);
                     source_cb.capture_frame(&vf);
+
+                    // Preview local: BGRA → RGBA per al tile "La meva pantalla", cada 5 frames
+                    if frame_count % 5 == 0 {
+                        let mut rgba = vec![0u8; w * h * 4];
+                        for row in 0..h {
+                            for col in 0..w {
+                                let src = row * stride + col * 4;
+                                let dst = (row * w + col) * 4;
+                                rgba[dst]     = raw[src + 2]; // R
+                                rgba[dst + 1] = raw[src + 1]; // G
+                                rgba[dst + 2] = raw[src];     // B
+                                rgba[dst + 3] = 255;
+                            }
+                        }
+                        let _ = preview_tx.try_send(VoiceEvent::RemoteVideoFrame {
+                            participant_id: local_screen_pid.clone(),
+                            bytes: rgba,
+                            w: w as u32,
+                            h: h as u32,
+                        });
+                    }
                 }
                 Err(e) => tracing::trace!("screen capture: {:?}", e),
             }
@@ -436,7 +532,7 @@ pub async fn run(
 
     let _ = event_tx.send(VoiceEvent::MuteChanged(true)).await;
     let _ = event_tx.send(VoiceEvent::Connected { session_gen }).await;
-    let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room))).await;
+    let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, false))).await;
 
     loop {
         tokio::select! {
@@ -446,7 +542,7 @@ pub async fn run(
                         muted = !muted;
                         if muted { mic_pub.mute(); } else { mic_pub.unmute(); }
                         let _ = event_tx.send(VoiceEvent::MuteChanged(muted)).await;
-                        let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room))).await;
+                        let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, screen_sid.is_some()))).await;
                     }
                     VoiceCmd::ToggleDeafen => {
                         deafened = !deafened;
@@ -474,16 +570,57 @@ pub async fn run(
                         if let (Some(sid), Some(stop)) = (screen_sid.take(), screen_stop.take()) {
                             unpublish_video(&room, sid, stop).await;
                             let _ = event_tx.send(VoiceEvent::ScreenShareChanged(false)).await;
+                            let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, false))).await;
                         } else {
-                            let native = NativeVideoSource::new(
-                                VideoResolution { width: 1920, height: 1080 }, true,
-                            );
+                            let on_wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
+                            if on_wayland {
+                                // PipeWire portal: start directly, sistema mostra selector
+                                tracing::info!("screen: Wayland detected, using PipeWire portal (no source picker)");
+                                let native = NativeVideoSource::new(VideoResolution { width: 1920, height: 1080 }, true);
+                                if let Some(sid) = publish_video(&room, "screen", TrackSource::Screenshare, native.clone()).await {
+                                    let stop = Arc::new(AtomicBool::new(false));
+                                    let local_screen_pid = format!("{}-screen", room.local_participant().identity());
+                                    start_screen_capture(stop.clone(), native, None, false, event_tx.clone(), local_screen_pid);
+                                    screen_sid = Some(sid);
+                                    screen_stop = Some(stop);
+                                    let _ = event_tx.send(VoiceEvent::ScreenShareChanged(true)).await;
+                                    let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, true))).await;
+                                }
+                            } else {
+                                // X11: enumera fonts i mostra picker propi
+                                let sources = tokio::task::spawn_blocking(|| {
+                                    let mut result: Vec<(u64, String, bool)> = Vec::new();
+                                    let screen_opts = DesktopCapturerOptions::new(DesktopCaptureSourceType::Screen);
+                                    if let Some(sc) = DesktopCapturer::new(screen_opts) {
+                                        for src in sc.get_source_list() {
+                                            result.push((src.id(), src.title(), false));
+                                        }
+                                    }
+                                    let win_opts = DesktopCapturerOptions::new(DesktopCaptureSourceType::Window);
+                                    if let Some(wc) = DesktopCapturer::new(win_opts) {
+                                        for src in wc.get_source_list() {
+                                            if !src.title().is_empty() {
+                                                result.push((src.id(), src.title(), true));
+                                            }
+                                        }
+                                    }
+                                    result
+                                }).await.unwrap_or_default();
+                                let _ = event_tx.send(VoiceEvent::ScreenSources(sources)).await;
+                            }
+                        }
+                    }
+                    VoiceCmd::StartScreenShare { source_id, is_window } => {
+                        if screen_sid.is_none() {
+                            let native = NativeVideoSource::new(VideoResolution { width: 1920, height: 1080 }, true);
                             if let Some(sid) = publish_video(&room, "screen", TrackSource::Screenshare, native.clone()).await {
                                 let stop = Arc::new(AtomicBool::new(false));
-                                start_screen_capture(stop.clone(), native);
+                                let local_screen_pid = format!("{}-screen", room.local_participant().identity());
+                                start_screen_capture(stop.clone(), native, Some(source_id), is_window, event_tx.clone(), local_screen_pid);
                                 screen_sid = Some(sid);
                                 screen_stop = Some(stop);
                                 let _ = event_tx.send(VoiceEvent::ScreenShareChanged(true)).await;
+                                let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, true))).await;
                             }
                         }
                     }
@@ -497,7 +634,7 @@ pub async fn run(
                     | RoomEvent::TrackMuted { .. }
                     | RoomEvent::TrackUnmuted { .. } => {
                         if deafened { set_remote_audio_enabled(&room, false); }
-                        let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room))).await;
+                        let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, screen_sid.is_some()))).await;
                     }
                     RoomEvent::TrackUnsubscribed { track, publication, .. } => {
                         if matches!(track, RemoteTrack::Video(_)) {
@@ -506,12 +643,14 @@ pub async fn run(
                             }
                         }
                         if deafened { set_remote_audio_enabled(&room, false); }
-                        let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room))).await;
+                        let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, screen_sid.is_some()))).await;
                     }
                     RoomEvent::TrackSubscribed { track, publication, participant } => {
                         publication.set_enabled(!deafened);
                         if let RemoteTrack::Video(vt) = track {
                             let pid = participant.identity().to_string();
+                            let is_screen = publication.source() == TrackSource::Screenshare;
+                            let effective_pid = if is_screen { format!("{pid}-screen") } else { pid };
                             let rtc = vt.rtc_track();
                             let tx2 = event_tx.clone();
                             let handle = tokio::spawn(async move {
@@ -529,13 +668,13 @@ pub async fn run(
                                         h as i32,
                                     );
                                     if tx2.send(VoiceEvent::RemoteVideoFrame {
-                                        participant_id: pid.clone(), bytes: rgba, w, h,
+                                        participant_id: effective_pid.clone(), bytes: rgba, w, h,
                                     }).await.is_err() { break; }
                                 }
                             });
                             video_tasks.insert(publication.sid(), handle);
                         }
-                        let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room))).await;
+                        let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, screen_sid.is_some()))).await;
                     }
                     RoomEvent::ActiveSpeakersChanged { speakers } => {
                         let speaking: std::collections::HashSet<String> = speakers
@@ -545,7 +684,7 @@ pub async fn run(
                                 Participant::Remote(rp) => rp.identity().to_string(),
                             })
                             .collect();
-                        let mut parts = collect_participants(&room);
+                        let mut parts = collect_participants(&room, screen_sid.is_some());
                         for p in &mut parts { p.is_speaking = speaking.contains(&p.user_id); }
                         let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(parts)).await;
                     }
