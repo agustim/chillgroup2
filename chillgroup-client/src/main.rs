@@ -880,10 +880,23 @@ fn main() {
                                 session.voice_session_gen += 1;
                                 let gen = session.voice_session_gen;
                                 session.voice_cmd_tx = Some(vcmd_tx);
-                                tokio::spawn(async move {
+                                let weak_mtx = Arc::new(Mutex::new(app_bg.clone()));
+                        let frame_cb: Arc<dyn Fn(Vec<u8>, u32, u32) + Send + Sync> = {
+                            let wm = Arc::clone(&weak_mtx);
+                            Arc::new(move |bytes: Vec<u8>, w: u32, h: u32| {
+                                let weak = wm.lock().unwrap().clone();
+                                slint::invoke_from_event_loop(move || {
+                                    if let Some(a) = weak.upgrade() {
+                                        let buf = slint::SharedPixelBuffer::<slint::Rgb8Pixel>::clone_from_slice(&bytes, w, h);
+                                        a.set_camera_preview(slint::Image::from_rgb8(buf));
+                                    }
+                                }).ok();
+                            })
+                        };
+                        tokio::spawn(async move {
                                     match api::livekit::get_token(&client, &channel_id).await {
                                         Ok(resp) => {
-                                            voice::run(resp.url, resp.token, e2ee_key, gen, vcmd_rx, vtx).await;
+                                            voice::run(resp.url, resp.token, e2ee_key, gen, vcmd_rx, vtx, Some(frame_cb)).await;
                                         }
                                         Err(e) => {
                                             let _ = vtx.send(voice::VoiceEvent::Error { session_gen: gen, msg: format!("Token LiveKit: {e}") }).await;
@@ -978,22 +991,56 @@ fn main() {
                                 h.set_mic_muted(false);
                                 h.set_deafened(false);
                                 h.set_camera_on(false);
+                                h.set_camera_preview(Default::default());
                                 h.set_screen_sharing(false);
                                 h.set_voice_participants(Default::default());
                             }).ok();
                         }
                         voice::VoiceEvent::ParticipantsUpdated(parts) => {
-                            let slint_parts: Vec<VoiceParticipant> = parts.into_iter().map(|p| VoiceParticipant {
-                                user_id: p.user_id.into(),
-                                username: p.username.into(),
-                                initial: p.initial.into(),
-                                is_speaking: p.is_speaking,
-                                is_suppressed: p.is_suppressed,
-                            }).collect();
                             let ah = app_bg.clone();
                             slint::invoke_from_event_loop(move || {
-                                let model = std::rc::Rc::new(slint::VecModel::from(slint_parts));
-                                ah.unwrap().set_voice_participants(slint::ModelRc::from(model));
+                                let h = ah.unwrap();
+                                let existing = h.get_voice_participants();
+                                let new_parts: Vec<VoiceParticipant> = parts.into_iter().map(|p| {
+                                    let (video_preview, has_video) = if p.has_video {
+                                        let img = (0..existing.row_count())
+                                            .find_map(|i| existing.row_data(i).filter(|ep| ep.user_id == p.user_id.as_str()))
+                                            .map(|ep| ep.video_preview)
+                                            .unwrap_or_default();
+                                        (img, true)
+                                    } else {
+                                        (Default::default(), false)
+                                    };
+                                    VoiceParticipant {
+                                        user_id: p.user_id.into(),
+                                        username: p.username.into(),
+                                        initial: p.initial.into(),
+                                        is_speaking: p.is_speaking,
+                                        is_suppressed: p.is_suppressed,
+                                        has_video,
+                                        video_preview,
+                                    }
+                                }).collect();
+                                let model = std::rc::Rc::new(slint::VecModel::from(new_parts));
+                                h.set_voice_participants(slint::ModelRc::from(model));
+                            }).ok();
+                        }
+                        voice::VoiceEvent::RemoteVideoFrame { participant_id, bytes, w, h: fh } => {
+                            let ah = app_bg.clone();
+                            slint::invoke_from_event_loop(move || {
+                                let h = ah.unwrap();
+                                let model = h.get_voice_participants();
+                                for i in 0..model.row_count() {
+                                    if let Some(mut p) = model.row_data(i) {
+                                        if p.user_id.as_str() == participant_id {
+                                            let buf = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(&bytes, w, fh);
+                                            p.video_preview = slint::Image::from_rgba8(buf);
+                                            p.has_video = true;
+                                            model.set_row_data(i, p);
+                                            break;
+                                        }
+                                    }
+                                }
                             }).ok();
                         }
                         voice::VoiceEvent::MuteChanged(muted) => {
@@ -1014,7 +1061,9 @@ fn main() {
                             session.voice_camera_on = on;
                             let ah = app_bg.clone();
                             slint::invoke_from_event_loop(move || {
-                                ah.unwrap().set_camera_on(on);
+                                let h = ah.unwrap();
+                                h.set_camera_on(on);
+                                if !on { h.set_camera_preview(Default::default()); }
                             }).ok();
                         }
                         voice::VoiceEvent::ScreenShareChanged(on) => {

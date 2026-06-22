@@ -1,14 +1,18 @@
+use std::collections::HashMap;
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+
 use livekit::e2ee::key_provider::{KeyProvider, KeyProviderOptions, KeyDerivationAlgorithm};
 use livekit::e2ee::{E2eeOptions, EncryptionType as LkEncryptionType};
 use livekit::prelude::*;
 use livekit::options::TrackPublishOptions;
 use livekit::webrtc::{
     video_source::{RtcVideoSource, VideoResolution, native::NativeVideoSource},
-    video_frame::{I420Buffer, VideoFrame, VideoRotation},
+    video_frame::{I420Buffer, VideoFrame, VideoRotation, VideoBuffer, VideoFormatType},
+    video_stream::native::NativeVideoStream,
     desktop_capturer::{DesktopCapturer, DesktopCapturerOptions, DesktopCaptureSourceType},
 };
 use tokio::sync::mpsc;
+use tokio_stream::StreamExt as _;
 
 #[derive(Debug)]
 pub enum VoiceCmd {
@@ -26,6 +30,7 @@ pub struct VoiceParticipant {
     pub initial: String,
     pub is_speaking: bool,
     pub is_suppressed: bool,
+    pub has_video: bool,
 }
 
 #[derive(Debug)]
@@ -37,6 +42,7 @@ pub enum VoiceEvent {
     DeafenChanged(bool),
     CameraChanged(bool),
     ScreenShareChanged(bool),
+    RemoteVideoFrame { participant_id: String, bytes: Vec<u8>, w: u32, h: u32 },
     Error { session_gen: u64, msg: String },
 }
 
@@ -58,15 +64,15 @@ fn collect_participants(room: &Room) -> Vec<VoiceParticipant> {
         initial,
         is_speaking: lp.is_speaking(),
         is_suppressed: !local_has_mic,
+        has_video: false,
     });
 
     for p in room.remote_participants().values() {
         let uid = p.identity().to_string();
         let name = p.name();
-        let has_mic = p
-            .track_publications()
-            .values()
-            .any(|pub_| pub_.source() == TrackSource::Microphone && !pub_.is_muted());
+        let pubs = p.track_publications();
+        let has_mic = pubs.values().any(|pub_| pub_.source() == TrackSource::Microphone && !pub_.is_muted());
+        let has_video = pubs.values().any(|pub_| pub_.kind() == TrackKind::Video && !pub_.is_muted());
         let display_name = if name.is_empty() { uid.clone() } else { name };
         let initial = display_name.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_else(|| "?".into());
         parts.push(VoiceParticipant {
@@ -75,6 +81,7 @@ fn collect_participants(room: &Room) -> Vec<VoiceParticipant> {
             initial,
             is_speaking: p.is_speaking(),
             is_suppressed: !has_mic,
+            has_video,
         });
     }
     parts
@@ -88,6 +95,26 @@ fn set_remote_audio_enabled(room: &Room, enabled: bool) {
             }
         }
     }
+}
+
+// I420 planes → flat RGB bytes (BT.601 limited-range)
+fn i420_to_rgb(y: &[u8], u: &[u8], v: &[u8], stride_y: usize, stride_u: usize, width: u32, height: u32) -> Vec<u8> {
+    let w = width as usize;
+    let h = height as usize;
+    let mut rgb = vec![0u8; w * h * 3];
+    for row in 0..h {
+        for col in 0..w {
+            let yv = y[row * stride_y + col] as i32;
+            let uv = u[(row / 2) * stride_u + col / 2] as i32;
+            let vv = v[(row / 2) * stride_u + col / 2] as i32;
+            let c = yv - 16; let d = uv - 128; let e = vv - 128;
+            let base = (row * w + col) * 3;
+            rgb[base]     = ((298*c + 409*e + 128) >> 8).clamp(0, 255) as u8;
+            rgb[base + 1] = ((298*c - 100*d - 208*e + 128) >> 8).clamp(0, 255) as u8;
+            rgb[base + 2] = ((298*c + 516*d + 128) >> 8).clamp(0, 255) as u8;
+        }
+    }
+    rgb
 }
 
 // YUYV (YUY2) → I420: Y already at full res, U/V subsampled ×2 horiz only → subsample ×2 vert too
@@ -115,6 +142,31 @@ fn yuyv_to_i420(yuyv: &[u8], i420: &mut I420Buffer, width: usize, height: usize)
             }
         }
     }
+}
+
+// YUYV → flat RGB bytes for local camera preview (BT.601 full-range)
+fn yuyv_to_rgb(yuyv: &[u8], width: usize, height: usize) -> Vec<u8> {
+    let mut rgb = vec![0u8; width * height * 3];
+    for i in 0..(width * height / 2) {
+        let y0 = yuyv[i * 4] as i32;
+        let u  = yuyv[i * 4 + 1] as i32;
+        let y1 = yuyv[i * 4 + 2] as i32;
+        let v  = yuyv[i * 4 + 3] as i32;
+        let conv = |y: i32| -> (u8, u8, u8) {
+            let c = y - 16; let d = u - 128; let e = v - 128;
+            (
+                ((298*c + 409*e + 128) >> 8).clamp(0, 255) as u8,
+                ((298*c - 100*d - 208*e + 128) >> 8).clamp(0, 255) as u8,
+                ((298*c + 516*d + 128) >> 8).clamp(0, 255) as u8,
+            )
+        };
+        let (r0, g0, b0) = conv(y0);
+        let (r1, g1, b1) = conv(y1);
+        let base = i * 6;
+        rgb[base] = r0; rgb[base+1] = g0; rgb[base+2] = b0;
+        rgb[base+3] = r1; rgb[base+4] = g1; rgb[base+5] = b1;
+    }
+    rgb
 }
 
 // BT.601 BGRA→I420 (DesktopFrame data on Linux is BGRA)
@@ -200,7 +252,11 @@ fn start_screen_capture(stop: Arc<AtomicBool>, source: NativeVideoSource) {
     });
 }
 
-fn start_camera_capture(stop: Arc<AtomicBool>, source: NativeVideoSource) {
+fn start_camera_capture(
+    stop: Arc<AtomicBool>,
+    source: NativeVideoSource,
+    frame_cb: Option<Arc<dyn Fn(Vec<u8>, u32, u32) + Send + Sync>>,
+) {
     std::thread::spawn(move || {
         use nokhwa::{Camera, utils::{CameraIndex, CameraFormat, FrameFormat, Resolution,
             RequestedFormat, RequestedFormatType}};
@@ -243,6 +299,9 @@ fn start_camera_capture(stop: Arc<AtomicBool>, source: NativeVideoSource) {
                     yuyv_to_i420(raw, &mut i420, w, h);
                     let vf = VideoFrame::new(VideoRotation::VideoRotation0, i420);
                     source.capture_frame(&vf);
+                    if let Some(cb) = &frame_cb {
+                        cb(yuyv_to_rgb(raw, w, h), w as u32, h as u32);
+                    }
                 }
                 Err(e) => {
                     tracing::warn!("camera frame: {e}");
@@ -287,6 +346,7 @@ pub async fn run(
     session_gen: u64,
     mut cmd_rx: mpsc::Receiver<VoiceCmd>,
     event_tx: mpsc::Sender<VoiceEvent>,
+    frame_cb: Option<Arc<dyn Fn(Vec<u8>, u32, u32) + Send + Sync>>,
 ) {
     let e2ee_enabled = e2ee_key.is_some();
     let mut opts = RoomOptions::default();
@@ -372,6 +432,7 @@ pub async fn run(
     let mut camera_stop: Option<Arc<AtomicBool>> = None;
     let mut screen_sid: Option<TrackSid> = None;
     let mut screen_stop: Option<Arc<AtomicBool>> = None;
+    let mut video_tasks: HashMap<TrackSid, tokio::task::JoinHandle<()>> = HashMap::new();
 
     let _ = event_tx.send(VoiceEvent::MuteChanged(true)).await;
     let _ = event_tx.send(VoiceEvent::Connected { session_gen }).await;
@@ -402,7 +463,7 @@ pub async fn run(
                             );
                             if let Some(sid) = publish_video(&room, "camera", TrackSource::Camera, native.clone()).await {
                                 let stop = Arc::new(AtomicBool::new(false));
-                                start_camera_capture(stop.clone(), native);
+                                start_camera_capture(stop.clone(), native, frame_cb.clone());
                                 camera_sid = Some(sid);
                                 camera_stop = Some(stop);
                                 let _ = event_tx.send(VoiceEvent::CameraChanged(true)).await;
@@ -433,14 +494,47 @@ pub async fn run(
                 match event {
                     RoomEvent::ParticipantConnected(_)
                     | RoomEvent::ParticipantDisconnected(_)
-                    | RoomEvent::TrackUnsubscribed { .. }
                     | RoomEvent::TrackMuted { .. }
                     | RoomEvent::TrackUnmuted { .. } => {
                         if deafened { set_remote_audio_enabled(&room, false); }
                         let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room))).await;
                     }
-                    RoomEvent::TrackSubscribed { publication, .. } => {
+                    RoomEvent::TrackUnsubscribed { track, publication, .. } => {
+                        if matches!(track, RemoteTrack::Video(_)) {
+                            if let Some(handle) = video_tasks.remove(&publication.sid()) {
+                                handle.abort();
+                            }
+                        }
+                        if deafened { set_remote_audio_enabled(&room, false); }
+                        let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room))).await;
+                    }
+                    RoomEvent::TrackSubscribed { track, publication, participant } => {
                         publication.set_enabled(!deafened);
+                        if let RemoteTrack::Video(vt) = track {
+                            let pid = participant.identity().to_string();
+                            let rtc = vt.rtc_track();
+                            let tx2 = event_tx.clone();
+                            let handle = tokio::spawn(async move {
+                                let mut stream = NativeVideoStream::new(rtc);
+                                while let Some(frame) = stream.next().await {
+                                    let w = frame.buffer.width();
+                                    let h = frame.buffer.height();
+                                    let dst_stride = w * 4;
+                                    let mut rgba = vec![0u8; (dst_stride * h) as usize];
+                                    frame.buffer.to_argb(
+                                        VideoFormatType::ABGR,
+                                        &mut rgba,
+                                        dst_stride,
+                                        w as i32,
+                                        h as i32,
+                                    );
+                                    if tx2.send(VoiceEvent::RemoteVideoFrame {
+                                        participant_id: pid.clone(), bytes: rgba, w, h,
+                                    }).await.is_err() { break; }
+                                }
+                            });
+                            video_tasks.insert(publication.sid(), handle);
+                        }
                         let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room))).await;
                     }
                     RoomEvent::ActiveSpeakersChanged { speakers } => {
@@ -465,9 +559,10 @@ pub async fn run(
         }
     }
 
-    // Stop video capture threads
+    // Stop video capture threads and remote video tasks
     if let Some(stop) = camera_stop { stop.store(true, Ordering::Relaxed); }
     if let Some(stop) = screen_stop { stop.store(true, Ordering::Relaxed); }
+    for (_, handle) in video_tasks { handle.abort(); }
 
     room.close().await.ok();
     let _ = event_tx.send(VoiceEvent::Disconnected { session_gen }).await;
