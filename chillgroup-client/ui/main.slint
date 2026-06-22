@@ -80,6 +80,34 @@ export component SettingsWindow inherits Window {
     }
 }
 
+// Voice control emoji button (mic, deafen, camera, screen, leave)
+component VoiceBtn {
+    in property <bool> active: false;
+    in property <bool> danger: false;   // danger=true → red when inactive (mic, deafen)
+    in property <string> icon;
+    callback clicked();
+
+    preferred-width: 38px;
+    preferred-height: 38px;
+
+    ta := TouchArea { clicked => { root.clicked(); } }
+    Rectangle {
+        border-radius: 8px;
+        background: ta.pressed
+            ? #222
+            : root.active ? #27ae60
+            : root.danger ? #c0392b
+            : #555;
+        animate background { duration: 80ms; }
+        Text {
+            text: root.icon;
+            font-size: 20px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+}
+
 export struct ServerItem  { id: string, name: string, initial: string }
 export struct ChannelItem { id: string, name: string, channel-type: string, unread: bool, encrypted: bool, encryption-type: string, permission-level: int }
 export struct MessageItem { id: string, author: string, author-initial: string, content: string, timestamp: string, encrypted: bool, key-version: int, expires-at: string }
@@ -144,6 +172,8 @@ export component AppWindow inherits Window {
     in-out property <bool>            in-voice-channel;
     in-out property <bool>            mic-muted;
     in-out property <bool>            deafened;
+    in-out property <bool>            camera-on;
+    in-out property <bool>            screen-sharing;
     in-out property <[VoiceParticipant]>     voice-participants;
     in-out property <[VoiceSidebarEntry]>    voice-sidebar-presences;
     in-out property <string>          status-text: "Connectat";
@@ -155,6 +185,8 @@ export component AppWindow inherits Window {
     callback leave-voice();
     callback toggle-mute();
     callback toggle-deafen();
+    callback toggle-camera();
+    callback toggle-screen-share();
     callback repair-channel();
     callback rotate-channel-key();
 
@@ -321,6 +353,41 @@ export component AppWindow inherits Window {
                     }
                 }
                 Rectangle { vertical-stretch: 1; }
+
+                // ── Voice controls (bottom of sidebar) ──────────────────────
+                if root.in-voice-channel: Rectangle {
+                    height: 52px; background: #1a1a2e;
+                    HorizontalBox {
+                        padding-left: 6px; padding-right: 6px; padding-top: 7px; padding-bottom: 7px;
+                        spacing: 4px; alignment: center;
+                        VoiceBtn {
+                            icon: "🎤"; danger: true; active: !root.mic-muted;
+                            clicked => { root.toggle-mute(); }
+                        }
+                        VoiceBtn {
+                            icon: "🔊"; danger: true; active: !root.deafened;
+                            clicked => { root.toggle-deafen(); }
+                        }
+                        VoiceBtn {
+                            icon: "🎥"; active: root.camera-on;
+                            clicked => { root.toggle-camera(); }
+                        }
+                        VoiceBtn {
+                            icon: "🖥️"; active: root.screen-sharing;
+                            clicked => { root.toggle-screen-share(); }
+                        }
+                        VoiceBtn {
+                            icon: "🎬"; active: false;
+                            clicked => { }
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                        VoiceBtn {
+                            icon: "✕";
+                            clicked => { root.leave-voice(); }
+                        }
+                    }
+                }
+
                 Rectangle {
                     height: 52px; background: Palette.background;
                     HorizontalBox {
@@ -361,12 +428,6 @@ export component AppWindow inherits Window {
                         if root.active-channel-encryption-type == "asymmetric" || root.active-channel-encryption-type == "symmetric": Button {
                             text: "Rotar Clau"; height: 28px;
                             clicked => { root.rotate-channel-key(); }
-                        }
-                        if root.active-channel-type == "voice" && root.in-voice-channel: HorizontalBox {
-                            spacing: 4px;
-                            Button { text: root.mic-muted ? "Activar mic" : "Silenciar"; clicked => { root.toggle-mute(); } }
-                            Button { text: root.deafened ? "Activar so" : "Ensordir"; clicked => { root.toggle-deafen(); } }
-                            Button { text: "Sortir"; clicked => { root.leave-voice(); } }
                         }
                     }
                 }

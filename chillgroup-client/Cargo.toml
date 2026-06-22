@@ -45,6 +45,9 @@ toml = "0.8"
 # Notificacions
 notify-rust = "4"
 
+# Webcam capture (Linux V4L2)
+nokhwa = { version = "0.10", default-features = false, features = ["input-v4l"] }
+
 # Utils
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }

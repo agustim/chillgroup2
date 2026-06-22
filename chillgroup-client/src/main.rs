@@ -30,6 +30,8 @@ struct Session {
     voice_session_gen: u64,
     voice_muted: bool,
     voice_deafened: bool,
+    voice_camera_on: bool,
+    voice_screen_sharing: bool,
     voice_presence: HashMap<String, Vec<realtime::VoicePresenceUser>>,
 }
 
@@ -57,6 +59,8 @@ enum Cmd {
     LeaveVoice,
     ToggleMute,
     ToggleDeafen,
+    ToggleCamera,
+    ToggleScreenShare,
 }
 
 fn theme_to_index(theme: &str) -> i32 {
@@ -198,6 +202,14 @@ fn main() {
     app.on_toggle_deafen({
         let cmd_tx = cmd_tx.clone();
         move || { let _ = cmd_tx.try_send(Cmd::ToggleDeafen); }
+    });
+    app.on_toggle_camera({
+        let cmd_tx = cmd_tx.clone();
+        move || { let _ = cmd_tx.try_send(Cmd::ToggleCamera); }
+    });
+    app.on_toggle_screen_share({
+        let cmd_tx = cmd_tx.clone();
+        move || { let _ = cmd_tx.try_send(Cmd::ToggleScreenShare); }
     });
 
     app.on_repair_channel({
@@ -900,6 +912,18 @@ fn main() {
                                 let _ = tx.try_send(voice::VoiceCmd::ToggleDeafen);
                             }
                         }
+
+                        Cmd::ToggleCamera => {
+                            if let Some(tx) = &session.voice_cmd_tx {
+                                let _ = tx.try_send(voice::VoiceCmd::ToggleCamera);
+                            }
+                        }
+
+                        Cmd::ToggleScreenShare => {
+                            if let Some(tx) = &session.voice_cmd_tx {
+                                let _ = tx.try_send(voice::VoiceCmd::ToggleScreenShare);
+                            }
+                        }
                     }
                 }
 
@@ -945,12 +969,16 @@ fn main() {
                             session.voice_cmd_tx = None;
                             session.voice_muted = false;
                             session.voice_deafened = false;
+                            session.voice_camera_on = false;
+                            session.voice_screen_sharing = false;
                             let ah = app_bg.clone();
                             slint::invoke_from_event_loop(move || {
                                 let h = ah.unwrap();
                                 h.set_in_voice_channel(false);
                                 h.set_mic_muted(false);
                                 h.set_deafened(false);
+                                h.set_camera_on(false);
+                                h.set_screen_sharing(false);
                                 h.set_voice_participants(Default::default());
                             }).ok();
                         }
@@ -980,6 +1008,20 @@ fn main() {
                             let ah = app_bg.clone();
                             slint::invoke_from_event_loop(move || {
                                 ah.unwrap().set_deafened(deafened);
+                            }).ok();
+                        }
+                        voice::VoiceEvent::CameraChanged(on) => {
+                            session.voice_camera_on = on;
+                            let ah = app_bg.clone();
+                            slint::invoke_from_event_loop(move || {
+                                ah.unwrap().set_camera_on(on);
+                            }).ok();
+                        }
+                        voice::VoiceEvent::ScreenShareChanged(on) => {
+                            session.voice_screen_sharing = on;
+                            let ah = app_bg.clone();
+                            slint::invoke_from_event_loop(move || {
+                                ah.unwrap().set_screen_sharing(on);
                             }).ok();
                         }
                         voice::VoiceEvent::Error { session_gen, msg } => {
