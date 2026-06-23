@@ -20,8 +20,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "nat
 # Socket.IO
 rust_socketio = { version = "0.6", features = ["async"] }
 
-# LiveKit (audio/video/E2EE)
-livekit = { version = "0.7", features = ["native-tls", "glib-main-loop"] }
+# LiveKit (audio/video/E2EE) — target-specific below (glib-main-loop = Linux only)
 
 # Vault encryption
 aes-gcm = "0.10"
@@ -46,8 +45,7 @@ toml = "0.8"
 # Notificacions
 notify-rust = "4"
 
-# Webcam capture (Linux V4L2)
-nokhwa = { version = "0.10", default-features = false, features = ["input-v4l"] }
+# Webcam capture — target-specific backend below
 
 # Utils
 uuid = { version = "1", features = ["v4", "serde"] }
@@ -58,6 +56,19 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 dirs = "5"
 base64 = "0.22"
+
+# Platform-specific: webcam backend + livekit main-loop integration
+[target.'cfg(target_os = "linux")'.dependencies]
+livekit = { version = "0.7", features = ["native-tls", "glib-main-loop"] }
+nokhwa = { version = "0.10", default-features = false, features = ["input-v4l"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+livekit = { version = "0.7", features = ["native-tls"] }
+nokhwa = { version = "0.10", default-features = false, features = ["input-avfoundation"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+livekit = { version = "0.7", features = ["native-tls"] }
+nokhwa = { version = "0.10", default-features = false, features = ["input-msmf"] }
 
 [build-dependencies]
 slint-build = "1.16"

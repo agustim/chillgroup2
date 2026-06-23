@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 
 use livekit::e2ee::key_provider::{KeyProvider, KeyProviderOptions, KeyDerivationAlgorithm};
@@ -21,6 +21,7 @@ pub enum VoiceCmd {
     ToggleCamera,
     ToggleScreenShare,
     StartScreenShare { source_id: u64, is_window: bool },
+    MuteRemote(String, bool),
     Disconnect,
 }
 
@@ -33,6 +34,8 @@ pub struct VoiceParticipant {
     pub is_suppressed: bool,
     pub has_video: bool,
     pub is_screen: bool,
+    pub is_local: bool,
+    pub locally_muted: bool,
 }
 
 #[derive(Debug)]
@@ -49,7 +52,7 @@ pub enum VoiceEvent {
     Error { session_gen: u64, msg: String },
 }
 
-fn collect_participants(room: &Room, local_screen_sharing: bool) -> Vec<VoiceParticipant> {
+fn collect_participants(room: &Room, local_screen_sharing: bool, locally_muted: &HashSet<String>) -> Vec<VoiceParticipant> {
     let mut parts = Vec::new();
 
     let lp = room.local_participant();
@@ -69,6 +72,8 @@ fn collect_participants(room: &Room, local_screen_sharing: bool) -> Vec<VoicePar
         is_suppressed: !local_has_mic,
         has_video: false,
         is_screen: false,
+        is_local: true,
+        locally_muted: false,
     });
     if local_screen_sharing {
         parts.push(VoiceParticipant {
@@ -79,6 +84,8 @@ fn collect_participants(room: &Room, local_screen_sharing: bool) -> Vec<VoicePar
             is_suppressed: true,
             has_video: false,
             is_screen: true,
+            is_local: true,
+            locally_muted: false,
         });
     }
 
@@ -91,6 +98,7 @@ fn collect_participants(room: &Room, local_screen_sharing: bool) -> Vec<VoicePar
         let has_screen = pubs.values().any(|pub_| pub_.kind() == TrackKind::Video && pub_.source() == TrackSource::Screenshare && !pub_.is_muted());
         let display_name = if name.is_empty() { uid.clone() } else { name };
         let initial = display_name.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_else(|| "?".into());
+        let muted = locally_muted.contains(&uid);
         parts.push(VoiceParticipant {
             user_id: uid.clone(),
             username: display_name.clone(),
@@ -99,6 +107,8 @@ fn collect_participants(room: &Room, local_screen_sharing: bool) -> Vec<VoicePar
             is_suppressed: !has_mic,
             has_video: has_camera,
             is_screen: false,
+            is_local: false,
+            locally_muted: muted,
         });
         if has_screen {
             parts.push(VoiceParticipant {
@@ -109,6 +119,8 @@ fn collect_participants(room: &Room, local_screen_sharing: bool) -> Vec<VoicePar
                 is_suppressed: true,
                 has_video: true,
                 is_screen: true,
+                is_local: false,
+                locally_muted: false,
             });
         }
     }
@@ -529,10 +541,11 @@ pub async fn run(
     let mut screen_sid: Option<TrackSid> = None;
     let mut screen_stop: Option<Arc<AtomicBool>> = None;
     let mut video_tasks: HashMap<TrackSid, tokio::task::JoinHandle<()>> = HashMap::new();
+    let mut locally_muted: HashSet<String> = HashSet::new();
 
     let _ = event_tx.send(VoiceEvent::MuteChanged(true)).await;
     let _ = event_tx.send(VoiceEvent::Connected { session_gen }).await;
-    let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, false))).await;
+    let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, false, &locally_muted))).await;
 
     loop {
         tokio::select! {
@@ -542,7 +555,7 @@ pub async fn run(
                         muted = !muted;
                         if muted { mic_pub.mute(); } else { mic_pub.unmute(); }
                         let _ = event_tx.send(VoiceEvent::MuteChanged(muted)).await;
-                        let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, screen_sid.is_some()))).await;
+                        let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, screen_sid.is_some(), &locally_muted))).await;
                     }
                     VoiceCmd::ToggleDeafen => {
                         deafened = !deafened;
@@ -570,7 +583,7 @@ pub async fn run(
                         if let (Some(sid), Some(stop)) = (screen_sid.take(), screen_stop.take()) {
                             unpublish_video(&room, sid, stop).await;
                             let _ = event_tx.send(VoiceEvent::ScreenShareChanged(false)).await;
-                            let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, false))).await;
+                            let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, false, &locally_muted))).await;
                         } else {
                             let on_wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
                             if on_wayland {
@@ -584,7 +597,7 @@ pub async fn run(
                                     screen_sid = Some(sid);
                                     screen_stop = Some(stop);
                                     let _ = event_tx.send(VoiceEvent::ScreenShareChanged(true)).await;
-                                    let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, true))).await;
+                                    let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, true, &locally_muted))).await;
                                 }
                             } else {
                                 // X11: enumera fonts i mostra picker propi
@@ -620,9 +633,22 @@ pub async fn run(
                                 screen_sid = Some(sid);
                                 screen_stop = Some(stop);
                                 let _ = event_tx.send(VoiceEvent::ScreenShareChanged(true)).await;
-                                let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, true))).await;
+                                let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, true, &locally_muted))).await;
                             }
                         }
+                    }
+                    VoiceCmd::MuteRemote(user_id, muted) => {
+                        if muted { locally_muted.insert(user_id.clone()); } else { locally_muted.remove(&user_id); }
+                        for p in room.remote_participants().values() {
+                            if p.identity().as_str() == user_id {
+                                for pub_ in p.track_publications().values() {
+                                    if pub_.kind() == TrackKind::Audio {
+                                        pub_.set_enabled(!muted);
+                                    }
+                                }
+                            }
+                        }
+                        let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, screen_sid.is_some(), &locally_muted))).await;
                     }
                     VoiceCmd::Disconnect => break,
                 }
@@ -634,7 +660,7 @@ pub async fn run(
                     | RoomEvent::TrackMuted { .. }
                     | RoomEvent::TrackUnmuted { .. } => {
                         if deafened { set_remote_audio_enabled(&room, false); }
-                        let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, screen_sid.is_some()))).await;
+                        let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, screen_sid.is_some(), &locally_muted))).await;
                     }
                     RoomEvent::TrackUnsubscribed { track, publication, .. } => {
                         if matches!(track, RemoteTrack::Video(_)) {
@@ -643,7 +669,7 @@ pub async fn run(
                             }
                         }
                         if deafened { set_remote_audio_enabled(&room, false); }
-                        let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, screen_sid.is_some()))).await;
+                        let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, screen_sid.is_some(), &locally_muted))).await;
                     }
                     RoomEvent::TrackSubscribed { track, publication, participant } => {
                         publication.set_enabled(!deafened);
@@ -674,7 +700,7 @@ pub async fn run(
                             });
                             video_tasks.insert(publication.sid(), handle);
                         }
-                        let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, screen_sid.is_some()))).await;
+                        let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(collect_participants(&room, screen_sid.is_some(), &locally_muted))).await;
                     }
                     RoomEvent::ActiveSpeakersChanged { speakers } => {
                         let speaking: std::collections::HashSet<String> = speakers
@@ -684,7 +710,7 @@ pub async fn run(
                                 Participant::Remote(rp) => rp.identity().to_string(),
                             })
                             .collect();
-                        let mut parts = collect_participants(&room, screen_sid.is_some());
+                        let mut parts = collect_participants(&room, screen_sid.is_some(), &locally_muted);
                         for p in &mut parts { p.is_speaking = speaking.contains(&p.user_id); }
                         let _ = event_tx.send(VoiceEvent::ParticipantsUpdated(parts)).await;
                     }

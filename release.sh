@@ -7,6 +7,7 @@ SERVER_TOML="$ROOT/server/Cargo.toml"
 DESKTOP_TOML="$ROOT/src-tauri/Cargo.toml"
 DESKTOP_CONF="$ROOT/src-tauri/tauri.conf.json"
 ELECTRON_PKG="$ROOT/package.json"
+CLIENT_TOML="$ROOT/chillgroup-client/Cargo.toml"
 
 usage() {
 	cat <<'EOF'
@@ -19,8 +20,8 @@ Arguments:
   vX.Y.Z     Versió explícita, ex: v0.2.0
 
 El script:
-  1. Actualitza server/Cargo.toml + src-tauri/Cargo.toml + src-tauri/tauri.conf.json + package.json
-  2. Actualitza Cargo.lock (cargo check)
+  1. Actualitza server/Cargo.toml + src-tauri/Cargo.toml + src-tauri/tauri.conf.json + package.json + chillgroup-client/Cargo.toml
+  2. Actualitza Cargo.lock (cargo check) + chillgroup-client/Cargo.lock
   3. Commit + tag git
   4. Push a origin (commit + tag)
 EOF
@@ -109,16 +110,30 @@ if [[ -f "$ELECTRON_PKG" ]]; then
 	echo "✅ package.json actualitzat"
 fi
 
+# Actualitza chillgroup-client/Cargo.toml (workspace aïllat)
+if [[ -f "$CLIENT_TOML" ]]; then
+	CLIENT_CURRENT="$(grep -E '^version\s*=' "$CLIENT_TOML" | head -1 | sed 's/.*"\(.*\)".*/\1/')"
+	sed -i "s/^version\s*=\s*\"${CLIENT_CURRENT}\"/version = \"${NEW_VERSION}\"/" "$CLIENT_TOML"
+	echo "✅ chillgroup-client/Cargo.toml actualitzat"
+fi
+
 # Actualitza Cargo.lock
 cd "$ROOT"
 cargo check -q -p chillgroup-server 2>/dev/null || cargo generate-lockfile
 echo "✅ Cargo.lock actualitzat"
+
+# Actualitza chillgroup-client/Cargo.lock (workspace aïllat)
+if [[ -f "$CLIENT_TOML" ]]; then
+	cargo generate-lockfile --manifest-path "$CLIENT_TOML"
+	echo "✅ chillgroup-client/Cargo.lock actualitzat"
+fi
 
 # Commit
 git -C "$ROOT" add server/Cargo.toml Cargo.lock
 [[ -f "$DESKTOP_TOML" ]] && git -C "$ROOT" add src-tauri/Cargo.toml
 [[ -f "$DESKTOP_CONF" ]] && git -C "$ROOT" add src-tauri/tauri.conf.json
 [[ -f "$ELECTRON_PKG" ]] && git -C "$ROOT" add package.json
+[[ -f "$CLIENT_TOML" ]] && git -C "$ROOT" add chillgroup-client/Cargo.toml chillgroup-client/Cargo.lock
 git -C "$ROOT" commit -m "chore: bump version to ${TAG}"
 echo "✅ Commit creat"
 

@@ -1,0 +1,27 @@
+# Bacon config — https://dystroy.org/bacon/config/
+# Run from chillgroup-client/ dir: `bacon` (default job = run)
+
+default_job = "run"
+
+[jobs.run]
+command = ["cargo", "run", "--color", "always"]
+need_stdout = true
+allow_warnings = true
+background = false
+# Watch Slint UI files — build.rs recompiles them on change
+watch = ["ui"]
+
+[jobs.check]
+command = ["cargo", "check", "--color", "always"]
+need_stdout = false
+watch = ["ui"]
+
+[jobs.clippy]
+command = ["cargo", "clippy", "--color", "always"]
+need_stdout = false
+watch = ["ui"]
+
+[keybindings]
+r = "job:run"
+c = "job:check"
+l = "job:clippy"

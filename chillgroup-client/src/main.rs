@@ -62,6 +62,7 @@ enum Cmd {
     ToggleCamera,
     ToggleScreenShare,
     StartScreenShare(u64, bool),
+    MuteRemote(String, bool),
 }
 
 fn theme_to_index(theme: &str) -> i32 {
@@ -223,6 +224,32 @@ fn main() {
     app.on_cancel_screen_share_picker({
         let aw = app.as_weak();
         move || { if let Some(h) = aw.upgrade() { h.set_screen_sources(Default::default()); } }
+    });
+    app.on_pin_participant({
+        let aw = app.as_weak();
+        move |uid: slint::SharedString| {
+            if let Some(h) = aw.upgrade() {
+                let current = h.get_pinned_participant_id();
+                if current == uid { h.set_pinned_participant_id("".into()); }
+                else { h.set_pinned_participant_id(uid); }
+            }
+        }
+    });
+    app.on_toggle_fullscreen({
+        let aw = app.as_weak();
+        move || {
+            if let Some(h) = aw.upgrade() {
+                let new_fs = !h.get_is_fullscreen();
+                h.set_is_fullscreen(new_fs);
+                h.window().set_fullscreen(new_fs);
+            }
+        }
+    });
+    app.on_mute_participant({
+        let cmd_tx = cmd_tx.clone();
+        move |uid: slint::SharedString, muted: bool| {
+            let _ = cmd_tx.try_send(Cmd::MuteRemote(uid.to_string(), muted));
+        }
     });
 
     app.on_repair_channel({
@@ -960,6 +987,12 @@ fn main() {
                                 ah.unwrap().set_screen_sources(Default::default());
                             }).ok();
                         }
+
+                        Cmd::MuteRemote(user_id, muted) => {
+                            if let Some(tx) = &session.voice_cmd_tx {
+                                let _ = tx.try_send(voice::VoiceCmd::MuteRemote(user_id, muted));
+                            }
+                        }
                     }
                 }
 
@@ -1026,11 +1059,10 @@ fn main() {
                                 let h = ah.unwrap();
                                 let existing = h.get_voice_participants();
                                 let new_parts: Vec<VoiceParticipant> = parts.into_iter().map(|p| {
+                                    let existing_row = (0..existing.row_count())
+                                        .find_map(|i| existing.row_data(i).filter(|ep| ep.user_id == p.user_id.as_str()));
                                     let (video_preview, has_video) = if p.has_video {
-                                        let img = (0..existing.row_count())
-                                            .find_map(|i| existing.row_data(i).filter(|ep| ep.user_id == p.user_id.as_str()))
-                                            .map(|ep| ep.video_preview)
-                                            .unwrap_or_default();
+                                        let img = existing_row.as_ref().map(|ep| ep.video_preview.clone()).unwrap_or_default();
                                         (img, true)
                                     } else {
                                         (Default::default(), false)
@@ -1044,6 +1076,8 @@ fn main() {
                                         has_video,
                                         video_preview,
                                         is_screen: p.is_screen,
+                                        is_local: p.is_local,
+                                        locally_muted: p.locally_muted,
                                     }
                                 }).collect();
                                 let model = std::rc::Rc::new(slint::VecModel::from(new_parts));

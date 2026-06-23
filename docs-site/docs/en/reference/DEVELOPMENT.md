@@ -176,7 +176,7 @@ The dev client connects to Vite at `http://localhost:5173`. Production bundles t
 
 ### Versioning and release
 
-`release.sh` bumps the version in all four places (`server/Cargo.toml`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, `package.json`), creates a git tag, and pushes. CI builds all desktop formats from that tag.
+`release.sh` bumps the version in all five places (`server/Cargo.toml`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, `package.json`, `chillgroup-client/Cargo.toml` + its isolated `Cargo.lock`), creates a git tag, and pushes. CI builds all desktop formats from that tag, including the native Slint client (`chillgroup-client` job) for Linux, Windows and macOS — uploaded as `chillgroup-client-<version>-<os>.zip`. The webcam backend (`nokhwa`) and `livekit` are platform-specific: Linux `input-v4l` + `glib-main-loop`, macOS `input-avfoundation`, Windows `input-msmf`.
 
 ```bash
 ./release.sh patch    # e.g. 0.1.36 → 0.1.37

@@ -312,9 +312,74 @@ jobs:
             dist-electron/*.pacman \
             --clobber
 
+  chillgroup-client:
+    name: Client ${{ matrix.target_label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target_label: linux-x86_64
+            bin: chillgroup-client
+          - os: windows-latest
+            target_label: windows-x86_64
+            bin: chillgroup-client.exe
+          - os: macos-latest
+            target_label: macos-aarch64
+            bin: chillgroup-client
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: chillgroup-client -> target
+
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config libssl-dev libasound2-dev \
+            libglib2.0-dev libv4l-dev clang
+
+      - name: Build chillgroup-client
+        run: cargo build --release --manifest-path chillgroup-client/Cargo.toml
+
+      - name: Package zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME:-dev}"
+          PACKAGE_NAME="chillgroup-client-${VERSION}-${{ matrix.target_label }}"
+          ARTIFACT_DIR="dist/${PACKAGE_NAME}"
+
+          rm -rf "$ARTIFACT_DIR"
+          mkdir -p "$ARTIFACT_DIR"
+          cp "chillgroup-client/target/release/${{ matrix.bin }}" "$ARTIFACT_DIR/"
+
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            (cd dist && 7z a -tzip "${PACKAGE_NAME}.zip" "${PACKAGE_NAME}")
+          else
+            (cd dist && zip -r "${PACKAGE_NAME}.zip" "${PACKAGE_NAME}")
+          fi
+
+      - name: Upload client artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chillgroup-client-${{ github.ref_name || 'dev' }}-${{ matrix.target_label }}
+          path: dist/chillgroup-client-${{ github.ref_name || 'dev' }}-${{ matrix.target_label }}.zip
+          if-no-files-found: error
+
   publish-release:
     name: Publish Release Assets
-    needs: [build, frontend-zip]
+    needs: [build, frontend-zip, chillgroup-client]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
 
