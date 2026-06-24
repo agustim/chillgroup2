@@ -398,6 +398,9 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+          # Only the zip-bearing artifacts; skips the docker job's
+          # *.dockerbuild artifact, which breaks extraction here.
+          pattern: chillgroup*
 
       - name: Publish zip files to GitHub Release
         uses: softprops/action-gh-release@v2
