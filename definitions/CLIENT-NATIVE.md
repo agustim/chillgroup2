@@ -31,7 +31,7 @@ Client d'escriptori natiu escrit en Rust per a Linux, Windows i macOS. Substitue
 chillgroup-client/
 ├── Cargo.toml
 ├── .cargo/
-│   └── config.toml          # Flags per plataforma (-ObjC macOS, glib libs Linux; Win usa CRT dinàmic /MD per livekit)
+│   └── config.toml          # Flags per plataforma (-ObjC macOS, glib libs Linux, +crt-static Win — libwebrtc usa CRT estàtic /MT)
 ├── build.rs                  # Compilació de recursos slint
 ├── assets/
 │   ├── icon.png              # Icona tray i finestra

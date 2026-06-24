@@ -4,8 +4,12 @@ rustflags = ["-C", "link-args=-ObjC"]
 [target.x86_64-apple-darwin]
 rustflags = ["-C", "link-args=-ObjC"]
 
-# NOTE: do NOT set +crt-static on Windows — prebuilt libwebrtc_sys (livekit)
-# links the dynamic CRT (/MD). Static CRT (/MT) causes LNK2038 mismatch.
+# Windows: prebuilt libwebrtc (livekit) links the STATIC CRT (/MT), so rust std
+# and the cc-compiled webrtc-sys bridge must also use /MT. crt-static makes the
+# cc crate pick /MT too. Without it → LNK2038 (MT webrtc vs MD bridge/std).
+# If you change this, bust the rust-cache so libwebrtc_sys.rlib is recompiled.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
 
 [target.x86_64-unknown-linux-gnu]
 rustflags = ["-C", "link-args=-lglib-2.0 -lgobject-2.0 -lgio-2.0"]

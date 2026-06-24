@@ -340,6 +340,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: chillgroup-client -> target
+          # Bump when CRT/link flags change so libwebrtc_sys is rebuilt clean
+          prefix-key: v2-crt-static
 
       - name: Install Linux build deps
         if: runner.os == 'Linux'
