@@ -341,7 +341,7 @@ jobs:
         with:
           workspaces: chillgroup-client -> target
           # Bump when CRT/link flags change so libwebrtc_sys is rebuilt clean
-          prefix-key: v2-crt-static
+          prefix-key: v3-crt-static
 
       - name: Install Linux build deps
         if: runner.os == 'Linux'
@@ -352,6 +352,13 @@ jobs:
             libglib2.0-dev libv4l-dev clang
 
       - name: Build chillgroup-client
+        # On Windows force the cc-compiled webrtc-sys cxx bridge to the static
+        # CRT (/MT). cc can't detect crt-static on stable (CARGO_CFG_TARGET_FEATURE
+        # is unset for build scripts) and would default to /MD → LNK2038 vs the
+        # static prebuilt libwebrtc. Empty on Linux/macOS.
+        env:
+          CFLAGS: ${{ runner.os == 'Windows' && '/MT' || '' }}
+          CXXFLAGS: ${{ runner.os == 'Windows' && '/MT' || '' }}
         run: cargo build --release --manifest-path chillgroup-client/Cargo.toml
 
       - name: Package zip
