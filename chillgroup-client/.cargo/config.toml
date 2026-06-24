@@ -4,8 +4,8 @@ rustflags = ["-C", "link-args=-ObjC"]
 [target.x86_64-apple-darwin]
 rustflags = ["-C", "link-args=-ObjC"]
 
-[target.x86_64-pc-windows-msvc]
-rustflags = ["-C", "target-feature=+crt-static"]
+# NOTE: do NOT set +crt-static on Windows — prebuilt libwebrtc_sys (livekit)
+# links the dynamic CRT (/MD). Static CRT (/MT) causes LNK2038 mismatch.
 
 [target.x86_64-unknown-linux-gnu]
 rustflags = ["-C", "link-args=-lglib-2.0 -lgobject-2.0 -lgio-2.0"]
