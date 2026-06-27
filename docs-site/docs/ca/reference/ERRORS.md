@@ -249,6 +249,10 @@
 | 6003 | 502 | LiveKit no disponible | — |
 | 6004 | 403 | Ja estàs en un canal de veu | `currentChannel: "uuid"` |
 | 6005 | 502 | Error generant token LiveKit | — |
+| 6010 | 409 | L'assistent de veu ja està actiu al canal | — |
+| 6011 | 404 | No hi ha cap assistent de veu actiu | — |
+| 6012 | 400 | Cal `channelKey` per activar l'assistent (canal asimètric) | — |
+| 6013 | 502 | Error de l'assistent (connexió/STT/resum) | — |
 
 **Exemple — 6004 (ja en veu):**
 ```json

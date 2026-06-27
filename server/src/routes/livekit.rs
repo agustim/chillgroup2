@@ -129,6 +129,37 @@ pub async fn generate_token(
         }
     }
 
+    let participant_identity = claims.user_id.to_string();
+    let token = mint_livekit_token(
+        &livekit_api_key,
+        &livekit_api_secret,
+        &req.room,
+        &participant_identity,
+        &claims.username,
+        can_publish,
+        true,
+    )?;
+
+    info!("Token LiveKit generat amb èxit per a room={}", req.room);
+    Ok(Json(LiveKitTokenResponse {
+        token,
+        url: livekit_host,
+    }))
+}
+
+/// Genera un JWT de LiveKit signat amb l'API secret per a un participant donat.
+///
+/// Compartit entre l'endpoint d'usuari i l'assistent de canal (server-integrat),
+/// que necessita encunyar el seu propi token amb `can_publish: false`.
+pub fn mint_livekit_token(
+    api_key: &str,
+    api_secret: &str,
+    room: &str,
+    identity: &str,
+    name: &str,
+    can_publish: bool,
+    can_subscribe: bool,
+) -> Result<String, AppError> {
     #[derive(Serialize)]
     struct VideoGrant<'a> {
         room: &'a str,
@@ -153,39 +184,32 @@ pub async fn generate_token(
 
     let now = Utc::now();
     let expiration = (now + Duration::hours(23)).timestamp(); // 23 hores de validesa
-    let participant_identity = claims.user_id.to_string();
 
     let claims = LiveKitClaims {
-        iss: &livekit_api_key,
+        iss: api_key,
         // Per LiveKit, sub ha de ser la identitat del participant, no l'API secret.
-        sub: &participant_identity,
+        sub: identity,
         exp: expiration,
         nbf: now.timestamp(),
         iat: now.timestamp(),
-        name: &claims.username,
+        name,
         video: VideoGrant {
-            room: &req.room,
+            room,
             room_join: true,
             can_publish,
-            can_subscribe: true,
+            can_subscribe,
         },
     };
 
-    let token = encode(
+    encode(
         &Header::default(),
         &claims,
-        &EncodingKey::from_secret(livekit_api_secret.as_bytes()),
+        &EncodingKey::from_secret(api_secret.as_bytes()),
     )
     .map_err(|e| {
         info!("Error generant token LiveKit: {}", e);
         AppError::LiveKitTokenError
-    })?;
-
-    info!("Token LiveKit generat amb èxit per a room={}", req.room);
-    Ok(Json(LiveKitTokenResponse {
-        token,
-        url: livekit_host,
-    }))
+    })
 }
 
 pub fn router(state: AppState) -> Router {
@@ -225,6 +249,11 @@ mod tests {
             static_dir: None,
             max_file_size_bytes: 0,
             allowed_origins: vec![],
+            assistant_openai_base_url: "https://api.openai.com/v1".to_string(),
+            assistant_openai_api_key: None,
+            assistant_stt_model: "whisper-1".to_string(),
+            assistant_summary_model: "gpt-4o-mini".to_string(),
+            assistant_language: None,
         };
         let db = connect_db(&config).await.expect("sqlite test db");
         let (_layer, io) = socketioxide::SocketIo::new_layer();

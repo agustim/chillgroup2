@@ -34,7 +34,12 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # HTTP client (for LiveKit API)
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }
+
+# Voice assistant: LiveKit Rust SDK (E2EE audio capture) + secret zeroization
+livekit = { version = "0.7", default-features = false, features = ["tokio", "rustls-tls-native-roots"] }
+zeroize = { version = "1", features = ["zeroize_derive"] }
+futures-util = "0.3"
 
 # S3 client (attachments presigned URLs)
 aws-sdk-s3 = { version = "1", features = ["behavior-version-latest"] }

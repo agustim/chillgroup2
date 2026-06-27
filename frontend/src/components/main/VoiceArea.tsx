@@ -2,6 +2,15 @@ import React, { useRef, useEffect, useState, MutableRefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { VoiceConnection } from '../../types'
 import { MediaFilePlayer } from './MediaFilePlayer'
+import { assistantStart, assistantStop } from '../../lib/api'
+
+type AssistantState = 'idle' | 'starting' | 'running' | 'stopping'
+
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+  return btoa(binary)
+}
 
 type ViewMode = 'mosaic' | 'focus'
 
@@ -141,6 +150,51 @@ export function VoiceArea({
   const [viewMode, setViewMode] = useState<ViewMode>('mosaic')
   const [pinnedParticipantId, setPinnedParticipantId] = useState<string | null>(null)
   const [localMutedStreamIds, setLocalMutedStreamIds] = useState<Set<string>>(new Set())
+  const [assistantState, setAssistantState] = useState<AssistantState>('idle')
+  const [assistantFileUrl, setAssistantFileUrl] = useState<string | null>(null)
+  const [assistantError, setAssistantError] = useState<string | null>(null)
+
+  const toggleAssistant = async () => {
+    setAssistantError(null)
+    if (assistantState === 'idle') {
+      setAssistantState('starting')
+      try {
+        // Recuperar la clau de canal (cal per canals asimètrics; ignorada en simètrics).
+        let keyB64: string | undefined
+        try {
+          const { getLatestChannelKey } = await import('../../lib/storage')
+          const latest = await getLatestChannelKey(connection.channelId)
+          if (latest?.keyBytes) keyB64 = uint8ToBase64(latest.keyBytes)
+        } catch { /* sense clau local: el server provarà el mode simètric */ }
+
+        const res = await assistantStart(connection.channelId, keyB64)
+        if (res.success) {
+          setAssistantFileUrl(null)
+          setAssistantState('running')
+        } else {
+          setAssistantError(res.error.message)
+          setAssistantState('idle')
+        }
+      } catch (e) {
+        setAssistantError(e instanceof Error ? e.message : 'Error')
+        setAssistantState('idle')
+      }
+    } else if (assistantState === 'running') {
+      setAssistantState('stopping')
+      try {
+        const res = await assistantStop(connection.channelId)
+        if (res.success) {
+          setAssistantFileUrl(res.data.fileUrl ?? null)
+        } else {
+          setAssistantError(res.error.message)
+        }
+      } catch (e) {
+        setAssistantError(e instanceof Error ? e.message : 'Error')
+      } finally {
+        setAssistantState('idle')
+      }
+    }
+  }
 
   const toggleLocalMute = (item: ParticipantRenderItem) => {
     const wasMuted = localMutedStreamIds.has(item.id)
@@ -357,6 +411,14 @@ export function VoiceArea({
             {voiceAsTextMode ? 'FIX' : 'TAB'}
           </button>
           <button
+            className={`voice-control-btn voice-mode-btn ${assistantState === 'running' ? 'active-on' : ''}`}
+            onClick={toggleAssistant}
+            disabled={assistantState === 'starting' || assistantState === 'stopping'}
+            title={assistantState === 'running' ? 'Aturar assistent de veu' : 'Iniciar assistent de veu (transcripció + resum)'}
+          >
+            {assistantState === 'running' ? '🔴 REC' : assistantState === 'starting' || assistantState === 'stopping' ? '…' : 'AI'}
+          </button>
+          <button
             className="voice-control-btn"
             onClick={zoomOut}
             title={t('voiceArea.zoomOut')}
@@ -383,6 +445,22 @@ export function VoiceArea({
 
 
       </div>
+
+      {/* Estat de l'assistent de veu */}
+      {assistantState === 'running' && (
+        <div className="assistant-banner recording">
+          🔴 Aquest canal s'està gravant i transcrivint per l'assistent de veu.
+        </div>
+      )}
+      {assistantError && (
+        <div className="assistant-banner error">⚠️ {assistantError}</div>
+      )}
+      {assistantFileUrl && assistantState === 'idle' && (
+        <div className="assistant-banner done">
+          ✅ Transcripció llesta:{' '}
+          <a href={assistantFileUrl} target="_blank" rel="noreferrer">descarregar resum (.md)</a>
+        </div>
+      )}
 
       {/* Grid de participants — creix dinàmicament */}
       <div className="voice-participants" style={participantsContainerStyle}>

@@ -62,6 +62,16 @@ pub struct Config {
     pub max_file_size_bytes: u64,
     /// Orígens permesos per CORS (comma-separated). Buit = refusa tots.
     pub allowed_origins: Vec<String>,
+    /// Base URL de l'endpoint compatible amb OpenAI per a l'assistent de veu.
+    pub assistant_openai_base_url: String,
+    /// API key per a l'endpoint de l'assistent (None = sense capçalera Authorization).
+    pub assistant_openai_api_key: Option<String>,
+    /// Model de transcripció (STT). Per defecte: whisper-1.
+    pub assistant_stt_model: String,
+    /// Model de resum (chat). Per defecte: gpt-4o-mini.
+    pub assistant_summary_model: String,
+    /// Idioma opcional (hint per Whisper, p.ex. "ca", "es", "en").
+    pub assistant_language: Option<String>,
 }
 
 fn decode_hex_key_32(value: &str) -> Result<[u8; 32], String> {
@@ -183,6 +193,25 @@ impl Config {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect(),
+            assistant_openai_base_url: env::var("ASSISTANT_OPENAI_BASE_URL")
+                .ok()
+                .map(|s| s.trim().trim_end_matches('/').to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
+            assistant_openai_api_key: env::var("ASSISTANT_OPENAI_API_KEY")
+                .ok()
+                .filter(|s| !s.trim().is_empty()),
+            assistant_stt_model: env::var("ASSISTANT_STT_MODEL")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| "whisper-1".to_string()),
+            assistant_summary_model: env::var("ASSISTANT_SUMMARY_MODEL")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| "gpt-4o-mini".to_string()),
+            assistant_language: env::var("ASSISTANT_LANGUAGE")
+                .ok()
+                .filter(|s| !s.trim().is_empty()),
         }, loaded_env_path))
     }
 

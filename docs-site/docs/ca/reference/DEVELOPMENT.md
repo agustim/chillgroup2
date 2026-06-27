@@ -1515,5 +1515,5 @@ El script `release.sh` sincronitza la versió a tots els fitxers del projecte:
 
 El push del tag `v*` activa el workflow de GitHub Actions (`release-build.yml`) que genera tots els executables i els puja al GitHub Release.
 
-El job `chillgroup-client` compila el client natiu (Slint) per Linux, Windows i macOS i puja els zips (`chillgroup-client-<versió>-<os>.zip`) al Release. El backend de webcam (`nokhwa`) i `livekit` són específics per plataforma: Linux `input-v4l` + `glib-main-loop`, macOS `input-avfoundation`, Windows `input-msmf`.
+El job `chillgroup-client` compila el client natiu (Slint) per Linux, Windows i macOS i puja els zips (`chillgroup-client-<versió>-<os>.zip`) al Release. El backend de webcam (`nokhwa`) i `livekit` són específics per plataforma a `chillgroup-client/Cargo.toml`: Linux `input-v4l` + `glib-main-loop`, macOS `input-avfoundation`, Windows `input-msmf`.
 

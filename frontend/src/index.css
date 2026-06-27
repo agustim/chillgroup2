@@ -1769,6 +1769,30 @@ body {
   flex-shrink: 0;
 }
 
+.assistant-banner {
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--bg-active);
+}
+.assistant-banner.recording {
+  background: rgba(220, 38, 38, 0.12);
+  color: #fca5a5;
+}
+.assistant-banner.error {
+  background: rgba(220, 38, 38, 0.18);
+  color: #fecaca;
+}
+.assistant-banner.done {
+  background: rgba(16, 185, 129, 0.12);
+  color: #6ee7b7;
+}
+.assistant-banner.done a {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
 .voice-header-info {
   display: flex;
   align-items: center;

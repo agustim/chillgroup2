@@ -969,6 +969,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let channel_routes = routes::channels::router(state.clone());
     let message_routes = routes::messages::router(state.clone());
     let livekit_routes = routes::livekit::router(state.clone());
+    let assistant_routes = routes::channel_assistant::router(state.clone());
     let user_routes = routes::user::router(state.clone());
     let friends_routes = routes::friends::router(state.clone());
     let admin_routes = routes::admin::router(state.clone());
@@ -982,6 +983,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .merge(channel_routes)
         .merge(message_routes)
         .merge(livekit_routes)
+        .merge(assistant_routes)
         .merge(friends_routes)
         .merge(user_routes)
         .merge(admin_routes)

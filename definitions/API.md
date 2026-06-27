@@ -2390,6 +2390,59 @@ El JWT LiveKit retornat inclou `canPublish: true` o `canPublish: false` segons e
 
 ---
 
+## Assistent de veu
+
+Un participant automàtic (`assistant`) entra al canal de veu, captura l'àudio
+E2EE, el transcriu per segments contra un endpoint compatible amb OpenAI
+(`/audio/transcriptions`) i en genera un resum (`/chat/completions`). El resultat
+s'exporta com a fitxer Markdown a S3 i es retorna com a URL presignada.
+
+Configuració per variables d'entorn: `ASSISTANT_OPENAI_BASE_URL`,
+`ASSISTANT_OPENAI_API_KEY`, `ASSISTANT_STT_MODEL`, `ASSISTANT_SUMMARY_MODEL`,
+`ASSISTANT_LANGUAGE`.
+
+> ⚠️ L'assistent desxifra l'àudio E2EE del canal on s'activa. En canals
+> **simètrics** el server obté la clau de la DB; en **asimètrics** el client l'ha
+> de proporcionar a `start` (camp `channelKey`), i només viu en memòria mentre
+> dura la sessió. Cal permís d'escriptura al canal (nivell ≥ 2) o ser admin.
+
+### POST `/api/channels/{channel_id}/assistant/start`
+
+Activa l'assistent. Per canals asimètrics cal `channelKey` (clau de canal en
+base64); per simètrics s'ignora.
+
+**Headers:** `Authorization: Bearer <JWT>`
+**Request Body:**
+```json
+{
+  "channelKey": "BASE64_32_BYTES_OPCIONAL"
+}
+```
+
+**Response 200 OK:**
+```json
+{ "success": true }
+```
+
+Errors: `6010` (ja actiu), `6012` (cal `channelKey` en canal asimètric),
+`6013` (error de connexió/STT/resum), `403` (permisos insuficients).
+
+### POST `/api/channels/{channel_id}/assistant/stop`
+
+Atura l'assistent, genera el resum i retorna l'URL del fitxer exportat.
+
+**Response 200 OK:**
+```json
+{
+  "success": true,
+  "fileUrl": "https://s3.example.com/chillgroup-attachments/meetings/...md?X-Amz-..."
+}
+```
+
+Errors: `6011` (cap assistent actiu), `403` (permisos insuficients).
+
+---
+
 ## Health Check
 
 ### GET `/health`
@@ -2456,4 +2509,6 @@ El JWT LiveKit retornat inclou `canPublish: true` o `canPublish: false` segons e
 | POST | `/api/dm/channels/:id/keys/rotate` | Sí | Rotar clau DM |
 | GET | `/api/conversations` | Sí | Llistar converses |
 | POST | `/api/livekit/token` | Sí | Generar token LiveKit |
+| POST | `/api/channels/{id}/assistant/start` | Sí | Activar assistent de veu (transcripció + resum) |
+| POST | `/api/channels/{id}/assistant/stop` | Sí | Aturar assistent i exportar resum |
 | GET | `/health` | No | Health check |

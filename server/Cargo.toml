@@ -39,6 +39,9 @@ aws-credential-types = { workspace = true }
 async-trait = { workspace = true }
 thiserror = { workspace = true }
 chrono = { workspace = true }
+livekit = { workspace = true }
+zeroize = { workspace = true }
+futures-util = { workspace = true }
 
 # Test dependencies (for integration tests)
 [dev-dependencies]

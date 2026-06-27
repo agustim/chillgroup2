@@ -279,6 +279,11 @@ mod tests {
             static_dir: None,
             max_file_size_bytes: 100 * 1024 * 1024,
             allowed_origins: vec![],
+            assistant_openai_base_url: "https://api.openai.com/v1".to_string(),
+            assistant_openai_api_key: None,
+            assistant_stt_model: "whisper-1".to_string(),
+            assistant_summary_model: "gpt-4o-mini".to_string(),
+            assistant_language: None,
         };
         let db = connect_db(&config).await.expect("sqlite test db");
         let (_layer, io) = socketioxide::SocketIo::new_layer();

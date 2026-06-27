@@ -150,6 +150,14 @@ pub enum AppError {
     LiveKitUnavailable,
     #[error("Error generant token LiveKit")]
     LiveKitTokenError,
+    #[error("L'assistent de veu ja està actiu en aquest canal")]
+    AssistantAlreadyRunning,
+    #[error("No hi ha cap assistent de veu actiu en aquest canal")]
+    AssistantNotRunning,
+    #[error("Aquest canal és asimètric: cal proporcionar la clau (channelKey) per activar l'assistent")]
+    AssistantKeyRequired,
+    #[error("Error de l'assistent de veu: {0}")]
+    AssistantError(String),
     #[error("Ja estàs en un canal de veu: {current_channel}")]
     #[allow(dead_code)]
     AlreadyInVoiceChannel { current_channel: String },
@@ -328,6 +336,18 @@ impl IntoResponse for AppError {
             AppError::AlreadyInVoiceChannel { current_channel } => (
                 StatusCode::FORBIDDEN, 6004, "Ja estàs en un canal de veu".to_string(),
                 Some(serde_json::json!({"currentChannel": current_channel})),
+            ),
+            AppError::AssistantAlreadyRunning => (
+                StatusCode::CONFLICT, 6010, "L'assistent de veu ja està actiu en aquest canal".to_string(), None,
+            ),
+            AppError::AssistantNotRunning => (
+                StatusCode::NOT_FOUND, 6011, "No hi ha cap assistent de veu actiu en aquest canal".to_string(), None,
+            ),
+            AppError::AssistantKeyRequired => (
+                StatusCode::BAD_REQUEST, 6012, "Aquest canal és asimètric: cal proporcionar la clau per activar l'assistent".to_string(), None,
+            ),
+            AppError::AssistantError(msg) => (
+                StatusCode::BAD_GATEWAY, 6013, format!("Error de l'assistent de veu: {msg}"), None,
             ),
             AppError::BadRequest => (
                 StatusCode::BAD_REQUEST, 4000, "Petició incorrecta".to_string(), None,

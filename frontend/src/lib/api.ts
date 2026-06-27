@@ -1809,3 +1809,32 @@ async function livekitGetToken(
     participant: participantName,
   })
 }
+
+// ── Assistent de veu (transcripció + resum) ─────────────────────
+
+export interface AssistantResponse {
+  success: boolean
+  fileUrl?: string
+}
+
+/**
+ * Activa l'assistent de veu d'un canal. Per canals asimètrics cal passar
+ * `channelKeyB64` (clau de canal en base64); per simètrics es pot ometre.
+ */
+export async function assistantStart(
+  channelId: string,
+  channelKeyB64?: string | null,
+): Promise<ApiResult<AssistantResponse>> {
+  return apiRequest<AssistantResponse>(
+    'POST',
+    `/api/channels/${channelId}/assistant/start`,
+    channelKeyB64 ? { channelKey: channelKeyB64 } : {},
+  )
+}
+
+/** Atura l'assistent i retorna l'URL del fitxer Markdown exportat (si n'hi ha). */
+export async function assistantStop(
+  channelId: string,
+): Promise<ApiResult<AssistantResponse>> {
+  return apiRequest<AssistantResponse>('POST', `/api/channels/${channelId}/assistant/stop`)
+}

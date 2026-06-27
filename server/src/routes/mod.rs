@@ -5,6 +5,7 @@ pub mod servers;
 pub mod channels;
 pub mod messages;
 pub mod livekit;
+pub mod channel_assistant;
 pub mod health;
 pub mod user;
 pub mod friends;
